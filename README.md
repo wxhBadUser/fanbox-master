@@ -10,8 +10,8 @@
 > *"AI spins up ten projects in an afternoon. FanBox helps you find them again."*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/alchaincyf/fanbox?label=Release&color=blue)](https://github.com/alchaincyf/fanbox/releases/latest)
-[![Platform](https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple)](https://github.com/alchaincyf/fanbox/releases/latest)
+[![Release](https://img.shields.io/badge/Release-2.3.0-blue)](https://github.com/wxhBadUser/fanbox-master/releases/latest)
+[![Platform](https://img.shields.io/badge/Windows-win64-black?logo=windows)](https://github.com/wxhBadUser/fanbox-master/releases/latest)
 [![Runtime](https://img.shields.io/badge/Runtime-no--build-blueviolet)](#architecture)
 
 <br>
@@ -29,7 +29,7 @@ Every time the agent writes a file, its card lights up — *find files → run a
 
 <br>
 
-[⬇ 下载 dmg / Download dmg](https://github.com/alchaincyf/fanbox/releases/latest) · [Screenshots / 截图](#three-skins) · [Features / 功能](#what-it-does) · [Install / 安装](#install) · [Credits / 致谢](#credits)
+[⬇ 下载 / Download](https://github.com/wxhBadUser/fanbox-master/releases/latest) · [Screenshots / 截图](#three-skins) · [Features / 功能](#what-it-does) · [Install / 安装](#install) · [Credits / 致谢](#credits)
 
 </div>
 
@@ -61,9 +61,9 @@ No cloud, no remote, no accounts. Local-first, zero config, zero runtime depende
 <a id="three-skins"></a>
 ## Three skins · 三套皮肤
 
-界面在 [huashu-design](https://github.com/alchaincyf/huashu-design) 辅助下完成设计，三套皮肤不是换个主题色——配色、字体、图标、代码高亮、终端 ANSI 主题整体随之变化。
+界面在 [huashu-design](https://github.com/wxhBadUser/huashu-design) 辅助下完成设计，三套皮肤不是换个主题色——配色、字体、图标、代码高亮、终端 ANSI 主题整体随之变化。
 
-The UI was designed with [huashu-design](https://github.com/alchaincyf/huashu-design). The three skins are not theme-color swaps — palette, typography, icons, code highlighting and terminal ANSI themes all change together:
+The UI was designed with [huashu-design](https://github.com/wxhBadUser/huashu-design). The three skins are not theme-color swaps — palette, typography, icons, code highlighting and terminal ANSI themes all change together:
 
 | | |
 |---|---|
@@ -146,14 +146,11 @@ The UI was designed with [huashu-design](https://github.com/alchaincyf/huashu-de
 
 ### 桌面版（推荐）/ Desktop (recommended)
 
-从 [**Releases**](https://github.com/alchaincyf/fanbox/releases/latest) 下载最新 `.dmg`，拖进「应用程序」即可。Apple Silicon (arm64) 原生。
+从 [**Releases**](https://github.com/wxhBadUser/fanbox-master/releases/latest) 下载最新安装包。
 
-Download the latest `.dmg` from [**Releases**](https://github.com/alchaincyf/fanbox/releases/latest) and drag it into Applications. Native Apple Silicon (arm64).
+Download the latest from [**Releases**](https://github.com/wxhBadUser/fanbox-master/releases/latest).
 
-> 已用 Apple Development 证书签名 + hardened runtime。首次打开若提示「未验证的开发者」：**右键 → 打开 → 确认**即可。  
-> Signed with an Apple Development certificate + hardened runtime. If macOS warns about an unverified developer on first launch: **right-click → Open → confirm**.
->
-> 应用内置**更新提醒**：检测到 GitHub 上有新 Release 时，右下角会弹一条提示引导下载，不强更、可对单个版本「不再提醒」。  
+> 应用内置**更新提醒**：检测到 GitHub 上有新 Release 时，右下角会弹一条提示引导下载，不强更、可对单个版本「不再提醒」。
 > Built-in **update notifications**: when a new release lands on GitHub, a capsule appears at the bottom right. Never forced; individual versions can be muted.
 
 ### 网页版（不打包，直接跑）/ Web (no packaging)
@@ -171,7 +168,7 @@ Open `http://localhost:4567`. Zero dependencies, zero build — clone and run. T
 ```bash
 npm install
 npm run app          # electron . 启动完整桌面版 / full desktop app
-npm run dist         # 打包签名 .dmg（产物在 dist/，不入 git）/ build & sign the .dmg (output in dist/)
+npm run dist         # 打包安装包（产物在 dist/，不入 git）/ build & sign the installer (output in dist/)
 ```
 
 > 打包遇到 Electron 下载被墙：`ELECTRON_MIRROR="https://registry.npmmirror.com/-/binary/electron/" npm run dist`
@@ -202,9 +199,9 @@ npm run dist         # 打包签名 .dmg（产物在 dist/，不入 git）/ buil
 <a id="design"></a>
 ## Design & acceptance · 设计与验收
 
-界面设计在 **[huashu-design](https://github.com/alchaincyf/huashu-design)** 辅助下完成——三套皮肤的方向探索、组件质感、反 AI slop 审查都出自它的工作流。图标是档案暖色陶土箱体 + 米纸 squircle，从 SVG 一路生成到 icns。
+界面设计在 **[huashu-design](https://github.com/wxhBadUser/huashu-design)** 辅助下完成——三套皮肤的方向探索、组件质感、反 AI slop 审查都出自它的工作流。图标是档案暖色陶土箱体 + 米纸 squircle，从 SVG 一路生成到 icns。
 
-The UI was designed with **[huashu-design](https://github.com/alchaincyf/huashu-design)** — skin direction exploration, component polish and anti-AI-slop review all come from its workflow. The icon is a terracotta archive box on a rice-paper squircle, generated from SVG all the way to icns.
+The UI was designed with **[huashu-design](https://github.com/wxhBadUser/huashu-design)** — skin direction exploration, component polish and anti-AI-slop review all come from its workflow. The icon is a terracotta archive box on a rice-paper squircle, generated from SVG all the way to icns.
 
 每个开发阶段由 **5 个独立 subagent** 扮演不同角色（重度 vibe coder / 原生审美设计师 / 零文档新用户 / 终端十年老兵 / 破坏性质量官），审「成品 + 真机截图 + 代码」打分，**全部 ≥90 分且无红线才算达标**。评分标准见 `docs/05-验收角色与评分标准.md`。
 
@@ -292,8 +289,8 @@ fanbox/
 
 More AI creations:
 
-- [女娲.skill](https://github.com/alchaincyf/nuwa-skill)（蒸馏任何人的思维方式 / distill anyone's way of thinking）
-- [huashu-design](https://github.com/alchaincyf/huashu-design)（一句话拿回一份能交付的设计 / a deliverable design from one sentence）
+- [女娲.skill](https://github.com/wxhBadUser/nuwa-skill)（蒸馏任何人的思维方式 / distill anyone's way of thinking）
+- [huashu-design](https://github.com/wxhBadUser/huashu-design)（一句话拿回一份能交付的设计 / a deliverable design from one sentence）
 
 ---
 
@@ -302,6 +299,6 @@ More AI creations:
 **Finder** 帮你管理文件。**IDE** 帮你写代码。**FanBox** 帮你看清 AI 在你机器上干了什么。<br>
 **Finder** manages your files. **IDEs** write your code. **FanBox** shows you what AI did on your machine.<br><br>
 
-MIT License © [花叔 Huashu](https://github.com/alchaincyf)
+MIT License
 
 </div>
