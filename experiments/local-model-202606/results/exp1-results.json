@@ -1,0 +1,216 @@
+{
+  "summary": {
+    "model": "qwen3.5:0.8b",
+    "sampled": 20,
+    "succeeded": 13,
+    "avgMsPerImage": 66565,
+    "firstMs": 18666,
+    "estimatedFor1000": "1109 分钟"
+  },
+  "rows": [
+    {
+      "file": "截屏2026-05-25 14.47.29.png",
+      "ms": 18666,
+      "desc": "网页展示会员套餐升级界面，包含Starter、Basic、Pro、Ultimate四个套餐选项，其中Pro套餐最受欢迎。",
+      "tags": [
+        "会员套餐",
+        "升级界面",
+        "会员权益",
+        "套餐选择",
+        "会员升级"
+      ],
+      "text": "现在升级会员 Seedance 2.0 仅 $0.02/秒起，image2 仅 $0.004/张起。"
+    },
+    {
+      "file": "截屏2026-05-26 11.27.05.png",
+      "ms": 105813,
+      "desc": "这是一个名为'天工超级智能体'的后台界面，展示了技能列表和上传技能的弹窗。",
+      "tags": [
+        "天工超级智能体",
+        "技能",
+        "技能生成器",
+        "麦肯锡商业顾问",
+        "投资论证挑战者"
+      ],
+      "text": "根目录下包含SKILL.md文件的.zip或skill文件"
+    },
+    {
+      "file": "截屏2026-05-26 12.04.35.png",
+      "ms": 52614,
+      "desc": "手机屏幕显示切换模型界面，当前选中SkyClaw V1.0",
+      "tags": [
+        "模型",
+        "切换",
+        "界面",
+        "SkyClaw",
+        "手机"
+      ],
+      "text": "切换模型"
+    },
+    {
+      "file": "截屏2026-05-26 12.34.57.png",
+      "ms": 18619,
+      "desc": "SkyClaw视频创作剪贴板界面，用户正在输入描述视频内容，下方展示了热门视频项目。",
+      "tags": [
+        "SkyClaw",
+        "视频创作",
+        "剪贴板",
+        "输入框",
+        "视频素材库"
+      ],
+      "text": "Hi，我是SkyClaw 随心剪辑，一步开启专业视频创作新体验"
+    },
+    {
+      "file": "截屏2026-05-26 20.52.48.png",
+      "ms": 22271,
+      "desc": "SkyClaw在聊天窗口中询问文档生成与构思新体验的调研",
+      "tags": [
+        "聊天界面",
+        "SkyClaw",
+        "文档生成",
+        "构思新体验",
+        "调研"
+      ],
+      "text": "帮我调研下最近一个月codex在产品、模型、以及营销策略上的核心动作，帮我生成一个详尽的图文并貌的分析报告"
+    },
+    {
+      "file": "截屏2026-05-27 13.59.16.png",
+      "ms": 107307,
+      "desc": "Oii视频编辑软件界面，正在生成视频，右侧分镜预览网格展示多个视频素材",
+      "tags": [
+        "分镜",
+        "视频",
+        "软件",
+        "预览",
+        "进度"
+      ],
+      "text": "我正在为您生成第1至19个分镜的视频。这将使用sedance2.0pro模型以720p分辨率进行处理。"
+    },
+    {
+      "file": "截屏2026-05-27 16.37.32.png",
+      "ms": 102469,
+      "desc": "这是一个聊天软件界面，包含一段关于制作废墟故事的文字，以及包含世界末日和生锈机器人的图片。",
+      "tags": [
+        "聊天界面",
+        "文字",
+        "图片",
+        "剧本",
+        "角色设计"
+      ],
+      "text": "我想要制作一个华丽的废墟的故事，场景发生在 图片1 是一个世界末日，然后一个无所事事的生锈机器人突然遇到了一个精灵小宝宝 图片2 机器人在困惑和反复试探之后，决定带着它一起生活。"
+    },
+    {
+      "file": "截屏2026-05-29 01.02.35.png",
+      "ms": 180007,
+      "error": "The operation was aborted due to timeout"
+    },
+    {
+      "file": "截屏2026-05-29 19.44.03.png",
+      "ms": 31846,
+      "desc": "黑底白字命令行界面显示AI论文调研汇总，包含6个agent，0/6 agents，1m1s。",
+      "tags": [
+        "AI",
+        "论文",
+        "调研",
+        "终端",
+        "界面"
+      ],
+      "text": "frontier-aipapers-2026 调研 Anthropic/DeepMind/OpenAI 以及美国顶级高校今年发过哪些ai领域的前言论文，帮我汇总整理 0/6 agents 1m1s"
+    },
+    {
+      "file": "截屏2026-05-31 14.28.32.png",
+      "ms": 180020,
+      "error": "The operation was aborted due to timeout"
+    },
+    {
+      "file": "截屏2026-06-01 16.23.33.png",
+      "ms": 107048,
+      "desc": "这是一个AI4S研究团队的聊天界面，记录了关于选题和AI工具转化的讨论记录。",
+      "tags": [
+        "聊天界面",
+        "聊天记录",
+        "AI写作",
+        "选题",
+        "AI工具"
+      ],
+      "text": "按花叔的自动化写作流程走完了：搜索Brief->知识库->选题讨论->读风格参考->初稿->三遍审核（基本错误->表达优化->风格检查）"
+    },
+    {
+      "file": "截屏2026-06-01 20.16.22.png",
+      "ms": 104771,
+      "desc": "前景显示选择添加到哪个Agent的弹窗，背景是技能商店页面。",
+      "tags": [
+        "弹窗",
+        "技能包",
+        "AI助手",
+        "客服",
+        "界面"
+      ],
+      "text": "选择添加到哪个 Agent"
+    },
+    {
+      "file": "截屏2026-06-03 11.28.48.png",
+      "ms": 47030,
+      "desc": "左侧导航栏显示控制菜单，中间显示技能统计卡片，下方展示技能卡片列表。",
+      "tags": [
+        "技能",
+        "统计",
+        "左侧",
+        "卡片",
+        "界面"
+      ],
+      "text": "Skills"
+    },
+    {
+      "file": "截屏2026-06-04 15.13.52.png",
+      "ms": 106960,
+      "desc": "Xi Yin在社交媒体上发布关于从哈佛到OpenAI的职业生涯介绍。",
+      "tags": [
+        "Xi Yin",
+        "Harvard",
+        "OpenAI",
+        "社交媒体",
+        "简介"
+      ],
+      "text": "Xi Yin just left Harvard for OpenAI. String theorist. Youngest full professor in Harvard history. His words: \"AI gives me 100x speedup. Weeks of output would take me 10 years.\" Then: \"I don't believe there's any human intellectual ability AI cannot replicate.\" The man who Show more。"
+    },
+    {
+      "file": "截屏2026-06-05 15.23.00.png",
+      "ms": 39936,
+      "desc": "本地终端中查看PDF文档，包含技能树和调研摘要。",
+      "tags": [
+        "终端",
+        "PDF",
+        "技能树",
+        "调研摘要",
+        "文件"
+      ],
+      "text": "Skill(huashu-nuwa)"
+    },
+    {
+      "file": "截屏2026-06-06 01.10.34.png",
+      "ms": 80031,
+      "error": "fetch failed"
+    },
+    {
+      "file": "截屏2026-06-06 19.06.10.png",
+      "ms": 4,
+      "error": "fetch failed"
+    },
+    {
+      "file": "截屏2026-06-08 13.00.40.png",
+      "ms": 7,
+      "error": "fetch failed"
+    },
+    {
+      "file": "截屏2026-06-09 15.05.01.png",
+      "ms": 2,
+      "error": "fetch failed"
+    },
+    {
+      "file": "截屏2026-06-09 23.46.55.png",
+      "ms": 2,
+      "error": "fetch failed"
+    }
+  ]
+}

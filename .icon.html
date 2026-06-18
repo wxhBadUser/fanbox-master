@@ -1,0 +1,20 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+  html,body{margin:0;padding:0}
+  .canvas{width:1024px;height:1024px;display:flex;align-items:center;justify-content:center;background:#000}
+  .tile{width:1024px;height:1024px;border-radius:224px;
+    background:radial-gradient(120% 120% at 30% 20%, #1c1e16 0%, #0b0c0a 60%);
+    display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+  .tile::after{content:"";position:absolute;inset:0;
+    background-image:radial-gradient(rgba(205,242,75,0.06) 2px, transparent 2px);background-size:34px 34px}
+  svg{position:relative;z-index:2;filter:drop-shadow(0 0 40px rgba(205,242,75,0.35))}
+  .tag{position:absolute;bottom:150px;left:0;right:0;text-align:center;z-index:2;
+    font-family:'JetBrains Mono',monospace;color:#cdf24b;font-size:74px;font-weight:700;letter-spacing:14px;text-indent:14px}
+</style>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet"></head>
+<body><div class="canvas"><div class="tile">
+  <svg width="520" height="520" viewBox="0 0 24 24" fill="#cdf24b" fill-opacity="0.12" stroke="#cdf24b" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:90px">
+    <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+    <polyline points="3.3 7 12 12 20.7 7"/><line x1="12" y1="22" x2="12" y2="12"/>
+  </svg>
+  <div class="tag">FANBOX</div>
+</div></div></body></html>

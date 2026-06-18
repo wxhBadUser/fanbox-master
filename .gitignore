@@ -1,0 +1,21 @@
+# 依赖与构建产物
+node_modules/
+dist/
+# build/ 含打包图标（源资产，入库）；其余打包中间物忽略
+build/*
+!build/icon.icns
+!build/icon.png
+!build/icon-1024.png
+!build/entitlements.mac.plist
+
+# 系统与编辑器
+.DS_Store
+*.log
+.idea/
+.vscode/
+
+# 本地运行时（翻箱的收藏/最近记录存在用户主目录，不入库）
+.fanbox/
+
+# 验证脚本的截图产物（可复跑重生成，不入库）
+experiments/bugfix-202606/shots/

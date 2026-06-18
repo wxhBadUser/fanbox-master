@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>Skills 透视 · 翻箱 FanBox 设计稿</title>
+<!--
+  设计稿 · Skills 透视面板（暖色档案馆皮肤）
+  概念：档案馆的藏品登记册——衬线大数字、发丝线表格、印章式三态开关
+  Assumptions:
+  - 此视图占据 FanBox 主区（侧边栏不在本稿范围，顶部保留面包屑位置感）
+  - demo 数据用真实扫描结果（129 全局 / 35 活跃 / top: huashu-design 50 次）
+  - 三态开关 on/name-only/off 对应 Claude Code 官方 skillOverrides
+  - 密度两变体做成右上角切换：登记册（紧凑表格）/ 卡片行
+-->
+<style>
+:root {
+  --bg: #f5f0e8; --bg-2: #faf6ef; --bg-3: #ece2d2; --panel: #f1ebdf;
+  --border: #e3d9c8; --rule: #e3d9c8;
+  --text: #1a1a18; --text-dim: #6b6355; --text-faint: #a39882;
+  --accent: #cc785c; --accent-soft: #cc785c22; --accent-ink: #fffaf3;
+  --green: #7d8a55; --yellow: #c2893a; --red: #b5483a;
+  --radius: 9px;
+  --font-ui: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+  --font-display: 'Fraunces', Georgia, 'Songti SC', "STSong", serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font-ui); background: var(--bg); color: var(--text);
+  background-image: radial-gradient(rgba(140,110,70,0.05) 1px, transparent 1px);
+  background-size: 4px 4px; min-height: 100vh;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 28px 36px 80px; }
+
+/* ---------- 页头：面包屑位置感 + 标题 ---------- */
+.crumb { font-size: 12px; color: var(--text-faint); letter-spacing: 0.04em; margin-bottom: 18px; }
+.crumb b { color: var(--text-dim); font-weight: 600; }
+.head { display: flex; align-items: baseline; gap: 14px; border-bottom: 2px solid var(--text); padding-bottom: 14px; }
+.head h1 { font-family: var(--font-display); font-size: 28px; font-weight: 600; letter-spacing: 0.01em; }
+.head .sub { font-size: 12.5px; color: var(--text-dim); }
+.head .scanned { margin-left: auto; font-size: 11.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+
+/* ---------- 总览条：登记册卷首的统计栏 ---------- */
+.ledger-stats { display: grid; grid-template-columns: repeat(4, 1fr) 1.6fr; border-bottom: 1px solid var(--rule); }
+.stat { padding: 20px 18px 16px 2px; border-right: 1px solid var(--rule); margin-right: 18px; }
+.stat:last-child { border-right: none; margin-right: 0; }
+.stat .num { font-family: var(--font-display); font-size: 44px; line-height: 1; font-weight: 550; font-variant-numeric: tabular-nums; }
+.stat .num small { font-size: 18px; color: var(--text-faint); font-weight: 400; }
+.stat .lbl { margin-top: 7px; font-size: 12px; color: var(--text-dim); letter-spacing: 0.05em; }
+.stat .note { margin-top: 2px; font-size: 11px; color: var(--text-faint); }
+.stat.dust .num { color: var(--text-faint); }
+.stat.alert .num { color: var(--red); }
+/* 预算条 */
+.budget { padding: 20px 0 16px 2px; }
+.budget .lbl { font-size: 12px; color: var(--text-dim); letter-spacing: 0.05em; display: flex; justify-content: space-between; }
+.budget .lbl b { color: var(--red); font-weight: 650; }
+.budget .bar { margin-top: 10px; height: 10px; border: 1px solid var(--text); border-radius: 2px; position: relative; background: var(--bg-2); overflow: hidden; }
+.budget .bar i { position: absolute; inset: 0; width: 100%; background: repeating-linear-gradient(-45deg, var(--red), var(--red) 4px, transparent 4px, transparent 8px); opacity: 0.75; }
+.budget .bar em { position: absolute; top: -4px; bottom: -4px; left: 41%; width: 2px; background: var(--text); }
+.budget .cap { margin-top: 8px; font-size: 11px; color: var(--text-faint); display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+.budget .cap b { color: var(--red); }
+
+/* ---------- 工具行：筛选 / 排序 / 密度 ---------- */
+.tools { display: flex; align-items: center; gap: 8px; padding: 14px 0 12px; flex-wrap: wrap; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  font-size: 12px; padding: 4px 11px; border: 1px solid var(--border); border-radius: 99px;
+  background: transparent; color: var(--text-dim); cursor: pointer; font-family: var(--font-ui);
+}
+.chip:hover { border-color: var(--accent); color: var(--text); }
+.chip.on { background: var(--text); border-color: var(--text); color: var(--bg); }
+.chip .n { font-size: 10.5px; opacity: 0.65; margin-left: 3px; font-variant-numeric: tabular-nums; }
+.spacer { flex: 1; }
+select.sort {
+  font-size: 12px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 7px;
+  background: var(--bg-2); color: var(--text-dim); font-family: var(--font-ui); cursor: pointer;
+}
+.seg { display: flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.seg button { font-size: 12px; padding: 4px 11px; border: none; background: transparent; color: var(--text-dim); cursor: pointer; font-family: var(--font-ui); }
+.seg button.active { background: var(--accent); color: var(--accent-ink); }
+
+/* ---------- 列表表头 ---------- */
+.thead {
+  display: grid; grid-template-columns: 26px 1fr 110px 90px 96px 118px 26px;
+  gap: 12px; padding: 8px 10px 7px; border-top: 1px solid var(--text); border-bottom: 1px solid var(--rule);
+  font-size: 10.5px; color: var(--text-faint); letter-spacing: 0.12em; text-transform: uppercase;
+}
+.thead .num-h { text-align: right; }
+
+/* ---------- 行：登记册模式 ---------- */
+.row {
+  display: grid; grid-template-columns: 26px 1fr 110px 90px 96px 118px 26px;
+  gap: 12px; align-items: center; padding: 9px 10px; border-bottom: 1px solid var(--rule);
+  cursor: pointer; transition: background 0.1s;
+}
+.row:hover { background: var(--bg-2); }
+.row.expanded { background: var(--bg-2); border-bottom-color: transparent; }
+/* 健康点 */
+.dot { width: 9px; height: 9px; border-radius: 50%; justify-self: center; }
+.dot.ok { background: var(--green); }
+.dot.warn { background: var(--yellow); }
+.dot.bad { background: var(--red); box-shadow: 0 0 0 3px #b5483a22; }
+/* 名称 + 描述预览 */
+.name-cell { min-width: 0; }
+.name-cell .nm { font-size: 13.5px; font-weight: 650; display: flex; align-items: center; gap: 7px; }
+.name-cell .nm .dup {
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 500; color: var(--yellow);
+  border: 1px solid color-mix(in srgb, var(--yellow) 55%, transparent); border-radius: 4px; padding: 1px 5px;
+}
+.name-cell .desc { font-size: 11.5px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.cards .name-cell .desc { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+/* 来源章 */
+.src { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim); border: 1px solid var(--border); border-radius: 4px; padding: 2px 7px; justify-self: start; background: var(--bg-2); white-space: nowrap; }
+.src.codex { color: #3b7a64; border-color: #3b7a6455; }
+.src.proj { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.src.plugin { color: #7a5fa0; border-color: #7a5fa055; }
+/* 触发次数：登记册数字 */
+.hits { text-align: right; font-family: var(--font-display); font-size: 19px; font-variant-numeric: tabular-nums; font-weight: 550; }
+.hits.zero { color: var(--text-faint); font-size: 13px; font-family: var(--font-ui); }
+.last { font-size: 11.5px; color: var(--text-faint); text-align: right; font-variant-numeric: tabular-nums; }
+/* 三态开关：印章式 */
+.tri { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; justify-self: end; }
+.tri button { font-size: 10px; padding: 3px 7px; border: none; background: var(--bg-2); color: var(--text-faint); cursor: pointer; font-family: var(--font-ui); letter-spacing: 0.02em; }
+.tri button + button { border-left: 1px solid var(--border); }
+.tri button.on { background: var(--text); color: var(--bg); font-weight: 600; }
+.tri[data-state="off"] button.on { background: var(--text-faint); }
+.chev { color: var(--text-faint); font-size: 11px; text-align: center; transition: transform 0.15s; }
+.row.expanded .chev { transform: rotate(90deg); }
+/* off 行整体降权 */
+.row[data-off="1"] .name-cell, .row[data-off="1"] .hits, .row[data-off="1"] .src { opacity: 0.45; }
+
+/* ---------- 卡片行模式 ---------- */
+.cards .row { padding: 14px 12px; }
+.cards .name-cell .nm { font-size: 15px; }
+.cards .name-cell .desc { margin-top: 4px; line-height: 1.45; }
+.cards .hits { font-size: 24px; }
+
+/* ---------- 展开详情 ---------- */
+.detail { border-bottom: 1px solid var(--rule); background: var(--bg-2); padding: 4px 10px 18px 48px; display: grid; grid-template-columns: 1fr 290px; gap: 26px; }
+.detail .full-desc { font-size: 12.5px; line-height: 1.65; color: var(--text-dim); }
+.detail .full-desc .cut { background: #b5483a1c; color: var(--red); border-radius: 2px; padding: 0 1px; }
+.detail .cut-note { margin-top: 8px; font-size: 11.5px; color: var(--red); }
+.detail .meta { font-size: 11.5px; color: var(--text-dim); }
+.detail .meta dt { color: var(--text-faint); letter-spacing: 0.08em; font-size: 10px; text-transform: uppercase; margin: 10px 0 3px; }
+.detail .meta dd { margin: 0; font-variant-numeric: tabular-nums; }
+.detail .meta dd.mono { font-family: var(--font-mono); font-size: 10.5px; word-break: break-all; }
+.detail .acts { margin-top: 14px; display: flex; gap: 8px; }
+.detail .acts button {
+  font-size: 12px; padding: 5px 12px; border: 1px solid var(--border); border-radius: 7px;
+  background: var(--bg); color: var(--text-dim); cursor: pointer; font-family: var(--font-ui);
+}
+.detail .acts button:hover { border-color: var(--accent); color: var(--text); }
+.detail .acts button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+/* 章节标识（吃灰分隔） */
+.section-mark { padding: 22px 10px 6px; font-family: var(--font-display); font-size: 13px; color: var(--text-faint); letter-spacing: 0.1em; border-bottom: 1px solid var(--rule); font-style: italic; }
+.section-mark b { color: var(--text-dim); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="crumb">翻箱 FanBox › <b>Skills 透视</b></div>
+  <div class="head">
+    <h1>Skills 透视</h1>
+    <span class="sub">本机所有 agent skills 的登记册 · 谁在干活，谁在吃灰，谁在静默失效</span>
+    <span class="scanned">扫描于 1 分钟前 · ~/.claude · ~/.codex · ~/.agents · 3 个项目</span>
+  </div>
+
+  <!-- 总览条 -->
+  <div class="ledger-stats">
+    <div class="stat">
+      <div class="num">205</div>
+      <div class="lbl">登记在册</div>
+      <div class="note">Claude 全局 129 · 项目 69 · Codex 71（重复 64）</div>
+    </div>
+    <div class="stat">
+      <div class="num" style="color: var(--green)">35</div>
+      <div class="lbl">45 天内活跃</div>
+      <div class="note">共 181 次触发 · 前 3 名占 56%</div>
+    </div>
+    <div class="stat dust">
+      <div class="num">94</div>
+      <div class="lbl">在吃灰</div>
+      <div class="note">45 天内零触发</div>
+    </div>
+    <div class="stat alert">
+      <div class="num">7</div>
+      <div class="lbl">静默失效</div>
+      <div class="note">截断 / 缺 frontmatter / 残留物</div>
+    </div>
+    <div class="budget">
+      <div class="lbl"><span>Context 预算（描述常驻）</span><b>超限 2.4×</b></div>
+      <div class="bar"><i></i><em title="预算线 ≈ 窗口的 1%"></em></div>
+      <div class="cap"><span>37,847 字符 / 预算约 15,500</span><b>超出部分按使用频率静默丢弃</b></div>
+    </div>
+  </div>
+
+  <!-- 工具行 -->
+  <div class="tools">
+    <div class="chips" id="src-chips">
+      <button class="chip on" data-f="all">全部 <span class="n">205</span></button>
+      <button class="chip" data-f="claude">Claude 全局 <span class="n">129</span></button>
+      <button class="chip" data-f="proj">项目 <span class="n">69</span></button>
+      <button class="chip" data-f="plugin">插件 <span class="n">4</span></button>
+      <button class="chip" data-f="codex">Codex <span class="n">71</span></button>
+      <button class="chip" data-f="dup">跨端重复 <span class="n">64</span></button>
+      <button class="chip" data-f="bad">仅看问题 <span class="n">7</span></button>
+    </div>
+    <div class="spacer"></div>
+    <select class="sort" id="sort">
+      <option value="hits">按触发次数</option>
+      <option value="recent">按最后触发</option>
+      <option value="health">按健康度</option>
+      <option value="name">按名称</option>
+    </select>
+    <div class="seg" id="density">
+      <button class="active" data-d="ledger">登记册</button>
+      <button data-d="cards">卡片</button>
+    </div>
+  </div>
+
+  <!-- 表头 -->
+  <div class="thead">
+    <span></span><span>Skill</span><span>来源</span><span class="num-h">45 天触发</span><span class="num-h">最后触发</span><span style="text-align:right">状态</span><span></span>
+  </div>
+
+  <div id="list"></div>
+</div>
+
+<script>
+// demo 数据 = 2026-06-11 真实扫描结果的代表性子集
+const SKILLS = [
+  { name: 'huashu-design', src: 'claude', hits: 50, last: '38 分钟前', health: 'ok',
+    desc: '花叔Design——用HTML做高保真原型、交互Demo、幻灯片、动画、设计变体探索+设计方向顾问+专家评审。根据任务embody对应专家…',
+    descLen: 631, files: 'SKILL.md + references/14 + assets/12 + scripts/9', dup: ['codex'] },
+  { name: 'huashu-gpt-image', src: 'claude', hits: 36, last: '昨天 23:40', health: 'ok',
+    desc: 'GPT-image-2 的 prompt 工程方法论。任何 AI 图片生成任务的 prompt 写作必读。核心铁律：prompt 默认中文短句（≤80字）…',
+    descLen: 534, files: 'SKILL.md + references/3', dup: ['codex'] },
+  { name: 'freud-skill', src: 'claude', hits: 16, last: '今天 12:02', health: 'ok',
+    desc: '弗洛伊德.skill：给AI做心理分析的认知调优系统。基于Anthropic AI心理学研究。两种模式：执行增强 / 诊断优化…',
+    descLen: 265, files: 'SKILL.md + references/1' },
+  { name: 'darwin-skill', src: 'proj', hits: 4, last: '3 天前', health: 'bad',
+    desc: '（无法读取 description——SKILL.md 缺 frontmatter，模型永远看不到这个 skill）',
+    descLen: 0, files: 'SKILL.md（frontmatter 缺失）', issue: 'SKILL.md 没有 YAML frontmatter，无法进入模型的技能清单——靠 /darwin-skill 手动调用才触发过' },
+  { name: 'lovart-api', src: 'claude', hits: 5, last: '2 天前', health: 'ok',
+    desc: 'Generate images, videos, and audio/music via Lovart AI. Also manages Lovart projects, threads…', descLen: 438, dup: ['codex'] },
+  { name: 'docx', src: 'plugin', hits: 5, last: '4 天前', health: 'ok',
+    desc: 'Comprehensive document creation, editing, and analysis with support for tracked changes, comments…', descLen: 202, files: 'document-skills@anthropic-agent-skills' },
+  { name: 'nano-banana-pro', src: 'claude', hits: 5, last: '5 天前', health: 'ok',
+    desc: "Generate and edit images using Google's Nano Banana Pro (Gemini 3 Pro Image) API…", descLen: 412 },
+  { name: 'huashu-md-html', src: 'claude', hits: 1, last: '12 天前', health: 'warn',
+    desc: '花叔的「md/html/docx/pdf/epub 多向流水线」skill，六个能力 + 两种模式：(1) 用Microsoft markitdown把任意文件转成干净的md；(2) 用Pandoc + 4套精挑模板把md加工成出色的html——兜底模式 + 视觉艺术设计师模式…',
+    descLen: 2047, files: 'SKILL.md + references/6 + scripts/8', issue: 'description 2,047 字符，超过 1,536 截断线——「md转pdf / md转epub / 电子书」等触发词在截断区，模型看不见，这些场景不会触发', dup: ['codex'] },
+  { name: 'agent-browser', src: 'claude', hits: 2, last: '9 天前', health: 'warn',
+    desc: 'Automates browser interactions for web testing, form filling, screenshots, and data extraction…',
+    descLen: 421, issue: '3 处副本（~/.claude、~/.codex、~/.agents）各自独立，上月只更新了 Claude 侧——Codex 用的还是旧版', dup: ['codex', 'agents'] },
+  { name: 'mrbeast-perspective', src: 'proj', hits: 4, last: '6 天前', health: 'ok',
+    desc: 'MrBeast 的内容方法论视角：开头 3 秒钩子、retention 曲线思维、标题缩略图一体设计…', descLen: 310 },
+  { name: 'webapp-testing', src: 'claude', hits: 2, last: '今天 11:58', health: 'ok',
+    desc: 'Toolkit for interacting with and testing local web applications using Playwright…', descLen: 188 },
+  { name: 'skill-creator', src: 'claude', hits: 1, last: '31 天前', health: 'ok',
+    desc: 'Guide for creating effective skills. This skill should be used when users want to create a new skill…', descLen: 356 },
+  { name: 'comedy-video-producer', src: 'claude', hits: 0, last: '—', health: 'bad',
+    desc: '（无法读取 description——SKILL.md 缺 frontmatter）', descLen: 0,
+    issue: 'SKILL.md 没有 YAML frontmatter，模型的技能清单里根本没有它——装了等于没装' },
+  { name: 'comedy.zip', src: 'proj', hits: 0, last: '—', health: 'bad',
+    desc: '（安装残留物——zip 压缩包混在 skills 目录里，不是有效 skill）', descLen: 0,
+    issue: '安装残留：解压后的 comedy/ 已存在，这个 zip 只占地方' },
+  { name: 'aihot', src: 'claude', hits: 0, last: '—', health: 'ok',
+    desc: 'AI HOT 中文 AI 资讯查询 Skill。当用户想知道「今天 AI 圈有什么」「AI 日报」…', descLen: 416 },
+  { name: 'backend-architect', src: 'claude', hits: 0, last: '—', health: 'ok',
+    desc: '后端架构师，覆盖RESTful/GraphQL API设计、数据库架构、微服务拆分、缓存策略…', descLen: 290, dup: ['codex'] },
+  { name: 'app-store-optimizer', src: 'claude', hits: 0, last: '—', health: 'ok',
+    desc: '应用商店优化专家(ASO)，通过系统化策略提升应用在App Store/Google Play中的可见性…', descLen: 276, dup: ['codex'] },
+  { name: 'lark-okr', src: 'claude', hits: 0, last: '—', health: 'ok',
+    desc: '飞书 OKR：查询和管理 OKR 周期、目标与关键结果…', descLen: 127 },
+];
+
+const state = { filter: 'all', sort: 'hits', density: 'ledger', open: new Set(), overrides: {} };
+const HEALTH_ORDER = { bad: 0, warn: 1, ok: 2 };
+
+function srcTag(s) {
+  if (s.src === 'claude') return '<span class="src">~/.claude</span>';
+  if (s.src === 'proj') return '<span class="src proj">项目·写作</span>';
+  if (s.src === 'plugin') return '<span class="src plugin">插件</span>';
+  return '<span class="src codex">~/.codex</span>';
+}
+function rows() {
+  let arr = SKILLS.slice();
+  const f = state.filter;
+  if (f === 'dup') arr = arr.filter(s => s.dup);
+  else if (f === 'bad') arr = arr.filter(s => s.health !== 'ok');
+  else if (f !== 'all') arr = arr.filter(s => s.src === f);
+  if (state.sort === 'hits') arr.sort((a, b) => b.hits - a.hits);
+  if (state.sort === 'health') arr.sort((a, b) => HEALTH_ORDER[a.health] - HEALTH_ORDER[b.health] || b.hits - a.hits);
+  if (state.sort === 'name') arr.sort((a, b) => a.name.localeCompare(b.name));
+  return arr;
+}
+function render() {
+  const list = document.getElementById('list');
+  list.className = state.density === 'cards' ? 'cards' : '';
+  let h = '', dustMarked = false;
+  rows().forEach(s => {
+    if (state.sort === 'hits' && state.filter === 'all' && !dustMarked && s.hits === 0) {
+      h += `<div class="section-mark">⸻ 以下 <b>94 件</b>登记在册但 45 天零触发 · 它们的描述仍在每次会话占用预算</div>`;
+      dustMarked = true;
+    }
+    const ov = state.overrides[s.name] || 'on';
+    const dupTag = s.dup ? `<span class="dup">${s.dup.length + 1} 处副本</span>` : '';
+    h += `<div class="row ${state.open.has(s.name) ? 'expanded' : ''}" data-name="${s.name}" data-off="${ov === 'off' ? 1 : 0}">
+      <span class="dot ${s.health === 'ok' ? 'ok' : s.health}"></span>
+      <div class="name-cell">
+        <div class="nm">${s.name} ${dupTag}</div>
+        <div class="desc">${s.desc}</div>
+      </div>
+      ${srcTag(s)}
+      <div class="hits ${s.hits === 0 ? 'zero' : ''}">${s.hits === 0 ? '· 0 ·' : s.hits}</div>
+      <div class="last">${s.last}</div>
+      <div class="tri" data-state="${ov}" data-name="${s.name}">
+        <button class="${ov === 'on' ? 'on' : ''}" data-v="on" title="完整启用">on</button>
+        <button class="${ov === 'name-only' ? 'on' : ''}" data-v="name-only" title="只注入名字，不注入描述（省预算）">名</button>
+        <button class="${ov === 'off' ? 'on' : ''}" data-v="off" title="禁用（不删文件）">off</button>
+      </div>
+      <span class="chev">▸</span>
+    </div>`;
+    if (state.open.has(s.name)) {
+      const cutHtml = s.descLen > 1536
+        ? `<span>${s.desc.slice(0, 90)}…</span><span class="cut">（第 1,536 字符之后的 ${s.descLen - 1536} 字符对模型不可见）</span>`
+        : s.desc;
+      h += `<div class="detail">
+        <div>
+          <div class="full-desc">${cutHtml}</div>
+          ${s.issue ? `<div class="cut-note">⚠ ${s.issue}</div>` : ''}
+          <div class="acts">
+            <button class="primary">编辑 SKILL.md</button>
+            <button>在文件区显示</button>
+            ${s.dup ? '<button>对比 ' + (s.dup.length + 1) + ' 处副本</button>' : ''}
+          </div>
+        </div>
+        <dl class="meta">
+          <dt>描述体积</dt><dd>${s.descLen.toLocaleString()} 字符 ${s.descLen > 1536 ? '· 超截断线' : ''}</dd>
+          <dt>文件</dt><dd class="mono">${s.files || 'SKILL.md'}</dd>
+          <dt>路径</dt><dd class="mono">~/.claude/skills/${s.name}/</dd>
+          ${s.dup ? `<dt>其他副本</dt><dd class="mono">${s.dup.map(d => d === 'codex' ? '~/.codex/skills/' : '~/.agents/skills/').join('<br>')}</dd>` : ''}
+        </dl>
+      </div>`;
+    }
+  });
+  list.innerHTML = h;
+}
+document.getElementById('list').addEventListener('click', (e) => {
+  const tri = e.target.closest('.tri');
+  if (tri) {
+    const v = e.target.dataset.v;
+    if (v) { state.overrides[tri.dataset.name] = v; render(); }
+    return;
+  }
+  const row = e.target.closest('.row');
+  if (row) {
+    const n = row.dataset.name;
+    state.open.has(n) ? state.open.delete(n) : state.open.add(n);
+    render();
+  }
+});
+document.getElementById('src-chips').addEventListener('click', (e) => {
+  const c = e.target.closest('.chip');
+  if (!c) return;
+  document.querySelectorAll('#src-chips .chip').forEach(x => x.classList.toggle('on', x === c));
+  state.filter = c.dataset.f; render();
+});
+document.getElementById('sort').onchange = (e) => { state.sort = e.target.value; render(); };
+document.getElementById('density').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll('#density button').forEach(x => x.classList.toggle('active', x === b));
+  state.density = b.dataset.d; render();
+});
+render();
+</script>
+</body>
+</html>

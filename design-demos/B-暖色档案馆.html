@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>翻箱 FanBox — 暖色档案馆</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400&family=Inter:wght@400;450;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F5F0E8;
+  --paper-2:#FAF6EF;
+  --paper-3:#EFE8DB;
+  --card:#FBF8F2;
+  --ink:#191919;
+  --ink-2:#5C564C;
+  --ink-3:#8C8474;
+  --terra:#CC785C;
+  --terra-2:#D97757;
+  --terra-ink:#A85A40;
+  --line:#E2D9C8;
+  --line-2:#D8CDB8;
+  --kraft:#D8C3A0;
+  --kraft-2:#C9AE83;
+  --green:#7A8B5E;
+  --shadow:rgba(70,55,35,.13);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{
+  font-family:'Inter',-apple-system,sans-serif;
+  background:var(--paper);
+  color:var(--ink);
+  -webkit-font-smoothing:antialiased;
+  position:relative;
+}
+/* paper grain */
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:1;
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(204,120,92,.025) 0, transparent 45%),
+    radial-gradient(circle at 80% 70%, rgba(122,139,94,.02) 0, transparent 40%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+}
+.app{
+  position:relative;z-index:2;
+  width:1440px;height:900px;
+  display:grid;
+  grid-template-columns:248px 1fr 372px;
+  grid-template-rows:1fr;
+}
+/* generic icon stroke */
+.ic{display:block;stroke:var(--ink);stroke-width:1.6;fill:none;stroke-linecap:round;stroke-linejoin:round}
+
+/* ===== LEFT SIDEBAR ===== */
+.sidebar{
+  background:linear-gradient(180deg,var(--paper-3),#EBE3D4);
+  border-right:1px solid var(--line-2);
+  padding:26px 20px 20px;
+  display:flex;flex-direction:column;
+  position:relative;
+}
+.sidebar::after{content:"";position:absolute;top:0;right:0;width:1px;height:100%;background:linear-gradient(180deg,transparent,rgba(255,255,255,.5),transparent)}
+.brand{display:flex;align-items:center;gap:11px;margin-bottom:30px;padding-left:2px}
+.logo{
+  width:38px;height:38px;flex:none;border-radius:9px;
+  background:var(--terra);
+  display:grid;place-items:center;
+  box-shadow:0 3px 8px rgba(168,90,64,.32), inset 0 1px 0 rgba(255,255,255,.25);
+}
+.brand-tx .name{font-family:'Fraunces',serif;font-weight:600;font-size:21px;letter-spacing:.2px;line-height:1}
+.brand-tx .en{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:2.5px;color:var(--terra-ink);text-transform:uppercase;margin-top:4px}
+
+.sec-label{
+  font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:1.8px;
+  text-transform:uppercase;color:var(--ink-3);
+  margin:0 0 9px 4px;display:flex;align-items:center;gap:8px;
+}
+.sec-label::after{content:"";flex:1;height:1px;background:var(--line-2)}
+
+.nav-grp{margin-bottom:22px}
+.nav{display:flex;flex-direction:column;gap:1px}
+.nav a{
+  display:flex;align-items:center;gap:10px;
+  padding:7px 9px;border-radius:7px;
+  font-size:13.5px;color:var(--ink-2);text-decoration:none;
+  font-weight:450;transition:.14s;position:relative;
+}
+.nav a .ic{width:16px;height:16px;stroke:var(--ink-2);opacity:.8}
+.nav a:hover{background:rgba(255,255,255,.55)}
+.nav a.active{background:var(--card);color:var(--ink);font-weight:500;box-shadow:0 1px 3px var(--shadow)}
+.nav a.active::before{content:"";position:absolute;left:-20px;top:6px;bottom:6px;width:3px;border-radius:0 3px 3px 0;background:var(--terra)}
+.nav a.active .ic{stroke:var(--terra-ink);opacity:1}
+.badge{margin-left:auto;font-family:'Geist Mono',monospace;font-size:9.5px;color:var(--ink-3);background:rgba(0,0,0,.04);padding:1px 6px;border-radius:5px}
+
+.fav a .star{margin-left:auto}
+.fav a .star svg{width:13px;height:13px}
+.fav .dot{width:7px;height:7px;border-radius:2px;flex:none}
+
+.recent{margin-top:auto}
+.recent .item{display:flex;align-items:center;gap:9px;padding:6px 9px;border-radius:7px;cursor:default}
+.recent .item:hover{background:rgba(255,255,255,.5)}
+.recent .ti{font-size:12.5px;color:var(--ink-2);font-weight:450;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.recent .tm{margin-left:auto;font-family:'Geist Mono',monospace;font-size:9.5px;color:var(--ink-3)}
+
+/* sparkline card in sidebar */
+.activity{
+  margin-top:14px;background:var(--card);border:1px solid var(--line);
+  border-radius:10px;padding:13px 14px 11px;box-shadow:0 1px 3px var(--shadow);
+}
+.activity .hd{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}
+.activity .hd .t{font-family:'Geist Mono',monospace;font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-3)}
+.activity .hd .n{font-family:'Fraunces',serif;font-size:18px;font-weight:600}
+.activity .hd .n span{font-size:11px;color:var(--ink-3);font-family:'Inter';font-weight:450}
+.bars{display:flex;align-items:flex-end;gap:5px;height:38px}
+.bars .b{flex:1;background:var(--kraft);border-radius:3px 3px 0 0;position:relative;transition:.15s}
+.bars .b.hot{background:var(--terra)}
+.bars:hover .b{opacity:.55}
+.bars .b:hover{opacity:1}
+.daylabels{display:flex;justify-content:space-between;margin-top:5px}
+.daylabels span{font-family:'Geist Mono',monospace;font-size:8.5px;color:var(--ink-3);flex:1;text-align:center}
+
+/* ===== CENTER ===== */
+.main{display:flex;flex-direction:column;min-width:0;background:var(--paper)}
+.toolbar{
+  height:60px;flex:none;border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:16px;padding:0 26px;
+  background:linear-gradient(180deg,var(--paper-2),var(--paper));
+}
+.crumb{display:flex;align-items:center;gap:7px;font-size:13.5px;min-width:0}
+.crumb a{color:var(--ink-3);text-decoration:none;font-weight:450;white-space:nowrap}
+.crumb a:hover{color:var(--terra-ink)}
+.crumb .sep{color:var(--line-2);font-size:11px}
+.crumb .cur{color:var(--ink);font-weight:600}
+.toolbar .spacer{flex:1}
+
+.kbar{
+  display:flex;align-items:center;gap:9px;
+  background:var(--card);border:1px solid var(--line-2);
+  padding:7px 12px 7px 11px;border-radius:9px;cursor:pointer;
+  box-shadow:0 1px 2px var(--shadow);transition:.15s;min-width:220px;
+}
+.kbar:hover{border-color:var(--kraft-2);box-shadow:0 2px 6px var(--shadow)}
+.kbar .ic{width:15px;height:15px;stroke:var(--ink-3)}
+.kbar .ph{font-size:13px;color:var(--ink-3);flex:1}
+.kbd{font-family:'Geist Mono',monospace;font-size:10px;color:var(--ink-2);background:var(--paper-3);border:1px solid var(--line-2);border-bottom-width:2px;border-radius:5px;padding:2px 6px}
+
+.seg{display:flex;background:var(--paper-3);border-radius:8px;padding:3px;gap:2px}
+.seg button{border:none;background:none;font-family:'Inter';font-size:12px;color:var(--ink-2);padding:5px 11px;border-radius:6px;cursor:pointer;font-weight:450;display:flex;align-items:center;gap:6px}
+.seg button .ic{width:14px;height:14px;stroke:var(--ink-2)}
+.seg button.on{background:var(--card);color:var(--ink);font-weight:500;box-shadow:0 1px 2px var(--shadow)}
+.seg button.on .ic{stroke:var(--terra-ink)}
+
+.sortbar{height:42px;flex:none;display:flex;align-items:center;padding:0 26px;gap:18px;border-bottom:1px solid var(--line)}
+.sortbar .lbl{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--ink-3)}
+.sortbar .sorts{display:flex;gap:4px}
+.sortbar .sorts button{border:none;background:none;font-size:12px;color:var(--ink-2);padding:4px 9px;border-radius:6px;cursor:pointer;font-family:'Inter'}
+.sortbar .sorts button.on{color:var(--terra-ink);font-weight:600}
+.sortbar .sorts button.on::after{content:" ↓";font-size:10px}
+.sortbar .count{margin-left:auto;font-size:12px;color:var(--ink-3);font-family:'Geist Mono';font-size:11px}
+
+.files{flex:1;overflow:hidden;padding:22px 26px 26px}
+.grouphd{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--ink-3);margin:0 0 13px 2px;display:flex;align-items:center;gap:9px}
+.grouphd::after{content:"";flex:1;height:1px;background:var(--line)}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;margin-bottom:22px}
+
+/* file folder card — kraft tab metaphor */
+.fcard{
+  background:var(--card);border:1px solid var(--line);border-radius:11px;
+  padding:14px 14px 12px;cursor:pointer;position:relative;transition:.16s;
+  box-shadow:0 1px 2px var(--shadow);
+}
+.fcard:hover{transform:translateY(-2px);box-shadow:0 6px 16px var(--shadow);border-color:var(--kraft-2)}
+.fcard.sel{border-color:var(--terra);box-shadow:0 0 0 1px var(--terra),0 6px 16px var(--shadow);background:var(--paper-2)}
+.fcard .ico{width:42px;height:42px;margin-bottom:11px}
+.fcard .nm{font-size:13.5px;font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fcard .mt{font-family:'Geist Mono',monospace;font-size:10px;color:var(--ink-3);margin-top:3px}
+.tag{
+  position:absolute;top:12px;right:12px;font-family:'Geist Mono',monospace;
+  font-size:8.5px;letter-spacing:.8px;padding:2px 6px;border-radius:5px;font-weight:500;
+}
+.tag.web{background:rgba(204,120,92,.13);color:var(--terra-ink)}
+.tag.node{background:rgba(122,139,94,.16);color:#566042}
+
+/* ===== RIGHT PREVIEW ===== */
+.preview{
+  background:linear-gradient(180deg,var(--paper-2),#F2ECE0);
+  border-left:1px solid var(--line-2);
+  display:flex;flex-direction:column;position:relative;
+}
+.preview::before{content:"";position:absolute;top:0;left:0;width:1px;height:100%;background:linear-gradient(180deg,transparent,rgba(255,255,255,.5),transparent)}
+.pv-hd{padding:22px 22px 16px;border-bottom:1px solid var(--line)}
+.pv-file{display:flex;align-items:center;gap:11px;margin-bottom:4px}
+.pv-file .ico{width:30px;height:30px;flex:none}
+.pv-file .nm{font-family:'Fraunces',serif;font-size:18px;font-weight:600}
+.pv-path{font-family:'Geist Mono',monospace;font-size:10.5px;color:var(--ink-3);margin-bottom:15px;word-break:break-all;line-height:1.5}
+.actions{display:flex;flex-wrap:wrap;gap:7px}
+.act{
+  display:flex;align-items:center;gap:6px;font-size:12px;font-weight:450;
+  padding:6px 11px;border-radius:8px;border:1px solid var(--line-2);
+  background:var(--card);color:var(--ink-2);cursor:pointer;transition:.14s;
+}
+.act .ic{width:14px;height:14px;stroke:var(--ink-2)}
+.act:hover{border-color:var(--kraft-2);color:var(--ink)}
+.act.primary{background:var(--terra);border-color:var(--terra-ink);color:#fff;font-weight:500;box-shadow:0 2px 6px rgba(168,90,64,.3)}
+.act.primary .ic{stroke:#fff}
+.act.primary:hover{background:var(--terra-2)}
+
+.codewrap{flex:1;overflow:hidden;padding:16px 0 0;display:flex;flex-direction:column}
+.code-meta{display:flex;gap:14px;padding:0 22px 12px;align-items:center}
+.code-meta .chip{font-family:'Geist Mono',monospace;font-size:10px;color:var(--ink-3);display:flex;align-items:center;gap:5px}
+.code-meta .chip b{color:var(--ink-2);font-weight:500}
+.code{
+  flex:1;overflow:hidden;margin:0 16px;background:#FCFAF5;
+  border:1px solid var(--line);border-radius:10px 10px 0 0;border-bottom:none;
+  font-family:'Geist Mono',monospace;font-size:11.5px;line-height:1.85;
+  padding:14px 0;box-shadow:inset 0 1px 4px rgba(70,55,35,.05);
+}
+.code .ln{display:flex;padding:0 16px}
+.code .ln:hover{background:rgba(204,120,92,.05)}
+.code .num{width:26px;flex:none;text-align:right;margin-right:16px;color:var(--ink-3);opacity:.6;user-select:none}
+.code .tx{white-space:pre;color:var(--ink-2)}
+.c-key{color:var(--terra-ink)}
+.c-str{color:var(--green)}
+.c-com{color:var(--ink-3);font-style:italic;opacity:.8}
+.c-fn{color:#9c6b2e}
+.c-num{color:#b5783a}
+
+/* distribution donut footer in preview */
+.dist{padding:14px 22px 18px;border-top:1px solid var(--line);display:flex;align-items:center;gap:16px;background:rgba(255,255,255,.3)}
+.dist .donut{width:62px;height:62px;flex:none}
+.dist .legend{flex:1}
+.dist .legend .lt{font-family:'Geist Mono',monospace;font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
+.dist .legend .row{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--ink-2);margin-bottom:3px}
+.dist .legend .row .d{width:8px;height:8px;border-radius:2px}
+.dist .legend .row b{margin-left:auto;font-family:'Geist Mono';font-size:10px;color:var(--ink-3)}
+
+/* ===== ⌘K palette overlay ===== */
+.scrim{position:fixed;inset:0;z-index:50;background:rgba(40,30,18,.28);backdrop-filter:blur(2px);display:grid;place-items:start center;padding-top:118px}
+.palette{
+  width:600px;background:var(--paper-2);border:1px solid var(--line-2);border-radius:16px;
+  box-shadow:0 24px 60px rgba(60,40,20,.35),0 2px 0 rgba(255,255,255,.5) inset;
+  overflow:hidden;
+}
+.pal-in{display:flex;align-items:center;gap:12px;padding:18px 20px;border-bottom:1px solid var(--line)}
+.pal-in .ic{width:20px;height:20px;stroke:var(--terra-ink)}
+.pal-in input{flex:1;border:none;background:none;outline:none;font-family:'Fraunces',serif;font-size:19px;color:var(--ink)}
+.pal-in .cur{width:1.5px;height:21px;background:var(--terra);animation:blink 1.05s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.pal-in .esc{font-family:'Geist Mono';font-size:10px;color:var(--ink-3);border:1px solid var(--line-2);padding:2px 7px;border-radius:5px}
+.pal-sec{font-family:'Geist Mono';font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--ink-3);padding:12px 20px 6px}
+.pal-row{display:flex;align-items:center;gap:12px;padding:9px 20px;cursor:pointer}
+.pal-row:hover,.pal-row.on{background:rgba(204,120,92,.1)}
+.pal-row.on{box-shadow:inset 3px 0 0 var(--terra)}
+.pal-row .ico{width:24px;height:24px;flex:none}
+.pal-row .nm{font-size:14px;color:var(--ink);font-weight:450}
+.pal-row .nm em{font-style:normal;background:rgba(204,120,92,.22);color:var(--terra-ink);border-radius:3px;padding:0 1px}
+.pal-row .pth{margin-left:auto;font-family:'Geist Mono';font-size:10px;color:var(--ink-3)}
+.pal-ft{display:flex;gap:18px;padding:11px 20px;border-top:1px solid var(--line);background:var(--paper-3)}
+.pal-ft span{font-family:'Geist Mono';font-size:10px;color:var(--ink-3);display:flex;align-items:center;gap:6px}
+.pal-ft kbd{font-family:'Geist Mono';font-size:9px;background:var(--card);border:1px solid var(--line-2);border-radius:4px;padding:1px 5px;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ===== LEFT SIDEBAR ===== -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">
+        <!-- logo: archive drawer / card-catalog mark -->
+        <svg width="22" height="22" viewBox="0 0 24 24"><g stroke="#FBF8F2" stroke-width="1.7" fill="none" stroke-linejoin="round" stroke-linecap="round"><rect x="3.5" y="4" width="17" height="16" rx="2"/><line x1="3.5" y1="9.5" x2="20.5" y2="9.5"/><line x1="3.5" y1="15" x2="20.5" y2="15"/><circle cx="12" cy="6.7" r=".5" fill="#FBF8F2"/><circle cx="12" cy="12.2" r=".5" fill="#FBF8F2"/><circle cx="12" cy="17.6" r=".5" fill="#FBF8F2"/></g></svg>
+      </div>
+      <div class="brand-tx">
+        <div class="name">翻箱</div>
+        <div class="en">FanBox</div>
+      </div>
+    </div>
+
+    <div class="nav-grp">
+      <div class="sec-label">快速入口</div>
+      <nav class="nav">
+        <a href="#"><svg class="ic" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 9.5V20h14V9.5"/><path d="M9.5 20v-6h5v6"/></svg>主目录</a>
+        <a href="#"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="1.5"/><path d="M8 21h8M12 17v4"/></svg>桌面</a>
+        <a href="#" class="active"><svg class="ic" viewBox="0 0 24 24"><path d="M5 3h9l5 5v13H5z"/><path d="M14 3v5h5"/></svg>文档<span class="badge">_开发项目</span></a>
+        <a href="#"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></svg>下载</a>
+        <a href="#"><svg class="ic" viewBox="0 0 24 24"><path d="M3 7l2-3h6l2 3h6v13H3z"/><path d="M3 7h18"/></svg>项目</a>
+      </nav>
+    </div>
+
+    <div class="nav-grp">
+      <div class="sec-label">收藏</div>
+      <nav class="nav fav">
+        <a href="#"><span class="dot" style="background:var(--terra)"></span>fanbox<svg class="ic" style="margin-left:auto;width:13px;height:13px;stroke:var(--terra)" viewBox="0 0 24 24" fill="var(--terra)"><path d="M12 3l2.5 6 6.5.5-5 4.2 1.6 6.3L12 17l-5.6 3 1.6-6.3-5-4.2 6.5-.5z"/></svg></a>
+        <a href="#"><span class="dot" style="background:var(--green)"></span>落地页demo<svg class="ic" style="margin-left:auto;width:13px;height:13px;stroke:var(--terra)" viewBox="0 0 24 24" fill="var(--terra)"><path d="M12 3l2.5 6 6.5.5-5 4.2 1.6 6.3L12 17l-5.6 3 1.6-6.3-5-4.2 6.5-.5z"/></svg></a>
+        <a href="#"><span class="dot" style="background:var(--kraft-2)"></span>WorkBuddy<svg class="ic" style="margin-left:auto;width:13px;height:13px;stroke:var(--terra)" viewBox="0 0 24 24" fill="var(--terra)"><path d="M12 3l2.5 6 6.5.5-5 4.2 1.6 6.3L12 17l-5.6 3 1.6-6.3-5-4.2 6.5-.5z"/></svg></a>
+      </nav>
+    </div>
+
+    <div class="activity">
+      <div class="hd">
+        <div class="t">本周文件活动</div>
+        <div class="n">148<span> 次</span></div>
+      </div>
+      <div class="bars">
+        <div class="b" style="height:42%"></div>
+        <div class="b" style="height:60%"></div>
+        <div class="b" style="height:35%"></div>
+        <div class="b" style="height:78%"></div>
+        <div class="b hot" style="height:100%"></div>
+        <div class="b" style="height:55%"></div>
+        <div class="b" style="height:28%"></div>
+      </div>
+      <div class="daylabels"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+    </div>
+
+    <div class="recent">
+      <div class="sec-label" style="margin-top:18px">最近打开</div>
+      <div class="item"><svg class="ic" style="width:15px;height:15px;stroke:var(--terra-ink)" viewBox="0 0 24 24"><path d="M5 3h9l5 5v13H5z"/><path d="M14 3v5h5"/><path d="M7 7l-2 0M9 11h6M9 14h6"/></svg><span class="ti">prototype.html</span><span class="tm">14:02</span></div>
+      <div class="item"><svg class="ic" style="width:15px;height:15px;stroke:var(--ink-3)" viewBox="0 0 24 24"><path d="M8 4l-4 8 4 8M16 4l4 8-4 8"/></svg><span class="ti">app.py</span><span class="tm">昨天</span></div>
+      <div class="item"><svg class="ic" style="width:15px;height:15px;stroke:var(--green)" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.6"/><path d="M3 16l5-4 4 3 4-4 5 5"/></svg><span class="ti">cover.png</span><span class="tm">周一</span></div>
+    </div>
+  </aside>
+
+  <!-- ===== CENTER ===== -->
+  <section class="main">
+    <div class="toolbar">
+      <nav class="crumb">
+        <a href="#">Users</a><span class="sep">›</span>
+        <a href="#">alchain</a><span class="sep">›</span>
+        <a href="#">Documents</a><span class="sep">›</span>
+        <span class="cur">_开发项目</span>
+      </nav>
+      <div class="spacer"></div>
+      <div class="seg">
+        <button class="on" title="网格视图"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>网格</button>
+        <button title="列表视图"><svg class="ic" viewBox="0 0 24 24"><line x1="8" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="20" y2="12"/><line x1="8" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>列表</button>
+      </div>
+      <div class="kbar">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
+        <span class="ph">搜索全部文件…</span>
+        <span class="kbd">⌘ K</span>
+      </div>
+    </div>
+
+    <div class="sortbar">
+      <span class="lbl">排序</span>
+      <div class="sorts">
+        <button>名称</button>
+        <button class="on">时间</button>
+        <button>大小</button>
+      </div>
+      <span class="count">5 个文件夹 · 7 个文件</span>
+    </div>
+
+    <div class="files">
+      <div class="grouphd">文件夹</div>
+      <div class="grid">
+        <!-- folder w/ kraft tab -->
+        <div class="fcard sel">
+          <span class="tag web">WEB</span>
+          <svg class="ico" viewBox="0 0 48 48"><path d="M6 14h12l3 3.5h21a2 2 0 0 1 2 2V38a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V16a2 2 0 0 1 2-2z" fill="#E0C79C" stroke="#A88B5C" stroke-width="1.3"/><path d="M6 21h38" stroke="#A88B5C" stroke-width="1" opacity=".5"/></svg>
+          <div class="nm">fanbox</div>
+          <div class="mt">14 项 · 2 分钟前</div>
+        </div>
+        <div class="fcard">
+          <span class="tag node">NODE</span>
+          <svg class="ico" viewBox="0 0 48 48"><path d="M6 14h12l3 3.5h21a2 2 0 0 1 2 2V38a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V16a2 2 0 0 1 2-2z" fill="#E0C79C" stroke="#A88B5C" stroke-width="1.3"/><path d="M6 21h38" stroke="#A88B5C" stroke-width="1" opacity=".5"/></svg>
+          <div class="nm">Coze</div>
+          <div class="mt">31 项 · 3 小时前</div>
+        </div>
+        <div class="fcard">
+          <span class="tag web">WEB</span>
+          <svg class="ico" viewBox="0 0 48 48"><path d="M6 14h12l3 3.5h21a2 2 0 0 1 2 2V38a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V16a2 2 0 0 1 2-2z" fill="#E0C79C" stroke="#A88B5C" stroke-width="1.3"/><path d="M6 21h38" stroke="#A88B5C" stroke-width="1" opacity=".5"/></svg>
+          <div class="nm">WorkBuddy</div>
+          <div class="mt">8 项 · 昨天</div>
+        </div>
+        <div class="fcard">
+          <svg class="ico" viewBox="0 0 48 48"><path d="M6 14h12l3 3.5h21a2 2 0 0 1 2 2V38a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V16a2 2 0 0 1 2-2z" fill="#E0C79C" stroke="#A88B5C" stroke-width="1.3"/><path d="M6 21h38" stroke="#A88B5C" stroke-width="1" opacity=".5"/></svg>
+          <div class="nm">AndroidStudio…</div>
+          <div class="mt">52 项 · 上周</div>
+        </div>
+        <div class="fcard">
+          <span class="tag node">NODE</span>
+          <svg class="ico" viewBox="0 0 48 48"><path d="M6 14h12l3 3.5h21a2 2 0 0 1 2 2V38a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V16a2 2 0 0 1 2-2z" fill="#E0C79C" stroke="#A88B5C" stroke-width="1.3"/><path d="M6 21h38" stroke="#A88B5C" stroke-width="1" opacity=".5"/></svg>
+          <div class="nm">tools</div>
+          <div class="mt">19 项 · 上周</div>
+        </div>
+      </div>
+
+      <div class="grouphd">文件</div>
+      <div class="grid">
+        <!-- web/html -->
+        <div class="fcard">
+          <svg class="ico" viewBox="0 0 48 48"><path d="M11 5h17l9 9v29H11z" fill="#FBF1E4" stroke="#CC785C" stroke-width="1.4"/><path d="M28 5v9h9" fill="none" stroke="#CC785C" stroke-width="1.4"/><path d="M17 26l-3 4 3 4M31 26l3 4-3 4M26 24l-4 12" stroke="#CC785C" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+          <div class="nm">index.html</div>
+          <div class="mt">4.2 KB · 2 分钟前</div>
+        </div>
+        <!-- code/py -->
+        <div class="fcard">
+          <svg class="ico" viewBox="0 0 48 48"><path d="M11 5h17l9 9v29H11z" fill="#FBF1E4" stroke="#A88B5C" stroke-width="1.4"/><path d="M28 5v9h9" fill="none" stroke="#A88B5C" stroke-width="1.4"/><path d="M18 27l-4 4 4 4M30 27l4 4-4 4" stroke="#A85A40" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div class="nm">app.py</div>
+          <div class="mt">8.7 KB · 昨天</div>
+        </div>
+        <!-- markdown -->
+        <div class="fcard">
+          <svg class="ico" viewBox="0 0 48 48"><path d="M11 5h17l9 9v29H11z" fill="#FBF1E4" stroke="#A88B5C" stroke-width="1.4"/><path d="M28 5v9h9" fill="none" stroke="#A88B5C" stroke-width="1.4"/><path d="M16 24v8M16 24l4 4 4-4v8" stroke="#7A8B5E" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M30 24v6M30 30l2.5-3M30 30l-2.5-3" stroke="#7A8B5E" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div class="nm">README.md</div>
+          <div class="mt">1.9 KB · 昨天</div>
+        </div>
+        <!-- web/html prototype -->
+        <div class="fcard">
+          <svg class="ico" viewBox="0 0 48 48"><path d="M11 5h17l9 9v29H11z" fill="#FBF1E4" stroke="#CC785C" stroke-width="1.4"/><path d="M28 5v9h9" fill="none" stroke="#CC785C" stroke-width="1.4"/><path d="M17 26l-3 4 3 4M31 26l3 4-3 4M26 24l-4 12" stroke="#CC785C" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+          <div class="nm">prototype.html</div>
+          <div class="mt">22 KB · 14:02</div>
+        </div>
+        <!-- data/csv -->
+        <div class="fcard">
+          <svg class="ico" viewBox="0 0 48 48"><path d="M11 5h17l9 9v29H11z" fill="#FBF1E4" stroke="#A88B5C" stroke-width="1.4"/><path d="M28 5v9h9" fill="none" stroke="#A88B5C" stroke-width="1.4"/><rect x="15" y="25" width="18" height="11" rx="1" stroke="#9c6b2e" stroke-width="1.3" fill="none"/><path d="M15 29.3h18M21 25v11M27 25v11" stroke="#9c6b2e" stroke-width="1" opacity=".7"/></svg>
+          <div class="nm">dataset.csv</div>
+          <div class="mt">156 KB · 周一</div>
+        </div>
+        <!-- image/png -->
+        <div class="fcard">
+          <svg class="ico" viewBox="0 0 48 48"><path d="M11 5h17l9 9v29H11z" fill="#FBF1E4" stroke="#A88B5C" stroke-width="1.4"/><path d="M28 5v9h9" fill="none" stroke="#A88B5C" stroke-width="1.4"/><rect x="15" y="24" width="18" height="13" rx="1.5" stroke="#7A8B5E" stroke-width="1.3" fill="none"/><circle cx="20" cy="29" r="1.6" fill="#7A8B5E"/><path d="M15 34l5-4 4 3 3.5-3.5L33 35" stroke="#7A8B5E" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div class="nm">cover.png</div>
+          <div class="mt">340 KB · 周一</div>
+        </div>
+        <!-- code/server.js -->
+        <div class="fcard">
+          <svg class="ico" viewBox="0 0 48 48"><path d="M11 5h17l9 9v29H11z" fill="#FBF1E4" stroke="#A88B5C" stroke-width="1.4"/><path d="M28 5v9h9" fill="none" stroke="#A88B5C" stroke-width="1.4"/><path d="M18 27l-4 4 4 4M30 27l4 4-4 4" stroke="#A85A40" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div class="nm">server.js</div>
+          <div class="mt">3.1 KB · 上周</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== RIGHT PREVIEW ===== -->
+  <aside class="preview">
+    <div class="pv-hd">
+      <div class="pv-file">
+        <svg class="ico" viewBox="0 0 48 48"><path d="M11 5h17l9 9v29H11z" fill="#FBF1E4" stroke="#CC785C" stroke-width="1.6"/><path d="M28 5v9h9" fill="none" stroke="#CC785C" stroke-width="1.6"/><path d="M17 26l-3 4 3 4M31 26l3 4-3 4M26 24l-4 12" stroke="#CC785C" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
+        <div class="nm">index.html</div>
+      </div>
+      <div class="pv-path">~/Documents/_开发项目/fanbox/index.html</div>
+      <div class="actions">
+        <button class="act primary"><svg class="ic" viewBox="0 0 24 24"><path d="M14 3h7v7M21 3l-9 9"/><path d="M19 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h6"/></svg>默认打开</button>
+        <button class="act"><svg class="ic" viewBox="0 0 24 24"><path d="M8 4l-4 8 4 8M16 4l4 8-4 8"/></svg>编辑器</button>
+        <button class="act"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3z"/></svg>Finder</button>
+        <button class="act"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>复制路径</button>
+        <button class="act"><svg class="ic" viewBox="0 0 24 24" fill="var(--terra)" stroke="var(--terra-ink)"><path d="M12 3l2.5 6 6.5.5-5 4.2 1.6 6.3L12 17l-5.6 3 1.6-6.3-5-4.2 6.5-.5z"/></svg>已收藏</button>
+      </div>
+    </div>
+
+    <div class="codewrap">
+      <div class="code-meta">
+        <span class="chip"><b>HTML</b> · UTF-8</span>
+        <span class="chip">62 行</span>
+        <span class="chip">改于 14:02</span>
+      </div>
+      <div class="code">
+        <div class="ln"><span class="num">1</span><span class="tx"><span class="c-com">&lt;!-- 翻箱 落地页原型 --&gt;</span></span></div>
+        <div class="ln"><span class="num">2</span><span class="tx"><span class="c-key">&lt;!DOCTYPE</span> html<span class="c-key">&gt;</span></span></div>
+        <div class="ln"><span class="num">3</span><span class="tx"><span class="c-key">&lt;html</span> lang=<span class="c-str">"zh"</span><span class="c-key">&gt;</span></span></div>
+        <div class="ln"><span class="num">4</span><span class="tx"><span class="c-key">&lt;head&gt;</span></span></div>
+        <div class="ln"><span class="num">5</span><span class="tx">  <span class="c-key">&lt;title&gt;</span>FanBox<span class="c-key">&lt;/title&gt;</span></span></div>
+        <div class="ln"><span class="num">6</span><span class="tx">  <span class="c-key">&lt;style&gt;</span></span></div>
+        <div class="ln"><span class="num">7</span><span class="tx">    body <span class="tx">{</span> background: <span class="c-str">#F5F0E8</span>; <span class="tx">}</span></span></div>
+        <div class="ln"><span class="num">8</span><span class="tx">    .accent <span class="tx">{</span> color: <span class="c-str">#CC785C</span>; <span class="tx">}</span></span></div>
+        <div class="ln"><span class="num">9</span><span class="tx">  <span class="c-key">&lt;/style&gt;</span></span></div>
+        <div class="ln"><span class="num">10</span><span class="tx"><span class="c-key">&lt;/head&gt;</span></span></div>
+        <div class="ln"><span class="num">11</span><span class="tx"><span class="c-key">&lt;body&gt;</span></span></div>
+        <div class="ln"><span class="num">12</span><span class="tx">  <span class="c-key">&lt;main</span> class=<span class="c-str">"hero"</span><span class="c-key">&gt;</span></span></div>
+        <div class="ln"><span class="num">13</span><span class="tx">    <span class="c-key">&lt;h1&gt;</span>翻箱倒柜，一找就到<span class="c-key">&lt;/h1&gt;</span></span></div>
+        <div class="ln"><span class="num">14</span><span class="tx">    <span class="c-key">&lt;script&gt;</span></span></div>
+        <div class="ln"><span class="num">15</span><span class="tx">      <span class="c-key">const</span> <span class="c-fn">search</span> = <span class="c-key">async</span> (q) =&gt; <span class="tx">{</span></span></div>
+        <div class="ln"><span class="num">16</span><span class="tx">        <span class="c-key">return</span> index.<span class="c-fn">match</span>(q, <span class="c-num">0.6</span>)</span></div>
+        <div class="ln"><span class="num">17</span><span class="tx">      <span class="tx">}</span></span></div>
+        <div class="ln"><span class="num">18</span><span class="tx">    <span class="c-key">&lt;/script&gt;</span></span></div>
+        <div class="ln"><span class="num">19</span><span class="tx">  <span class="c-key">&lt;/main&gt;</span></span></div>
+        <div class="ln"><span class="num">20</span><span class="tx"><span class="c-key">&lt;/body&gt;</span></span></div>
+      </div>
+    </div>
+
+    <!-- project type distribution donut -->
+    <div class="dist">
+      <svg class="donut" viewBox="0 0 42 42">
+        <circle cx="21" cy="21" r="15.9" fill="none" stroke="#EFE8DB" stroke-width="6"/>
+        <circle cx="21" cy="21" r="15.9" fill="none" stroke="#CC785C" stroke-width="6" stroke-dasharray="42 58" stroke-dashoffset="25" stroke-linecap="butt"/>
+        <circle cx="21" cy="21" r="15.9" fill="none" stroke="#7A8B5E" stroke-width="6" stroke-dasharray="27 73" stroke-dashoffset="-17" stroke-linecap="butt"/>
+        <circle cx="21" cy="21" r="15.9" fill="none" stroke="#C9AE83" stroke-width="6" stroke-dasharray="18 82" stroke-dashoffset="-44" stroke-linecap="butt"/>
+        <text x="21" y="20.5" text-anchor="middle" font-family="Geist Mono" font-size="6.5" fill="#191919" font-weight="500">99</text>
+        <text x="21" y="26" text-anchor="middle" font-family="Geist Mono" font-size="3" fill="#8C8474">项目</text>
+      </svg>
+      <div class="legend">
+        <div class="lt">项目类型分布</div>
+        <div class="row"><span class="d" style="background:#CC785C"></span>网页 / HTML<b>42%</b></div>
+        <div class="row"><span class="d" style="background:#7A8B5E"></span>脚本 / Python<b>27%</b></div>
+        <div class="row"><span class="d" style="background:#C9AE83"></span>Node 项目<b>18%</b></div>
+        <div class="row"><span class="d" style="background:#EFE8DB"></span>其他文档<b>13%</b></div>
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<!-- ===== ⌘K COMMAND PALETTE ===== -->
+<div class="scrim">
+  <div class="palette">
+    <div class="pal-in">
+      <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
+      <input value="proto" readonly><span class="cur"></span>
+      <span class="esc">esc</span>
+    </div>
+    <div class="pal-sec">文件 · 模糊匹配 8 项</div>
+    <div class="pal-row on">
+      <svg class="ico" viewBox="0 0 48 48"><path d="M11 5h17l9 9v29H11z" fill="#FBF1E4" stroke="#CC785C" stroke-width="1.6"/><path d="M28 5v9h9" fill="none" stroke="#CC785C" stroke-width="1.6"/><path d="M17 26l-3 4 3 4M31 26l3 4-3 4M26 24l-4 12" stroke="#CC785C" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      <span class="nm"><em>proto</em>type.html</span>
+      <span class="pth">fanbox/</span>
+    </div>
+    <div class="pal-row">
+      <svg class="ico" viewBox="0 0 48 48"><path d="M11 5h17l9 9v29H11z" fill="#FBF1E4" stroke="#A88B5C" stroke-width="1.6"/><path d="M28 5v9h9" fill="none" stroke="#A88B5C" stroke-width="1.6"/><path d="M18 27l-4 4 4 4M30 27l4 4-4 4" stroke="#A85A40" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="nm"><em>proto</em>_render.py</span>
+      <span class="pth">tools/</span>
+    </div>
+    <div class="pal-row">
+      <svg class="ico" viewBox="0 0 48 48"><path d="M11 5h17l9 9v29H11z" fill="#FBF1E4" stroke="#A88B5C" stroke-width="1.6"/><path d="M28 5v9h9" fill="none" stroke="#A88B5C" stroke-width="1.6"/><path d="M16 24v8M16 24l4 4 4-4v8" stroke="#7A8B5E" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="nm">v2-<em>proto</em>-notes.md</span>
+      <span class="pth">WorkBuddy/</span>
+    </div>
+    <div class="pal-ft">
+      <span><kbd>↑↓</kbd> 选择</span>
+      <span><kbd>↵</kbd> 默认打开</span>
+      <span><kbd>⌘↵</kbd> Finder 显示</span>
+      <span><kbd>space</kbd> 原地预览</span>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

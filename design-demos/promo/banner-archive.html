@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>FanBox — Archive Banner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Noto+Serif+SC:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 1880px;
+    height: 800px;
+    margin: 0;
+    overflow: hidden;
+  }
+  body {
+    position: relative;
+    background: #F4EDE0;
+    font-family: "Newsreader", "Noto Serif SC", Georgia, serif;
+    color: #2A241E;
+  }
+
+  /* paper texture: extremely subtle fiber grain */
+  .paper-tex {
+    position: absolute; inset: 0;
+    background-image:
+      radial-gradient(circle at 20% 30%, rgba(0,0,0,0.015) 0, transparent 0.6px),
+      radial-gradient(circle at 70% 60%, rgba(0,0,0,0.018) 0, transparent 0.6px),
+      radial-gradient(circle at 45% 85%, rgba(0,0,0,0.012) 0, transparent 0.6px);
+    background-size: 7px 7px, 11px 11px, 9px 9px;
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  /* warm vignette so the cream feels printed, not flat */
+  .vignette {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(120% 90% at 28% 40%, rgba(255,255,255,0.35) 0%, transparent 55%),
+      radial-gradient(130% 120% at 95% 110%, rgba(160,120,70,0.10) 0%, transparent 50%);
+    pointer-events: none;
+  }
+
+  .stage {
+    position: absolute; inset: 0;
+    display: flex;
+    align-items: stretch;
+  }
+
+  /* ============ LEFT: editorial column ============ */
+  .left {
+    width: 820px;
+    flex: none;
+    padding: 76px 0 70px 96px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    z-index: 3;
+  }
+
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+  }
+  .wordmark {
+    font-weight: 600;
+    font-size: 40px;
+    letter-spacing: 0.5px;
+    color: #2A241E;
+  }
+  .wordmark .b { color: #C04A1A; }
+  .wordmark-cn {
+    font-family: "Noto Serif SC", serif;
+    font-weight: 500;
+    font-size: 19px;
+    color: #8A7C68;
+    letter-spacing: 4px;
+  }
+
+  .rule {
+    height: 1px;
+    width: 96px;
+    background: #C04A1A;
+    margin: 26px 0 0;
+  }
+  .kicker {
+    margin-top: 22px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 14px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #A0917B;
+  }
+
+  .headline {
+    margin-top: 18px;
+    font-family: "Noto Serif SC", "Newsreader", serif;
+    font-weight: 700;
+    font-size: 92px;
+    line-height: 1.04;
+    letter-spacing: -1px;
+    color: #2A241E;
+    text-wrap: pretty;
+  }
+  .headline .vibe {
+    color: #C04A1A;
+    position: relative;
+    white-space: nowrap;
+  }
+
+  .subhead-en {
+    margin-top: 22px;
+    font-family: "Newsreader", serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 34px;
+    color: #6B5E4C;
+    letter-spacing: 0.3px;
+  }
+
+  .blurb {
+    margin-top: 30px;
+    font-family: "Noto Serif SC", serif;
+    font-weight: 400;
+    font-size: 25px;
+    line-height: 1.55;
+    color: #4A3F33;
+    max-width: 560px;
+    text-wrap: pretty;
+  }
+  .blurb b { color: #2A241E; font-weight: 600; }
+
+  .cta {
+    margin-top: auto;
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    padding-top: 30px;
+  }
+  .cta .url {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 18px;
+    color: #2A241E;
+    letter-spacing: 0.5px;
+  }
+  .cta .dot { color: #C04A1A; }
+  .cta .meta {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 14px;
+    color: #A0917B;
+    letter-spacing: 1px;
+    border-left: 1px solid #D6C8B2;
+    padding-left: 22px;
+  }
+
+  /* ============ RIGHT: file card grid ============ */
+  .right {
+    flex: 1;
+    position: relative;
+    z-index: 2;
+  }
+  /* a faint backing panel like a drawer / shelf */
+  .right::before {
+    content: "";
+    position: absolute;
+    inset: 54px 70px 54px 0;
+    background: linear-gradient(160deg, #EFE6D6 0%, #E9DECB 100%);
+    border-left: 1px solid #DDCFB8;
+    box-shadow: -30px 0 60px -40px rgba(120,90,50,0.25) inset;
+  }
+
+  .grid {
+    position: absolute;
+    inset: 92px 116px 92px 36px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 26px;
+  }
+
+  .card {
+    position: relative;
+    background: #FBF6EC;
+    border: 1px solid #E2D6C0;
+    border-radius: 6px;
+    padding: 20px 20px 18px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 20px -14px rgba(90,65,35,0.35);
+  }
+  .card .ftype {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 34px;
+    padding: 0 12px;
+    border-radius: 4px;
+    font-family: "IBM Plex Mono", monospace;
+    font-weight: 500;
+    font-size: 13px;
+    letter-spacing: 1px;
+    color: #FBF6EC;
+    align-self: flex-start;
+  }
+  .t-md   { background: #5B7A6B; }
+  .t-py   { background: #3E6B8C; }
+  .t-html { background: #B5642A; }
+  .t-js   { background: #B89A2E; }
+  .t-png  { background: #7A5C86; }
+  .t-txt  { background: #8A7C68; }
+
+  .card .fname {
+    margin-top: auto;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 19px;
+    font-weight: 500;
+    color: #2A241E;
+    letter-spacing: 0.2px;
+  }
+  .card .fmeta {
+    margin-top: 6px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    color: #B0A189;
+    letter-spacing: 0.5px;
+  }
+  /* faint content lines, like a file preview */
+  .card .lines {
+    position: absolute;
+    top: 64px; left: 20px; right: 20px;
+    display: flex; flex-direction: column; gap: 7px;
+    opacity: 0.5;
+  }
+  .card .lines i {
+    display: block; height: 4px; border-radius: 2px;
+    background: #E0D4BE;
+  }
+  .card .lines i:nth-child(1){ width: 72%; }
+  .card .lines i:nth-child(2){ width: 90%; }
+  .card .lines i:nth-child(3){ width: 58%; }
+  .card .lines i:nth-child(4){ width: 80%; }
+
+  /* ---- LIT / STAMPED cards (the soul) ---- */
+  .card.lit {
+    background: #FBEFE2;
+    border-color: #C04A1A;
+    padding-bottom: 46px;
+    box-shadow:
+      0 0 0 1px #C04A1A,
+      0 14px 30px -16px rgba(192,74,26,0.5);
+  }
+  .card.lit .fname { color: #8C3411; }
+  .card.lit .lines i { background: #E9C3A8; }
+  .card.lit .lines i.active {
+    background: #C04A1A;
+    animation: type 1.6s steps(1) infinite;
+  }
+  /* writing caret */
+  .card.lit .caret {
+    position: absolute;
+    width: 2px; height: 16px;
+    background: #C04A1A;
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes type { 50% { opacity: 0.4; } }
+
+  /* terracotta corner stamp */
+  .stamp {
+    position: absolute;
+    top: -14px; right: -12px;
+    transform: rotate(8deg);
+    border: 2px solid #C04A1A;
+    color: #C04A1A;
+    background: #FBF1E7;
+    border-radius: 5px;
+    padding: 5px 11px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    box-shadow: 0 4px 12px -6px rgba(192,74,26,0.6);
+  }
+  .stamp.cn {
+    font-family: "Noto Serif SC", serif;
+    letter-spacing: 3px;
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  /* a little "agent cursor" dot traveling */
+  .agent-tag {
+    position: absolute;
+    left: 20px; bottom: 16px;
+    display: flex; align-items: center; gap: 8px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    color: #C04A1A;
+    letter-spacing: 1px;
+  }
+  .agent-tag .pulse {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #C04A1A;
+    box-shadow: 0 0 0 0 rgba(192,74,26,0.5);
+    animation: pulse 1.6s infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(192,74,26,0.45); }
+    70% { box-shadow: 0 0 0 9px rgba(192,74,26,0); }
+    100% { box-shadow: 0 0 0 0 rgba(192,74,26,0); }
+  }
+
+  /* top-right round wax-seal style badge */
+  .seal {
+    position: absolute;
+    top: 60px; right: 96px;
+    width: 96px; height: 96px;
+    border-radius: 50%;
+    border: 1.5px solid #C04A1A;
+    color: #C04A1A;
+    display: flex; align-items: center; justify-content: center;
+    text-align: center;
+    transform: rotate(-9deg);
+    z-index: 5;
+  }
+  .seal::before {
+    content: "";
+    position: absolute; inset: 6px;
+    border: 1px dashed rgba(192,74,26,0.55);
+    border-radius: 50%;
+  }
+  .seal span {
+    font-family: "Noto Serif SC", serif;
+    font-weight: 600;
+    font-size: 15px;
+    line-height: 1.3;
+    letter-spacing: 2px;
+  }
+</style>
+</head>
+<body>
+  <div class="paper-tex"></div>
+  <div class="vignette"></div>
+
+  <div class="stage">
+    <!-- LEFT -->
+    <div class="left">
+      <div class="brand">
+        <span class="wordmark"><span class="b">Fan</span>Box</span>
+        <span class="wordmark-cn">翻箱</span>
+      </div>
+
+      <div class="rule"></div>
+      <div class="kicker">Local · Agent · Archive</div>
+
+      <h1 class="headline">看得见的<br><span class="vibe">vibe coding</span></h1>
+      <div class="subhead-en">Vibe coding you can actually see</div>
+
+      <p class="blurb">AI 干活的现场，<b>看得见、管得住</b>。每一次写入，都被实时点亮、盖上戳记。</p>
+
+      <div class="cta">
+        <span class="url">github.com/alchaincyf<span class="dot">/</span>fanbox</span>
+        <span class="meta">macOS · 免费开源 / free &amp; open source</span>
+      </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="right">
+      <div class="seal"><span>正在<br>归档</span></div>
+
+      <div class="grid">
+        <!-- row 1 -->
+        <div class="card">
+          <span class="ftype t-md">MD</span>
+          <div class="lines"><i></i><i></i><i></i><i></i></div>
+          <div class="fname">README.md</div>
+          <div class="fmeta">2.1 KB · just now</div>
+        </div>
+
+        <div class="card lit">
+          <span class="stamp">WRITING…</span>
+          <span class="ftype t-py">PY</span>
+          <div class="lines"><i></i><i class="active"></i><i></i><i></i></div>
+          <div class="fname">app.py</div>
+          <div class="agent-tag"><span class="pulse"></span>agent · +14 lines</div>
+        </div>
+
+        <div class="card">
+          <span class="ftype t-html">HTML</span>
+          <div class="lines"><i></i><i></i><i></i><i></i></div>
+          <div class="fname">index.html</div>
+          <div class="fmeta">8.4 KB</div>
+        </div>
+
+        <!-- row 2 -->
+        <div class="card">
+          <span class="ftype t-js">JS</span>
+          <div class="lines"><i></i><i></i><i></i><i></i></div>
+          <div class="fname">app.js</div>
+          <div class="fmeta">31 KB</div>
+        </div>
+
+        <div class="card">
+          <span class="ftype t-html">HTML</span>
+          <div class="lines"><i></i><i></i><i></i><i></i></div>
+          <div class="fname">landing.html</div>
+          <div class="fmeta">5.6 KB</div>
+        </div>
+
+        <div class="card lit">
+          <span class="stamp cn">已点亮</span>
+          <span class="ftype t-html">HTML</span>
+          <div class="lines"><i></i><i></i><i class="active"></i><i></i></div>
+          <div class="fname">demo-3.html<span class="caret">&nbsp;</span></div>
+          <div class="agent-tag"><span class="pulse"></span>agent · editing</div>
+        </div>
+
+        <!-- row 3 -->
+        <div class="card">
+          <span class="ftype t-txt">TXT</span>
+          <div class="lines"><i></i><i></i><i></i><i></i></div>
+          <div class="fname">notes.md</div>
+          <div class="fmeta">1.3 KB</div>
+        </div>
+
+        <div class="card">
+          <span class="ftype t-png">PNG</span>
+          <div class="lines"><i></i><i></i><i></i><i></i></div>
+          <div class="fname">hero.png</div>
+          <div class="fmeta">640 KB · image</div>
+        </div>
+
+        <div class="card lit">
+          <span class="stamp">DONE</span>
+          <span class="ftype t-md">MD</span>
+          <div class="lines"><i></i><i></i><i></i><i class="active"></i></div>
+          <div class="fname">CHANGELOG.md</div>
+          <div class="agent-tag"><span class="pulse"></span>agent · saved</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

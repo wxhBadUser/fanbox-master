@@ -1,0 +1,83 @@
+{
+  "name": "fanbox",
+  "version": "2.3.0",
+  "description": "FanBox — the cockpit for coding agents. Command Claude Code or Codex, watch every file and line they change, and take over anytime.",
+  "bin": {
+    "fanbox": "server.js"
+  },
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "node server.js",
+    "app": "electron .",
+    "rebuild": "electron-rebuild -f -w node-pty",
+    "build:milkdown": "esbuild src-vendor/milkdown-entry.js --bundle --format=iife --minify --outfile=public/vendor/milkdown/milkdown.js --loader:.svg=dataurl --loader:.woff=file --loader:.woff2=file --loader:.ttf=file --loader:.eot=file --asset-names=[name]",
+    "build:hljs": "esbuild src-vendor/hljs-entry.js --bundle --format=iife --minify --outfile=public/vendor/hljs/highlight.js && cp node_modules/marked/marked.min.js public/vendor/marked/marked.min.js && cp node_modules/highlight.js/styles/github-dark.min.css node_modules/highlight.js/styles/github.min.css public/vendor/hljs/styles/",
+    "check:vendor-patch": "grep -q '20===e.keyCode||229===e.keyCode' public/vendor/xterm/xterm.js",
+    "predist": "npm run check:vendor-patch",
+    "dist": "electron-builder --mac",
+    "dist:win": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.huashu.fanbox",
+    "productName": "FanBox",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "asar": true,
+    "npmRebuild": false,
+    "asarUnpack": [
+      "**/node_modules/node-pty/**"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns",
+      "identity": "Apple Development: chen yunfei (FG7WYU86RP)",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": "arm64"
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": "x64"
+        }
+      ]
+    },
+    "dmg": {
+      "title": "FanBox",
+      "writeUpdateInfo": false
+    }
+  },
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-unicode11": "^0.9.0",
+    "@xterm/addon-webgl": "^0.18.0",
+    "@xterm/xterm": "^5.5.0",
+    "node-pty": "^1.0.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.0",
+    "@milkdown/crepe": "^7.21.2",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.28.0",
+    "highlight.js": "^11.11.1",
+    "marked": "^12.0.2",
+    "monaco-editor": "^0.52.2"
+  },
+  "license": "MIT"
+}

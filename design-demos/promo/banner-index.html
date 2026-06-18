@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>FanBox — banner index</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700;800;900&family=Archivo+Narrow:wght@500;600;700&family=Noto+Sans+SC:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body {
+    width:1880px; height:800px; margin:0; padding:0; overflow:hidden;
+    background:#0a0a0a;
+  }
+  .stage {
+    width:1880px; height:800px; position:relative;
+    background:#f4f1ea;
+    color:#0a0a0a;
+    font-family:'Archivo','Noto Sans SC',system-ui,sans-serif;
+    display:grid;
+    grid-template-columns:1020px 860px;
+    overflow:hidden;
+  }
+
+  /* ---------- LEFT: editorial masthead ---------- */
+  .left {
+    position:relative;
+    padding:46px 54px 40px 64px;
+    display:flex; flex-direction:column;
+    border-right:3px solid #0a0a0a;
+  }
+
+  .masthead {
+    display:flex; align-items:baseline; justify-content:space-between;
+    border-bottom:3px solid #0a0a0a;
+    padding-bottom:14px;
+  }
+  .wordmark {
+    font-family:'Archivo','Noto Sans SC',sans-serif;
+    font-weight:900; font-size:46px; letter-spacing:-2px;
+    line-height:1;
+  }
+  .wordmark .fan { color:#0a0a0a; }
+  .wordmark .cn {
+    font-family:'Noto Sans SC',sans-serif;
+    font-weight:700; font-size:20px; letter-spacing:2px;
+    margin-left:12px; color:#444;
+  }
+  .edition {
+    font-family:'JetBrains Mono',monospace;
+    font-size:13px; letter-spacing:1.5px; color:#444;
+    text-align:right; line-height:1.5;
+    text-transform:uppercase;
+  }
+
+  .colhead {
+    display:flex; align-items:center; gap:14px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px; letter-spacing:3px; text-transform:uppercase;
+    color:#0a0a0a; margin-top:22px;
+  }
+  .colhead .no {
+    background:#0a0a0a; color:#f4f1ea; padding:3px 8px;
+    font-weight:700;
+  }
+  .colhead .rule { flex:1; height:2px; background:#0a0a0a; }
+
+  .headline {
+    margin-top:18px;
+    font-family:'Noto Sans SC',sans-serif;
+    font-weight:900;
+    font-size:122px; line-height:0.92;
+    letter-spacing:-2px;
+    text-wrap:pretty;
+  }
+  .headline .vibe {
+    font-family:'Anton','Archivo',sans-serif;
+    font-weight:400; letter-spacing:0px;
+  }
+  .subline {
+    margin-top:18px;
+    font-family:'Anton','Archivo',sans-serif;
+    font-size:38px; letter-spacing:0.5px;
+    color:#0a0a0a; text-transform:none;
+    line-height:1;
+  }
+  .subline .mark {
+    background:#FF2D2D; color:#fff; padding:1px 9px 4px;
+  }
+
+  .blurb {
+    margin-top:auto;
+    border-top:2px solid #0a0a0a;
+    padding-top:18px;
+    display:flex; align-items:flex-end; justify-content:space-between;
+    gap:24px;
+  }
+  .blurb .lead {
+    font-family:'Noto Sans SC',sans-serif;
+    font-weight:700; font-size:27px; letter-spacing:0px;
+    line-height:1.25; max-width:560px;
+    text-wrap:pretty;
+  }
+  .blurb .lead .dot-r { color:#FF2D2D; }
+  .blurb .lead .dot-g { color:#00a846; }
+  .cta {
+    font-family:'JetBrains Mono',monospace;
+    font-size:13px; line-height:1.7; text-align:right;
+    color:#0a0a0a; white-space:nowrap;
+  }
+  .cta .url { font-weight:700; }
+  .cta .meta { color:#555; }
+
+  /* ---------- RIGHT: file index panel ---------- */
+  .right {
+    position:relative;
+    background:#0a0a0a;
+    color:#f4f1ea;
+    padding:40px 54px 40px 48px;
+    display:flex; flex-direction:column;
+  }
+  .panelhead {
+    display:flex; align-items:baseline; justify-content:space-between;
+    border-bottom:2px solid #3a3a3a;
+    padding-bottom:14px;
+  }
+  .panelhead .title {
+    font-family:'JetBrains Mono',monospace;
+    font-size:14px; letter-spacing:3px; text-transform:uppercase;
+    color:#f4f1ea;
+  }
+  .panelhead .live {
+    display:flex; align-items:center; gap:8px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px; letter-spacing:2px; color:#00C853;
+    text-transform:uppercase;
+  }
+  .panelhead .live .pulse {
+    width:9px; height:9px; border-radius:50%; background:#00C853;
+    box-shadow:0 0 0 3px rgba(0,200,83,.22);
+  }
+
+  .filelist { margin-top:6px; display:flex; flex-direction:column; }
+
+  .row {
+    display:grid;
+    grid-template-columns:54px 1fr auto;
+    align-items:center;
+    gap:18px;
+    padding:13px 4px 13px 0;
+    border-bottom:1px solid #232323;
+    position:relative;
+  }
+  .row .idx {
+    font-family:'JetBrains Mono',monospace;
+    font-size:13px; color:#5a5a5a; letter-spacing:1px;
+  }
+  .row .name {
+    display:flex; align-items:center; gap:13px;
+  }
+  .row .fname {
+    font-family:'JetBrains Mono',monospace;
+    font-weight:500; font-size:23px; letter-spacing:-0.3px;
+    color:#cdcdcd;
+  }
+  .tag {
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px; font-weight:700; letter-spacing:1.5px;
+    text-transform:uppercase;
+    padding:3px 8px; border-radius:3px;
+    border:1px solid #3a3a3a; color:#7a7a7a;
+  }
+  .row .stat {
+    font-family:'JetBrains Mono',monospace;
+    font-size:13px; color:#5a5a5a; letter-spacing:0.5px;
+    text-align:right;
+  }
+
+  /* lit-up rows */
+  .row.lit-r { background:linear-gradient(90deg,rgba(255,45,45,.14),rgba(255,45,45,0)); }
+  .row.lit-r::before {
+    content:""; position:absolute; left:-48px; top:0; bottom:0; width:6px; background:#FF2D2D;
+  }
+  .row.lit-r .fname { color:#fff; }
+  .row.lit-g { background:linear-gradient(90deg,rgba(0,200,83,.14),rgba(0,200,83,0)); }
+  .row.lit-g::before {
+    content:""; position:absolute; left:-48px; top:0; bottom:0; width:6px; background:#00C853;
+  }
+  .row.lit-g .fname { color:#fff; }
+
+  .tag.new { background:#00C853; border-color:#00C853; color:#062b13; }
+  .tag.edit { background:#FF2D2D; border-color:#FF2D2D; color:#fff; }
+
+  .lit-r .stat { color:#FF6b6b; }
+  .lit-g .stat { color:#3ee07f; }
+
+  .panelfoot {
+    margin-top:auto;
+    border-top:2px solid #3a3a3a;
+    padding-top:16px;
+    display:flex; align-items:center; justify-content:space-between;
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px; letter-spacing:1.5px; color:#7a7a7a;
+    text-transform:uppercase;
+  }
+  .panelfoot b { color:#f4f1ea; }
+  .panelfoot .agent {
+    display:flex; align-items:center; gap:9px;
+  }
+  .caret {
+    display:inline-block; width:9px; height:18px; background:#00C853;
+    margin-left:2px; transform:translateY(3px);
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+
+    <!-- LEFT -->
+    <div class="left">
+      <div class="masthead">
+        <div class="wordmark"><span class="fan">FanBox</span><span class="cn">翻箱</span></div>
+        <div class="edition">THE LOCAL INDEX<br>NO.&nbsp;01 / VOL.&nbsp;V</div>
+      </div>
+
+      <div class="colhead">
+        <span class="no">FRONT&nbsp;PAGE</span>
+        <span class="rule"></span>
+        <span>AGENT&nbsp;AT&nbsp;WORK</span>
+      </div>
+
+      <h1 class="headline">看得见的<br><span class="vibe">vibe coding</span></h1>
+
+      <div class="subline"><span class="mark">Vibe coding</span> you can actually&nbsp;see</div>
+
+      <div class="blurb">
+        <div class="lead">AI 干活的现场，<span class="dot-r">看得见</span>、<span class="dot-g">管得住</span></div>
+        <div class="cta">
+          <div class="url">github.com/alchaincyf/fanbox</div>
+          <div class="meta">macOS · 免费开源 / free &amp; open source</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="right">
+      <div class="panelhead">
+        <div class="title">FILE&nbsp;INDEX&nbsp;/&nbsp;~/project</div>
+        <div class="live"><span class="pulse"></span>agent&nbsp;writing</div>
+      </div>
+
+      <div class="filelist">
+        <div class="row">
+          <span class="idx">01</span>
+          <span class="name"><span class="fname">README.md</span><span class="tag">doc</span></span>
+          <span class="stat">2d ago</span>
+        </div>
+        <div class="row lit-g">
+          <span class="idx">02</span>
+          <span class="name"><span class="fname">landing.html</span><span class="tag new">new</span></span>
+          <span class="stat">+86 lines</span>
+        </div>
+        <div class="row">
+          <span class="idx">03</span>
+          <span class="name"><span class="fname">app.py</span><span class="tag">py</span></span>
+          <span class="stat">1h ago</span>
+        </div>
+        <div class="row lit-r">
+          <span class="idx">04</span>
+          <span class="name"><span class="fname">app.js</span><span class="tag edit">edited</span></span>
+          <span class="stat">+12 lines<span class="caret"></span></span>
+        </div>
+        <div class="row">
+          <span class="idx">05</span>
+          <span class="name"><span class="fname">index.html</span><span class="tag">html</span></span>
+          <span class="stat">3h ago</span>
+        </div>
+        <div class="row lit-r">
+          <span class="idx">06</span>
+          <span class="name"><span class="fname">demo-3.html</span><span class="tag edit">edited</span></span>
+          <span class="stat">+34 lines</span>
+        </div>
+        <div class="row">
+          <span class="idx">07</span>
+          <span class="name"><span class="fname">notes.md</span><span class="tag">doc</span></span>
+          <span class="stat">5h ago</span>
+        </div>
+        <div class="row lit-g">
+          <span class="idx">08</span>
+          <span class="name"><span class="fname">hero.png</span><span class="tag new">new</span></span>
+          <span class="stat">+1 asset</span>
+        </div>
+      </div>
+
+      <div class="panelfoot">
+        <span>watching&nbsp;<b>24</b>&nbsp;files · <b style="color:#FF2D2D">3</b> hot</span>
+        <span class="agent"><b style="color:#00C853">●</b> claude is editing app.js</span>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1440, initial-scale=1">
+<title>翻箱 FanBox — INDEX</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --black:#0A0A0A;
+    --white:#FFFFFF;
+    --red:#FF433D;
+    --green:#00A33E;
+    --blue:#0000EE;
+    --rule:#0A0A0A;
+    --grey:#777;
+    --paper:#F4F1EA;
+    --hair:rgba(10,10,10,.14);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1440px;height:900px;overflow:hidden}
+  body{
+    background:var(--paper);
+    color:var(--black);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+    letter-spacing:-.01em;
+  }
+  .mono{font-family:'Geist Mono',monospace;letter-spacing:0}
+  .caps{text-transform:uppercase;letter-spacing:.12em}
+
+  /* ---------- SHELL ---------- */
+  .shell{
+    width:1440px;height:900px;
+    display:grid;
+    grid-template-columns:248px 1fr 396px;
+    grid-template-rows:64px 1fr;
+    background:var(--black);
+    gap:1px;
+  }
+  .cell{background:var(--paper)}
+
+  /* ---------- MASTHEAD (top bar spans middle+right via grid) ---------- */
+  .brandbar{grid-column:1;grid-row:1;background:var(--black);color:var(--white);display:flex;align-items:center;padding:0 16px;gap:11px}
+  .mark{width:30px;height:30px;flex:none}
+  .brandtxt{line-height:.92}
+  .brandtxt .t1{font-weight:900;font-size:18px;letter-spacing:-.03em}
+  .brandtxt .t2{font-size:8px;letter-spacing:.34em;color:var(--red);font-weight:600}
+
+  .toolbar{grid-column:2 / 4;grid-row:1;background:var(--paper);display:flex;align-items:stretch}
+  .crumb{display:flex;align-items:center;gap:7px;padding:0 18px;flex:1;border-right:1px solid var(--hair)}
+  .crumb .seg{font-size:12px;color:var(--grey);font-weight:500}
+  .crumb .seg.cur{color:var(--black);font-weight:700}
+  .crumb .sep{color:var(--hair);font-size:11px}
+  .tb-group{display:flex;align-items:center;gap:14px;padding:0 16px;border-right:1px solid var(--hair)}
+  .tb-lab{font-size:8px;color:var(--grey)}
+  .tb-opts{display:flex;gap:9px}
+  .tb-opt{font-size:11px;font-weight:600;color:var(--grey);cursor:pointer}
+  .tb-opt.on{color:var(--black);border-bottom:2px solid var(--red);padding-bottom:1px}
+  .tb-opt:hover{color:var(--black)}
+  .viewtog{display:flex;align-items:center;gap:0;padding:0 14px;border-right:1px solid var(--hair)}
+  .vbtn{width:30px;height:30px;display:grid;place-items:center;cursor:pointer;color:var(--grey)}
+  .vbtn.on{color:var(--white);background:var(--black)}
+  .vbtn:hover{color:var(--black)}
+  .vbtn.on:hover{color:var(--white)}
+  .kbar{display:flex;align-items:center;gap:9px;padding:0 18px;cursor:pointer;background:var(--black);color:var(--white)}
+  .kbar:hover{background:var(--red)}
+  .kbar .ksvg{flex:none}
+  .kbar .ktxt{font-size:11px;font-weight:600;letter-spacing:.02em}
+  .kbar .kkey{font-size:10px;font-weight:600;border:1px solid rgba(255,255,255,.4);padding:1px 6px;border-radius:2px}
+
+  /* ---------- LEFT RAIL ---------- */
+  .rail{grid-column:1;grid-row:2;background:var(--paper);display:flex;flex-direction:column;overflow:hidden}
+  .sect{border-bottom:1px solid var(--hair);padding:14px 16px 16px}
+  .sect-h{display:flex;align-items:baseline;gap:8px;margin-bottom:11px}
+  .sect-n{font-size:9px;font-weight:600;color:var(--red)}
+  .sect-t{font-size:9px;font-weight:700;color:var(--black)}
+  .nav-i{display:flex;align-items:center;gap:9px;padding:5px 0;cursor:pointer;color:var(--black)}
+  .nav-i:hover{color:var(--red)}
+  .nav-i.on{color:var(--red)}
+  .nav-i .lbl{font-size:12.5px;font-weight:500}
+  .nav-i .ct{margin-left:auto;font-size:9px;color:var(--grey)}
+  .nav-i.on .ct{color:var(--red)}
+  .nav-i svg{flex:none}
+
+  .fav .nav-i .lbl{font-weight:600}
+  .recent-i{display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer}
+  .recent-i:hover .rn{color:var(--red)}
+  .recent-i .rn{font-size:11.5px;font-weight:500}
+  .recent-i .rt{margin-left:auto;font-size:9px;color:var(--grey)}
+
+  /* sparkline block */
+  .stat{margin-top:auto;border-top:1px solid var(--rule);background:var(--black);color:var(--white);padding:13px 16px 15px}
+  .stat-h{display:flex;align-items:baseline;gap:8px;margin-bottom:4px}
+  .stat-n{font-size:9px;color:var(--red);font-weight:600}
+  .stat-t{font-size:9px;font-weight:700;letter-spacing:.06em}
+  .stat-big{font-size:38px;font-weight:800;line-height:1;letter-spacing:-.04em;margin:6px 0 1px}
+  .stat-sub{font-size:9px;color:#999;margin-bottom:11px}
+  .spark{display:flex;align-items:flex-end;gap:3px;height:42px}
+  .bar{flex:1;background:#3a3a3a;min-height:3px}
+  .bar.hi{background:var(--red)}
+  .bar.gn{background:var(--green)}
+  .spark-x{display:flex;justify-content:space-between;margin-top:5px}
+  .spark-x span{font-size:7.5px;color:#666}
+
+  /* ---------- CENTER INDEX ---------- */
+  .index{grid-column:2;grid-row:2;background:var(--paper);display:flex;flex-direction:column;overflow:hidden}
+  .idx-head{display:flex;align-items:flex-end;justify-content:space-between;padding:16px 20px 12px;border-bottom:2px solid var(--rule)}
+  .idx-title{font-size:33px;font-weight:900;letter-spacing:-.045em;line-height:.9}
+  .idx-meta{text-align:right}
+  .idx-meta .m1{font-size:10px;font-weight:600;color:var(--black)}
+  .idx-meta .m2{font-size:9px;color:var(--grey);margin-top:2px}
+
+  .col-head{display:grid;grid-template-columns:34px 1fr 92px 96px 70px;align-items:center;padding:6px 20px;border-bottom:1px solid var(--rule);background:var(--black);color:var(--white)}
+  .col-head span{font-size:8px;font-weight:600;letter-spacing:.1em}
+  .col-head .r{text-align:right}
+
+  .rows{flex:1;overflow:hidden}
+  .row{display:grid;grid-template-columns:34px 1fr 92px 96px 70px;align-items:center;padding:0 20px;height:50px;border-bottom:1px solid var(--hair);cursor:pointer}
+  .row:hover{background:#EAE6DC}
+  .row.sel{background:var(--black);color:var(--white)}
+  .row.sel .r-sub,.row.sel .r-meta{color:#aaa}
+  .row .r-idx{font-size:10px;color:var(--grey);font-weight:500}
+  .row.sel .r-idx{color:var(--red)}
+  .r-name-wrap{display:flex;align-items:center;gap:12px;min-width:0}
+  .r-ico{width:30px;height:30px;flex:none}
+  .r-txt{min-width:0}
+  .r-name{font-size:14px;font-weight:600;letter-spacing:-.02em;display:flex;align-items:center;gap:8px}
+  .r-sub{font-size:10px;color:var(--grey);margin-top:1px}
+  .badge{font-size:7.5px;font-weight:700;letter-spacing:.08em;padding:1px 5px;border:1px solid currentColor;border-radius:2px}
+  .badge.web{color:var(--blue)}
+  .badge.node{color:var(--green)}
+  .row.sel .badge.web{color:#6f9bff}
+  .row.sel .badge.node{color:#4ade80}
+  .r-kind{font-size:9px;font-weight:600;letter-spacing:.06em;color:var(--grey)}
+  .r-meta{font-size:11px;text-align:right}
+  .r-size{font-size:11px;text-align:right;color:var(--black)}
+  .row.sel .r-size{color:var(--white)}
+  .dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px;vertical-align:middle}
+  .dot.r{background:var(--red)}.dot.g{background:var(--green)}.dot.b{background:var(--blue)}
+
+  /* footer dist chart */
+  .dist{border-top:2px solid var(--rule);padding:11px 20px 12px;display:flex;align-items:center;gap:20px}
+  .dist-l{font-size:8px;font-weight:700;letter-spacing:.1em;color:var(--grey)}
+  .dist-bar{flex:1;display:flex;height:14px;border:1px solid var(--rule)}
+  .dist-seg{height:100%;position:relative}
+  .dist-key{display:flex;gap:14px}
+  .dk{display:flex;align-items:center;gap:5px;font-size:9px;font-weight:500}
+  .dk i{width:9px;height:9px;display:inline-block}
+
+  /* ---------- RIGHT PREVIEW ---------- */
+  .preview{grid-column:3;grid-row:2;background:var(--paper);display:flex;flex-direction:column;overflow:hidden}
+  .pv-head{padding:15px 18px 13px;border-bottom:1px solid var(--rule)}
+  .pv-kicker{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+  .pv-kicker .pk{font-size:8px;font-weight:700;letter-spacing:.1em;color:var(--red)}
+  .pv-kicker .pk2{font-size:8px;font-weight:600;letter-spacing:.1em;color:var(--grey)}
+  .pv-name{display:flex;align-items:center;gap:11px}
+  .pv-ico{width:32px;height:32px;flex:none}
+  .pv-fn{font-size:21px;font-weight:800;letter-spacing:-.03em}
+  .pv-path{font-size:9.5px;color:var(--grey);margin-top:9px;word-break:break-all}
+  .pv-path b{color:var(--black);font-weight:600}
+
+  .actions{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--rule)}
+  .act{display:flex;align-items:center;gap:8px;padding:11px 14px;border-right:1px solid var(--hair);border-bottom:1px solid var(--hair);cursor:pointer;background:var(--paper)}
+  .act:hover{background:var(--black);color:var(--white)}
+  .act:hover svg [stroke]{stroke:#fff}
+  .act:nth-child(2n){border-right:none}
+  .act.prime{background:var(--black);color:var(--white)}
+  .act.prime:hover{background:var(--red)}
+  .act .alab{font-size:11px;font-weight:600}
+  .act .akey{margin-left:auto;font-size:8.5px;color:var(--grey)}
+  .act.prime .akey,.act:hover .akey{color:rgba(255,255,255,.6)}
+  .act svg{flex:none}
+
+  .codewrap{flex:1;overflow:hidden;display:flex;flex-direction:column}
+  .code-bar{display:flex;align-items:center;justify-content:space-between;padding:6px 14px;border-bottom:1px solid var(--hair);background:#EAE6DC}
+  .code-bar .cl{font-size:8px;font-weight:600;letter-spacing:.08em;color:var(--grey)}
+  .code{flex:1;overflow:hidden;padding:9px 0;background:var(--white)}
+  .ln{display:grid;grid-template-columns:34px 1fr;font-family:'Geist Mono',monospace;font-size:11px;line-height:1.62}
+  .ln .num{text-align:right;padding-right:11px;color:#bbb;font-size:9.5px;user-select:none}
+  .ln .src{white-space:pre;padding-right:14px}
+  .tk-k{color:var(--blue);font-weight:600}
+  .tk-f{color:var(--red)}
+  .tk-s{color:var(--green)}
+  .tk-c{color:#999;font-style:italic}
+  .tk-n{color:var(--black);font-weight:600}
+  .tk-p{color:#555}
+
+  .pv-foot{border-top:1px solid var(--rule);padding:9px 18px;display:flex;justify-content:space-between;align-items:center;background:var(--black);color:var(--white)}
+  .pv-foot span{font-size:9px;color:#999}
+  .pv-foot .gn{color:var(--green);font-weight:600}
+
+  /* ---------- ⌘K OVERLAY ---------- */
+  .scrim{position:fixed;inset:0;background:rgba(10,10,10,.55);z-index:50;display:flex;justify-content:center;padding-top:118px}
+  .cmd{width:660px;height:fit-content;background:var(--paper);border:2px solid var(--black);box-shadow:14px 14px 0 rgba(10,10,10,.9)}
+  .cmd-top{display:flex;align-items:center;gap:13px;padding:16px 18px;border-bottom:2px solid var(--black)}
+  .cmd-top .clab{font-size:8px;font-weight:700;letter-spacing:.14em;color:var(--red);writing-mode:horizontal-tb}
+  .cmd-in{flex:1;font-family:'Inter',sans-serif;font-size:21px;font-weight:600;letter-spacing:-.02em}
+  .cmd-in .cur{color:var(--red)}
+  .cmd-in .ph{color:#bbb}
+  .cmd-esc{font-size:9px;font-weight:600;border:1px solid var(--hair);padding:3px 8px;border-radius:2px;color:var(--grey)}
+  .cmd-scope{display:flex;gap:0;border-bottom:1px solid var(--hair)}
+  .cscope{padding:7px 14px;font-size:8.5px;font-weight:700;letter-spacing:.08em;color:var(--grey);border-right:1px solid var(--hair);cursor:pointer}
+  .cscope.on{background:var(--black);color:var(--white)}
+  .cmd-res .crh{padding:8px 18px 4px;font-size:8px;font-weight:700;letter-spacing:.12em;color:var(--grey)}
+  .cres{display:flex;align-items:center;gap:13px;padding:9px 18px;cursor:pointer;border-bottom:1px solid var(--hair)}
+  .cres:last-child{border-bottom:none}
+  .cres.on{background:var(--black);color:var(--white)}
+  .cres .cr-ico{width:26px;height:26px;flex:none}
+  .cres .cr-n{font-size:13.5px;font-weight:600}
+  .cres .cr-n em{font-style:normal;background:var(--red);color:#fff;padding:0 1px}
+  .cres .cr-p{font-size:9px;color:var(--grey)}
+  .cres.on .cr-p{color:#999}
+  .cres .cr-meta{margin-left:auto;font-size:9px;color:var(--grey)}
+  .cres .cr-enter{margin-left:auto;font-size:9px;color:var(--red);font-weight:600}
+  .cmd-foot{display:flex;align-items:center;gap:18px;padding:9px 18px;border-top:2px solid var(--black);background:var(--black);color:#999}
+  .cmd-foot span{font-size:9px}
+  .cmd-foot b{color:var(--white);font-weight:600}
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ===== BRAND ===== -->
+  <div class="brandbar">
+    <svg class="mark" viewBox="0 0 30 30" fill="none">
+      <rect x="1" y="1" width="28" height="28" stroke="#FF433D" stroke-width="2"/>
+      <path d="M1 10 H29" stroke="#fff" stroke-width="2"/>
+      <path d="M11 10 V29" stroke="#fff" stroke-width="2"/>
+      <path d="M5 17 H8 M5 22 H8" stroke="#fff" stroke-width="2"/>
+      <rect x="15" y="14" width="10" height="11" fill="#FF433D"/>
+    </svg>
+    <div class="brandtxt">
+      <div class="t1">翻箱</div>
+      <div class="t2 mono">FANBOX</div>
+    </div>
+  </div>
+
+  <!-- ===== TOOLBAR ===== -->
+  <div class="toolbar">
+    <div class="crumb mono">
+      <span class="seg">Users</span><span class="sep">›</span>
+      <span class="seg">alchain</span><span class="sep">›</span>
+      <span class="seg">Documents</span><span class="sep">›</span>
+      <span class="seg cur">_开发项目</span>
+    </div>
+    <div class="tb-group">
+      <span class="tb-lab caps mono">SORT</span>
+      <div class="tb-opts">
+        <span class="tb-opt">名称</span>
+        <span class="tb-opt on">时间</span>
+        <span class="tb-opt">大小</span>
+      </div>
+    </div>
+    <div class="viewtog">
+      <div class="vbtn" title="网格">
+        <svg width="13" height="13" viewBox="0 0 13 13"><rect x="0" y="0" width="5" height="5" fill="currentColor"/><rect x="8" y="0" width="5" height="5" fill="currentColor"/><rect x="0" y="8" width="5" height="5" fill="currentColor"/><rect x="8" y="8" width="5" height="5" fill="currentColor"/></svg>
+      </div>
+      <div class="vbtn on" title="列表">
+        <svg width="14" height="13" viewBox="0 0 14 13"><rect x="0" y="1" width="14" height="2" fill="currentColor"/><rect x="0" y="6" width="14" height="2" fill="currentColor"/><rect x="0" y="11" width="14" height="2" fill="currentColor"/></svg>
+      </div>
+    </div>
+    <div class="kbar">
+      <svg class="ksvg" width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="#fff" stroke-width="1.6"/><path d="M9.5 9.5 L13 13" stroke="#fff" stroke-width="1.6"/></svg>
+      <span class="ktxt">搜索全部文件</span>
+      <span class="kkey mono">⌘K</span>
+    </div>
+  </div>
+
+  <!-- ===== LEFT RAIL ===== -->
+  <div class="rail">
+    <div class="sect">
+      <div class="sect-h"><span class="sect-n mono">01</span><span class="sect-t caps">快速入口</span></div>
+      <div class="nav-i on">
+        <svg width="17" height="15" viewBox="0 0 17 15"><path d="M1 3 H6 L8 5 H16 V14 H1 Z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+        <span class="lbl">主目录</span><span class="ct mono">128</span>
+      </div>
+      <div class="nav-i">
+        <svg width="17" height="15" viewBox="0 0 17 15"><rect x="1" y="2" width="15" height="9" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5 14 H12" stroke="currentColor" stroke-width="1.5"/></svg>
+        <span class="lbl">桌面</span><span class="ct mono">41</span>
+      </div>
+      <div class="nav-i">
+        <svg width="17" height="15" viewBox="0 0 17 15"><path d="M3 1 H11 L14 4 V14 H3 Z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6 6 H11 M6 9 H11" stroke="currentColor" stroke-width="1.5"/></svg>
+        <span class="lbl">文档</span><span class="ct mono">312</span>
+      </div>
+      <div class="nav-i">
+        <svg width="17" height="15" viewBox="0 0 17 15"><path d="M8 1 V10 M4 7 L8 11 L12 7" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M2 13 H14" stroke="currentColor" stroke-width="1.5"/></svg>
+        <span class="lbl">下载</span><span class="ct mono">89</span>
+      </div>
+      <div class="nav-i">
+        <svg width="17" height="15" viewBox="0 0 17 15"><rect x="1" y="2" width="15" height="11" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M1 6 H16" stroke="currentColor" stroke-width="1.5"/><circle cx="3.5" cy="4" r=".8" fill="currentColor"/></svg>
+        <span class="lbl">项目</span><span class="ct mono">23</span>
+      </div>
+    </div>
+
+    <div class="sect fav">
+      <div class="sect-h"><span class="sect-n mono">02</span><span class="sect-t caps">收藏</span></div>
+      <div class="nav-i">
+        <svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1 L9 5 L13 5.5 L10 8.5 L11 13 L7 10.5 L3 13 L4 8.5 L1 5.5 L5 5 Z" fill="var(--red)"/></svg>
+        <span class="lbl">fanbox</span><span class="ct mono">WEB</span>
+      </div>
+      <div class="nav-i">
+        <svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1 L9 5 L13 5.5 L10 8.5 L11 13 L7 10.5 L3 13 L4 8.5 L1 5.5 L5 5 Z" fill="var(--red)"/></svg>
+        <span class="lbl">落地页demo</span><span class="ct mono">HTML</span>
+      </div>
+      <div class="nav-i">
+        <svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1 L9 5 L13 5.5 L10 8.5 L11 13 L7 10.5 L3 13 L4 8.5 L1 5.5 L5 5 Z" fill="var(--red)"/></svg>
+        <span class="lbl">WorkBuddy</span><span class="ct mono">NODE</span>
+      </div>
+    </div>
+
+    <div class="sect">
+      <div class="sect-h"><span class="sect-n mono">03</span><span class="sect-t caps">最近打开</span></div>
+      <div class="recent-i"><span class="dot r"></span><span class="rn">index.html</span><span class="rt mono">2m</span></div>
+      <div class="recent-i"><span class="dot g"></span><span class="rn">server.js</span><span class="rt mono">18m</span></div>
+      <div class="recent-i"><span class="dot b"></span><span class="rn">README.md</span><span class="rt mono">1h</span></div>
+    </div>
+
+    <!-- sparkline -->
+    <div class="stat">
+      <div class="stat-h"><span class="stat-n mono">04</span><span class="stat-t caps">本周文件活动</span></div>
+      <div class="stat-big mono">247</div>
+      <div class="stat-sub caps mono">个文件被触碰 · 较上周 +31%</div>
+      <div class="spark">
+        <div class="bar" style="height:34%"></div>
+        <div class="bar" style="height:21%"></div>
+        <div class="bar gn" style="height:58%"></div>
+        <div class="bar" style="height:44%"></div>
+        <div class="bar" style="height:30%"></div>
+        <div class="bar hi" style="height:92%"></div>
+        <div class="bar hi" style="height:74%"></div>
+      </div>
+      <div class="spark-x mono">
+        <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== CENTER INDEX ===== -->
+  <div class="index">
+    <div class="idx-head">
+      <div class="idx-title">索引 / INDEX</div>
+      <div class="idx-meta mono">
+        <div class="m1">12 项 · 5 文件夹 · 7 文件</div>
+        <div class="m2">更新于 2026·06·09 14:02</div>
+      </div>
+    </div>
+
+    <div class="col-head mono">
+      <span>№</span><span>名称 / NAME</span><span>类型</span><span class="r">修改时间</span><span class="r">大小</span>
+    </div>
+
+    <div class="rows">
+      <!-- 01 folder web -->
+      <div class="row">
+        <span class="r-idx mono">01</span>
+        <div class="r-name-wrap">
+          <svg class="r-ico" viewBox="0 0 30 30"><path d="M2 7 H10 L13 10 H28 V25 H2 Z" fill="none" stroke="#0A0A0A" stroke-width="1.8"/><rect x="2" y="7" width="11" height="3" fill="#FF433D"/></svg>
+          <div class="r-txt"><div class="r-name">fanbox <span class="badge web">WEB</span></div><div class="r-sub mono">本地文件指挥中心 · 18 项</div></div>
+        </div>
+        <span class="r-kind">FOLDER</span>
+        <span class="r-meta mono">2m 前</span>
+        <span class="r-size mono">— —</span>
+      </div>
+      <!-- 02 folder -->
+      <div class="row">
+        <span class="r-idx mono">02</span>
+        <div class="r-name-wrap">
+          <svg class="r-ico" viewBox="0 0 30 30"><path d="M2 7 H10 L13 10 H28 V25 H2 Z" fill="none" stroke="#0A0A0A" stroke-width="1.8"/><rect x="2" y="7" width="11" height="3" fill="#0A0A0A"/></svg>
+          <div class="r-txt"><div class="r-name">Coze</div><div class="r-sub mono">Bot 工作流导出 · 7 项</div></div>
+        </div>
+        <span class="r-kind">FOLDER</span>
+        <span class="r-meta mono">昨天</span>
+        <span class="r-size mono">— —</span>
+      </div>
+      <!-- 03 folder node -->
+      <div class="row">
+        <span class="r-idx mono">03</span>
+        <div class="r-name-wrap">
+          <svg class="r-ico" viewBox="0 0 30 30"><path d="M2 7 H10 L13 10 H28 V25 H2 Z" fill="none" stroke="#0A0A0A" stroke-width="1.8"/><rect x="2" y="7" width="11" height="3" fill="#00A33E"/></svg>
+          <div class="r-txt"><div class="r-name">WorkBuddy <span class="badge node">NODE</span></div><div class="r-sub mono">Electron 桌面应用 · 142 项</div></div>
+        </div>
+        <span class="r-kind">FOLDER</span>
+        <span class="r-meta mono">06·08</span>
+        <span class="r-size mono">— —</span>
+      </div>
+      <!-- 04 folder -->
+      <div class="row">
+        <span class="r-idx mono">04</span>
+        <div class="r-name-wrap">
+          <svg class="r-ico" viewBox="0 0 30 30"><path d="M2 7 H10 L13 10 H28 V25 H2 Z" fill="none" stroke="#0A0A0A" stroke-width="1.8"/><rect x="2" y="7" width="11" height="3" fill="#0A0A0A"/></svg>
+          <div class="r-txt"><div class="r-name">AndroidStudioProjects</div><div class="r-sub mono">Kotlin / Gradle · 311 项</div></div>
+        </div>
+        <span class="r-kind">FOLDER</span>
+        <span class="r-meta mono">06·02</span>
+        <span class="r-size mono">— —</span>
+      </div>
+      <!-- 05 html SELECTED -->
+      <div class="row sel">
+        <span class="r-idx mono">05</span>
+        <div class="r-name-wrap">
+          <svg class="r-ico" viewBox="0 0 30 30"><rect x="4" y="2" width="22" height="26" fill="none" stroke="#fff" stroke-width="1.8"/><path d="M9 12 L6 16 L9 20 M21 12 L24 16 L21 20 M16 11 L14 21" stroke="#FF433D" stroke-width="1.8" fill="none"/></svg>
+          <div class="r-txt"><div class="r-name">index.html</div><div class="r-sub mono">HTML 成品 · 可预览</div></div>
+        </div>
+        <span class="r-kind" style="color:#FF433D">HTML</span>
+        <span class="r-meta mono">2m 前</span>
+        <span class="r-size mono">14.2 KB</span>
+      </div>
+      <!-- 06 python -->
+      <div class="row">
+        <span class="r-idx mono">06</span>
+        <div class="r-name-wrap">
+          <svg class="r-ico" viewBox="0 0 30 30"><rect x="4" y="2" width="22" height="26" fill="none" stroke="#0A0A0A" stroke-width="1.8"/><path d="M9 12 L6 16 L9 20 M21 12 L24 16 L21 20 M16 11 L14 21" stroke="#0A0A0A" stroke-width="1.8" fill="none"/></svg>
+          <div class="r-txt"><div class="r-name">app.py</div><div class="r-sub mono">Python 脚本</div></div>
+        </div>
+        <span class="r-kind">CODE</span>
+        <span class="r-meta mono">11m 前</span>
+        <span class="r-size mono">6.8 KB</span>
+      </div>
+      <!-- 07 markdown -->
+      <div class="row">
+        <span class="r-idx mono">07</span>
+        <div class="r-name-wrap">
+          <svg class="r-ico" viewBox="0 0 30 30"><rect x="3" y="6" width="24" height="18" rx="2" fill="none" stroke="#0A0A0A" stroke-width="1.8"/><path d="M7 19 V11 L11 16 L15 11 V19 M20 11 V19 M17 16 L20 19 L23 16" stroke="#0000EE" stroke-width="1.8" fill="none"/></svg>
+          <div class="r-txt"><div class="r-name">README.md</div><div class="r-sub mono">Markdown 渲染</div></div>
+        </div>
+        <span class="r-kind">MD</span>
+        <span class="r-meta mono">1h 前</span>
+        <span class="r-size mono">2.1 KB</span>
+      </div>
+      <!-- 08 html -->
+      <div class="row">
+        <span class="r-idx mono">08</span>
+        <div class="r-name-wrap">
+          <svg class="r-ico" viewBox="0 0 30 30"><rect x="4" y="2" width="22" height="26" fill="none" stroke="#0A0A0A" stroke-width="1.8"/><path d="M9 12 L6 16 L9 20 M21 12 L24 16 L21 20 M16 11 L14 21" stroke="#0A0A0A" stroke-width="1.8" fill="none"/></svg>
+          <div class="r-txt"><div class="r-name">prototype.html</div><div class="r-sub mono">HTML 原型 · 可预览</div></div>
+        </div>
+        <span class="r-kind">HTML</span>
+        <span class="r-meta mono">3h 前</span>
+        <span class="r-size mono">22.9 KB</span>
+      </div>
+      <!-- 09 csv -->
+      <div class="row">
+        <span class="r-idx mono">09</span>
+        <div class="r-name-wrap">
+          <svg class="r-ico" viewBox="0 0 30 30"><rect x="4" y="3" width="22" height="24" fill="none" stroke="#0A0A0A" stroke-width="1.8"/><path d="M4 11 H26 M4 19 H26 M12 3 V27 M19 3 V27" stroke="#0A0A0A" stroke-width="1.4"/><rect x="4" y="3" width="8" height="8" fill="#FF433D"/></svg>
+          <div class="r-txt"><div class="r-name">dataset.csv</div><div class="r-sub mono">数据表 · 4,210 行</div></div>
+        </div>
+        <span class="r-kind">DATA</span>
+        <span class="r-meta mono">06·07</span>
+        <span class="r-size mono">318 KB</span>
+      </div>
+      <!-- 10 image -->
+      <div class="row">
+        <span class="r-idx mono">10</span>
+        <div class="r-name-wrap">
+          <svg class="r-ico" viewBox="0 0 30 30"><rect x="3" y="5" width="24" height="20" fill="none" stroke="#0A0A0A" stroke-width="1.8"/><circle cx="10" cy="11" r="2.2" fill="#FF433D"/><path d="M3 22 L11 15 L17 20 L21 16 L27 22" stroke="#0A0A0A" stroke-width="1.8" fill="none"/></svg>
+          <div class="r-txt"><div class="r-name">cover.png</div><div class="r-sub mono">图片 · 1600×900</div></div>
+        </div>
+        <span class="r-kind">IMG</span>
+        <span class="r-meta mono">06·06</span>
+        <span class="r-size mono">1.4 MB</span>
+      </div>
+      <!-- 11 server.js -->
+      <div class="row">
+        <span class="r-idx mono">11</span>
+        <div class="r-name-wrap">
+          <svg class="r-ico" viewBox="0 0 30 30"><rect x="4" y="2" width="22" height="26" fill="none" stroke="#0A0A0A" stroke-width="1.8"/><path d="M9 12 L6 16 L9 20 M21 12 L24 16 L21 20 M16 11 L14 21" stroke="#00A33E" stroke-width="1.8" fill="none"/></svg>
+          <div class="r-txt"><div class="r-name">server.js</div><div class="r-sub mono">Node 服务端</div></div>
+        </div>
+        <span class="r-kind">CODE</span>
+        <span class="r-meta mono">18m 前</span>
+        <span class="r-size mono">4.0 KB</span>
+      </div>
+      <!-- 12 folder -->
+      <div class="row">
+        <span class="r-idx mono">12</span>
+        <div class="r-name-wrap">
+          <svg class="r-ico" viewBox="0 0 30 30"><path d="M2 7 H10 L13 10 H28 V25 H2 Z" fill="none" stroke="#0A0A0A" stroke-width="1.8"/><rect x="2" y="7" width="11" height="3" fill="#0A0A0A"/></svg>
+          <div class="r-txt"><div class="r-name">tools</div><div class="r-sub mono">零散脚本 · 31 项</div></div>
+        </div>
+        <span class="r-kind">FOLDER</span>
+        <span class="r-meta mono">05·29</span>
+        <span class="r-size mono">— —</span>
+      </div>
+    </div>
+
+    <!-- distribution chart -->
+    <div class="dist">
+      <span class="dist-l mono">项目类型分布</span>
+      <div class="dist-bar">
+        <div class="dist-seg" style="width:33%;background:#0A0A0A"></div>
+        <div class="dist-seg" style="width:25%;background:#FF433D"></div>
+        <div class="dist-seg" style="width:25%;background:#00A33E"></div>
+        <div class="dist-seg" style="width:17%;background:#0000EE"></div>
+      </div>
+      <div class="dist-key mono">
+        <span class="dk"><i style="background:#0A0A0A"></i>文件夹 ·33%</span>
+        <span class="dk"><i style="background:#FF433D"></i>网页 ·25%</span>
+        <span class="dk"><i style="background:#00A33E"></i>代码 ·25%</span>
+        <span class="dk"><i style="background:#0000EE"></i>其它 ·17%</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== RIGHT PREVIEW ===== -->
+  <div class="preview">
+    <div class="pv-head">
+      <div class="pv-kicker">
+        <span class="pk mono">№05 / 预览</span>
+        <span class="pk2 mono">PREVIEW · HTML</span>
+      </div>
+      <div class="pv-name">
+        <svg class="pv-ico" viewBox="0 0 30 30"><rect x="4" y="2" width="22" height="26" fill="none" stroke="#0A0A0A" stroke-width="1.8"/><path d="M9 12 L6 16 L9 20 M21 12 L24 16 L21 20 M16 11 L14 21" stroke="#FF433D" stroke-width="1.8" fill="none"/></svg>
+        <span class="pv-fn">index.html</span>
+      </div>
+      <div class="pv-path mono">~/Documents/<b>_开发项目</b>/<b>index.html</b></div>
+    </div>
+
+    <div class="actions">
+      <div class="act prime">
+        <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 2 H12 V12 H2 Z" stroke="#fff" stroke-width="1.5" fill="none"/><path d="M5 7 L9 7 M7 5 L9 7 L7 9" stroke="#fff" stroke-width="1.5" fill="none"/></svg>
+        <span class="alab">默认打开</span><span class="akey mono">↵</span>
+      </div>
+      <div class="act">
+        <svg width="14" height="14" viewBox="0 0 14 14"><path d="M9 2 L12 5 L5 12 L2 12 L2 9 Z" stroke="#0A0A0A" stroke-width="1.5" fill="none"/></svg>
+        <span class="alab">编辑器</span><span class="akey mono">⌘E</span>
+      </div>
+      <div class="act">
+        <svg width="15" height="13" viewBox="0 0 15 13"><path d="M1 3 H5 L6.5 4.5 H14 V11 H1 Z" stroke="#0A0A0A" stroke-width="1.5" fill="none"/></svg>
+        <span class="alab">Finder</span><span class="akey mono">⌘F</span>
+      </div>
+      <div class="act">
+        <svg width="14" height="14" viewBox="0 0 14 14"><rect x="4" y="4" width="8" height="8" stroke="#0A0A0A" stroke-width="1.5" fill="none"/><path d="M2 9 V2 H9" stroke="#0A0A0A" stroke-width="1.5" fill="none"/></svg>
+        <span class="alab">复制路径</span><span class="akey mono">⌘C</span>
+      </div>
+      <div class="act" style="grid-column:1 / 3;border-right:none;border-bottom:none">
+        <svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1 L9 5 L13 5.5 L10 8.5 L11 13 L7 10.5 L3 13 L4 8.5 L1 5.5 L5 5 Z" stroke="#FF433D" stroke-width="1.5" fill="none"/></svg>
+        <span class="alab">加入收藏</span><span class="akey mono" style="color:#999">⌘D</span>
+      </div>
+    </div>
+
+    <div class="codewrap">
+      <div class="code-bar">
+        <span class="cl mono">源码 · SYNTAX HTML</span>
+        <span class="cl mono">UTF-8 · LF · 312 行</span>
+      </div>
+      <div class="code">
+        <div class="ln"><span class="num">1</span><span class="src"><span class="tk-p">&lt;!</span><span class="tk-k">DOCTYPE</span><span class="tk-p"> </span><span class="tk-n">html</span><span class="tk-p">&gt;</span></span></div>
+        <div class="ln"><span class="num">2</span><span class="src"><span class="tk-p">&lt;</span><span class="tk-f">html</span><span class="tk-p"> </span><span class="tk-k">lang</span><span class="tk-p">=</span><span class="tk-s">"zh-CN"</span><span class="tk-p">&gt;</span></span></div>
+        <div class="ln"><span class="num">3</span><span class="src"><span class="tk-p">&lt;</span><span class="tk-f">head</span><span class="tk-p">&gt;</span></span></div>
+        <div class="ln"><span class="num">4</span><span class="src">  <span class="tk-p">&lt;</span><span class="tk-f">meta</span><span class="tk-p"> </span><span class="tk-k">charset</span><span class="tk-p">=</span><span class="tk-s">"UTF-8"</span><span class="tk-p">&gt;</span></span></div>
+        <div class="ln"><span class="num">5</span><span class="src">  <span class="tk-p">&lt;</span><span class="tk-f">title</span><span class="tk-p">&gt;</span>落地页 demo<span class="tk-p">&lt;/</span><span class="tk-f">title</span><span class="tk-p">&gt;</span></span></div>
+        <div class="ln"><span class="num">6</span><span class="src">  <span class="tk-p">&lt;</span><span class="tk-f">style</span><span class="tk-p">&gt;</span></span></div>
+        <div class="ln"><span class="num">7</span><span class="src">    <span class="tk-c">/* 翻箱生成 · 14:02 */</span></span></div>
+        <div class="ln"><span class="num">8</span><span class="src">    <span class="tk-f">body</span> <span class="tk-p">{</span> <span class="tk-k">margin</span>: <span class="tk-n">0</span>; <span class="tk-p">}</span></span></div>
+        <div class="ln"><span class="num">9</span><span class="src">    <span class="tk-p">.</span><span class="tk-f">hero</span> <span class="tk-p">{</span></span></div>
+        <div class="ln"><span class="num">10</span><span class="src">      <span class="tk-k">background</span>: <span class="tk-n">#0A0A0A</span>;</span></div>
+        <div class="ln"><span class="num">11</span><span class="src">      <span class="tk-k">color</span>: <span class="tk-n">#FF433D</span>;</span></div>
+        <div class="ln"><span class="num">12</span><span class="src">      <span class="tk-k">font-family</span>: <span class="tk-s">'Inter'</span>;</span></div>
+        <div class="ln"><span class="num">13</span><span class="src">    <span class="tk-p">}</span></span></div>
+        <div class="ln"><span class="num">14</span><span class="src">  <span class="tk-p">&lt;/</span><span class="tk-f">style</span><span class="tk-p">&gt;</span></span></div>
+        <div class="ln"><span class="num">15</span><span class="src"><span class="tk-p">&lt;/</span><span class="tk-f">head</span><span class="tk-p">&gt;</span></span></div>
+        <div class="ln"><span class="num">16</span><span class="src"><span class="tk-p">&lt;</span><span class="tk-f">body</span><span class="tk-p">&gt;</span></span></div>
+        <div class="ln"><span class="num">17</span><span class="src">  <span class="tk-p">&lt;</span><span class="tk-f">section</span><span class="tk-p"> </span><span class="tk-k">class</span><span class="tk-p">=</span><span class="tk-s">"hero"</span><span class="tk-p">&gt;</span></span></div>
+        <div class="ln"><span class="num">18</span><span class="src">    <span class="tk-p">&lt;</span><span class="tk-f">h1</span><span class="tk-p">&gt;</span>找回每一个文件<span class="tk-p">&lt;/</span><span class="tk-f">h1</span><span class="tk-p">&gt;</span></span></div>
+        <div class="ln"><span class="num">19</span><span class="src">  <span class="tk-p">&lt;/</span><span class="tk-f">section</span><span class="tk-p">&gt;</span></span></div>
+      </div>
+    </div>
+
+    <div class="pv-foot mono">
+      <span><span class="gn">●</span> 已索引 · 哈希校验通过</span>
+      <span>读取 0.4ms</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== ⌘K COMMAND PALETTE ===== -->
+<div class="scrim">
+  <div class="cmd">
+    <div class="cmd-top">
+      <span class="clab mono">⌘K</span>
+      <div class="cmd-in">prototy<span class="cur">|</span><span class="ph"> 在全部文件中模糊搜索…</span></div>
+      <span class="cmd-esc mono">ESC</span>
+    </div>
+    <div class="cmd-scope mono">
+      <span class="cscope on">全部</span>
+      <span class="cscope">文件夹</span>
+      <span class="cscope">网页</span>
+      <span class="cscope">代码</span>
+      <span class="cscope">图片</span>
+    </div>
+    <div class="cmd-res">
+      <div class="crh mono">最佳匹配 · 3 / 412 项</div>
+      <div class="cres on">
+        <svg class="cr-ico" viewBox="0 0 30 30"><rect x="4" y="2" width="22" height="26" fill="none" stroke="#fff" stroke-width="1.8"/><path d="M9 12 L6 16 L9 20 M21 12 L24 16 L21 20 M16 11 L14 21" stroke="#FF433D" stroke-width="1.8" fill="none"/></svg>
+        <div><div class="cr-n"><em>prototy</em>pe.html</div><div class="cr-p mono" style="color:#999">_开发项目/fanbox · 3h 前</div></div>
+        <span class="cr-enter mono">↵ 打开</span>
+      </div>
+      <div class="cres">
+        <svg class="cr-ico" viewBox="0 0 30 30"><rect x="4" y="2" width="22" height="26" fill="none" stroke="#0A0A0A" stroke-width="1.8"/><path d="M9 12 L6 16 L9 20 M21 12 L24 16 L21 20 M16 11 L14 21" stroke="#0A0A0A" stroke-width="1.8" fill="none"/></svg>
+        <div><div class="cr-n"><em>proto</em>_v2.html</div><div class="cr-p mono">Desktop/落地页demo · 昨天</div></div>
+        <span class="cr-meta mono">19 KB</span>
+      </div>
+      <div class="cres">
+        <svg class="cr-ico" viewBox="0 0 30 30"><path d="M2 7 H10 L13 10 H28 V25 H2 Z" fill="none" stroke="#0A0A0A" stroke-width="1.8"/><rect x="2" y="7" width="11" height="3" fill="#0A0A0A"/></svg>
+        <div><div class="cr-n"><em>proto</em>types</div><div class="cr-p mono">Documents/_开发项目 · 24 项</div></div>
+        <span class="cr-meta mono">文件夹</span>
+      </div>
+    </div>
+    <div class="cmd-foot mono">
+      <span><b>↑↓</b> 导航</span>
+      <span><b>↵</b> 默认打开</span>
+      <span><b>⌘↵</b> 编辑器打开</span>
+      <span><b>⌘C</b> 复制路径</span>
+      <span style="margin-left:auto;color:#666">翻箱 · 全局模糊搜索</span>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
