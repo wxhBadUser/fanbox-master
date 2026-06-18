@@ -40,19 +40,23 @@ function saveBounds() {
 
 function createWindow() {
   const b = loadBounds();
-  win = new BrowserWindow({
+  const winOpts = {
     width: b.width, height: b.height, x: b.x, y: b.y,
     minWidth: 920, minHeight: 600,
-    titleBarStyle: 'hiddenInset',
     backgroundColor: '#0b0c0a',
-    vibrancy: 'sidebar',
-    visualEffectState: 'active',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
-  });
+  };
+  // macOS 专属窗口样式：Windows 不传这些属性，避免意外行为
+  if (process.platform === 'darwin') {
+    winOpts.titleBarStyle = 'hiddenInset';
+    winOpts.vibrancy = 'sidebar';
+    winOpts.visualEffectState = 'active';
+  }
+  win = new BrowserWindow(winOpts);
   // 拖动/缩放后防抖记忆，关窗再存一次兜底
   let bt = null;
   const remember = () => { clearTimeout(bt); bt = setTimeout(saveBounds, 400); };

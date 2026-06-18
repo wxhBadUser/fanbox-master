@@ -183,7 +183,7 @@ window.__svgImg = richIcon({ name: '_.jpg', kind: 'image' }, 40);
 window.__svgVideo = richIcon({ name: '_.mp4', kind: 'video' }, 40);
 
 const state = {
-  cwd: null, home: null, platform: 'darwin', sep: '/',
+  cwd: null, home: null, platform: (window.fanboxEnv && window.fanboxEnv.platform) || navigator.platform.toLowerCase(), sep: '/',
   theme: localStorage.getItem('fb_theme') || 'warm',
   entries: [], project: null, history: [],
   view: localStorage.getItem('fb_view') || 'grid',
