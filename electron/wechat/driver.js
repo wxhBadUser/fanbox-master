@@ -4,7 +4,21 @@
 const { spawn } = require('child_process');
 const { fullEnv } = require('./env');
 
-const loginShell = () => process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
+// 统一 shell 执行：按平台选出正确的 shell 和参数风格
+//   macOS/Linux：login shell -lc（继承 .zshrc/.bash_profile 的 PATH/代理/中转地址）
+//   Windows：cmd.exe /d /s /c（简单可靠，claude 在 PATH 中即可直接调用）
+function shellCommand(command) {
+  if (process.platform === 'win32') {
+    return {
+      shell: process.env.COMSPEC || process.env.ComSpec || 'cmd.exe',
+      args: ['/d', '/s', '/c', command],
+    };
+  }
+  return {
+    shell: process.env.SHELL || '/bin/zsh',
+    args: ['-lc', command],
+  };
+}
 
 // 跑一条命令，prompt 写 stdin。env 复刻自用户的交互式登录 shell（见 env.js）：
 // 打包后从 Finder 启动会丢掉 PATH/代理/BASE_URL，这里补回来，子进程联网方式和用户终端一致。
@@ -12,10 +26,11 @@ const loginShell = () => process.env.SHELL || (process.platform === 'win32' ? 'p
 async function run(cmd, stdinText, cwd, timeoutMs = 180000, onLine = null) {
   const env = await fullEnv();
   return new Promise((resolve) => {
-    const child = spawn(loginShell(), ['-lc', cmd], { cwd: cwd || env.HOME || process.env.HOME, env });
+    const { shell, args } = shellCommand(cmd);
+    const child = spawn(shell, args, { cwd: cwd || env.HOME || process.env.HOME, env });
     let out = '', err = '', done = false, lineBuf = '';
     const finish = (r) => { if (done) return; done = true; resolve(r); };
-    const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* */ } finish({ ok: false, out, err: err + '\n[超时]' }); }, timeoutMs);
+    const timer = setTimeout(() => { try { child.kill(process.platform === 'win32' ? 'SIGTERM' : 'SIGKILL'); } catch { /* */ } finish({ ok: false, out, err: err + '\n[超时]' }); }, timeoutMs);
     child.stdout.on('data', (d) => {
       const s = d.toString('utf8'); out += s;
       if (!onLine) return;
@@ -62,7 +77,13 @@ function codexNote(item) {
 
 // 检测本机有没有这个 CLI
 function which(bin) {
-  return run(`command -v ${bin} || true`, '', null, 8000).then((r) => !!(r.out || '').trim());
+  if (process.platform === 'win32') {
+    return run(`where ${bin} 2>nul || exit /b 0`, '', null, 8000).then((r) => {
+      const out = (r.out || '').trim();
+      return out ? out : null;
+    });
+  }
+  return run(`command -v ${bin} || true`, '', null, 8000).then((r) => (r.out || '').trim() || null);
 }
 
 // claude 无头：续话靠「首轮自带 --session-id <我们生成的 uuid>，之后 --resume 同一 uuid」。
@@ -144,8 +165,15 @@ async function runCodex(text, cwd, persona, sessionId, onProgress) {
 
 function stripAnsi(s) { return s.replace(/\[[0-9;]*m/g, ''); }
 
-// shell 单引号安全包裹（人格可能含引号/换行/中文）
-function shq(s) { return `'${String(s).replace(/'/g, "'\\''")}'`; }
+// shell 安全包裹（跨平台）
+//   macOS/Linux：单引号包裹，内部单引号用 '\'' 转义
+//   Windows/cmd.exe：双引号包裹，内部双引号用 "" 转义
+function shq(s) {
+  if (process.platform === 'win32') {
+    return '"' + String(s).replace(/"/g, '""') + '"';
+  }
+  return `'${String(s).replace(/'/g, "'\\''")}'`;
+}
 
 // 启动时预热终端环境复刻（缓存到 env.js，第一条消息就不必等 shell 起来）
 function warmEnv() { fullEnv().catch(() => { /* 失败就退回 process.env，run 时再算 */ }); }

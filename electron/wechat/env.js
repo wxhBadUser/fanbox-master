@@ -1,9 +1,7 @@
-// 复刻用户终端环境：打包后的 App 从 Finder/Dock 启动，拿到的是 macOS 阉割过的环境
-// （没 PATH 补充、没代理、没 ANTHROPIC_BASE_URL 等自定义变量）——claude/codex 子进程因此
-// 找不到命令、或裸连 api 被 403 地域拦截。这里跑一次用户的「交互式登录 shell」抓回它的完整环境，
-// 让子进程联网方式和用户平时在终端里跑 claude/codex 完全一致——不假设任何特定代理方式。
-//   主：导入 shell 环境（覆盖各种 shell 的 .zshrc/.bash_profile/fish config，含代理/中转站/PATH/自定义变量）
-//   辅：导入后仍没有代理变量 → 读 macOS 系统代理（scutil --proxy，Clash 等都会写入）兜底，只补空缺不覆盖
+// 复刻用户终端环境
+//   macOS/Linux：跑一次交互式登录 shell 抓完整环境（PATH/代理/ANTHROPIC_BASE_URL 等自定义变量）
+//   Windows：cmd.exe /d /s /c set 抓环境变量（打包后从开始菜单启动能拿到系统 PATH）
+
 const { execFile } = require('child_process');
 
 let cached = null; // Promise<env 对象>，只算一次
@@ -12,10 +10,22 @@ const userShell = () => process.env.SHELL || (process.platform === 'win32' ? 'po
 const PROXY_KEYS = ['https_proxy', 'HTTPS_PROXY', 'http_proxy', 'HTTP_PROXY', 'all_proxy', 'ALL_PROXY'];
 
 // 跑 `$SHELL -ilc 'env'` 抓交互式登录 shell 的完整环境变量（PATH/代理/BASE_URL 等）
+// 用独特分隔符包住 env 输出，把 .zshrc 里 echo/插件打印的噪声挡在外面
 function dumpShellEnv() {
   return new Promise((resolve) => {
-    if (process.platform === 'win32') return resolve({});
-    // 用独特分隔符包住 env 输出，把 .zshrc 里 echo/插件打印的噪声挡在外面
+    if (process.platform === 'win32') {
+      // 用 cmd 的 set 命令获取环境变量（简单稳定，PATH 准确）
+      execFile(process.env.COMSPEC || process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'set'], { timeout: 8000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+        const out = String(stdout || '');
+        const env = {};
+        for (const line of out.split('\n').map((l) => l.trim()).filter(Boolean)) {
+          const i = line.indexOf('=');
+          if (i > 0) env[line.slice(0, i)] = line.slice(i + 1);
+        }
+        resolve(env);
+      });
+      return;
+    }
     const marker = '__FANBOX_ENV_8f3a__';
     const cmd = `printf '%s\\n' '${marker}'; env; printf '%s\\n' '${marker}'`;
     execFile(userShell(), ['-ilc', cmd], { timeout: 8000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
@@ -32,6 +42,7 @@ function dumpShellEnv() {
 }
 
 // 读 macOS 系统代理，转成 {https_proxy,...}；非 darwin / 没开代理 → 空对象
+// TODO(win): Windows 代理检测暂未实现（可读注册表/IE 代理设置），目前返回空对象
 function sysProxyEnv() {
   return new Promise((resolve) => {
     if (process.platform !== 'darwin') return resolve({});
