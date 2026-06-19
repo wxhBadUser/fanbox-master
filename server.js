@@ -941,6 +941,13 @@ async function diskUsage(p) {
   const dir = resolvePath(p);
   let names;
   try { names = await fsp.readdir(dir, { withFileTypes: true }); } catch (e) { return { ok: false, error: '读取失败：' + e.message }; }
+
+  if (PLATFORM === 'win32') {
+    // Windows: Node 递归统计，带 deadline / 上限 / 忽略目录
+    return diskUsageWin(dir, names);
+  }
+
+  // macOS / Linux: du -sk
   const dirs = [], items = [];
   await Promise.all(names.map(async (d) => {
     const full = path.join(dir, d.name);
@@ -959,6 +966,80 @@ async function diskUsage(p) {
   items.sort((a, b) => b.size - a.size);
   const total = items.reduce((a, b) => a + b.size, 0);
   return { ok: true, dir, total, items: items.slice(0, 60), more: Math.max(0, items.length - 60) };
+}
+
+// Windows 磁盘占用：Node 递归，带 deadline / 文件数上限 / 忽略目录
+const DU_SKIP = new Set([
+  'node_modules', '.git', '.next', 'dist', 'build', '.cache', '.venv', 'venv',
+  '__pycache__', '.DS_Store', 'Pods', '.gradle', 'target', '.idea', '.vscode-test',
+  'DerivedData', '.expo', '.turbo', 'vendor', '.svn', '.hg',
+  'AppData', 'Local Settings', 'Application Data', '$Recycle.Bin',
+  'System Volume Information',
+]);
+const DU_DEADLINE_MS = 8000;   // 8 秒 deadline
+const DU_MAX_FILES = 200000;   // 最多扫描 20 万文件
+const DU_MAX_ITEMS = 100;      // 最多返回 100 个子项
+
+async function diskUsageWin(dir, names) {
+  const start = Date.now();
+  const deadline = start + DU_DEADLINE_MS;
+  let fileCount = 0;
+  let truncated = false;
+
+  // 递归统计一个目录的总大小
+  async function walkSize(dirPath) {
+    if (truncated || Date.now() > deadline) { truncated = true; return 0; }
+    let total = 0;
+    let entries;
+    try { entries = await fsp.readdir(dirPath, { withFileTypes: true }); } catch { return 0; } // 无权限等
+    for (const e of entries) {
+      if (truncated || Date.now() > deadline) { truncated = true; break; }
+      if (fileCount > DU_MAX_FILES) { truncated = true; break; }
+      const full = path.join(dirPath, e.name);
+      // 跳过 symlink / junction
+      if (e.isSymbolicLink()) continue;
+      if (e.isDirectory()) {
+        // 跳过重目录
+        if (DU_SKIP.has(e.name)) continue;
+        total += await walkSize(full);
+      } else {
+        fileCount++;
+        try { const st = await fsp.lstat(full); total += st.size; } catch { /* */ }
+      }
+    }
+    return total;
+  }
+
+  const items = [];
+  await Promise.all(names.map(async (d) => {
+    if (truncated && Date.now() > deadline) return;
+    const full = path.join(dir, d.name);
+    if (d.isSymbolicLink()) return;
+    if (d.isDirectory()) {
+      if (DU_SKIP.has(d.name)) {
+        // 跳过的目录不显示大小，但可以标记
+        items.push({ name: d.name, size: 0, isDir: true, skipped: true });
+        return;
+      }
+      const size = await walkSize(full);
+      items.push({ name: d.name, size, isDir: true });
+    } else {
+      try { const st = await fsp.lstat(full); items.push({ name: d.name, size: st.size, isDir: false }); } catch { /* */ }
+    }
+  }));
+
+  items.sort((a, b) => b.size - a.size);
+  const total = items.reduce((a, b) => a + b.size, 0);
+  const elapsedMs = Date.now() - start;
+  return {
+    ok: true,
+    dir,
+    total,
+    truncated,
+    elapsedMs,
+    items: items.slice(0, DU_MAX_ITEMS),
+    more: Math.max(0, items.length - DU_MAX_ITEMS),
+  };
 }
 
 // 压缩包内容清单：全用系统自带工具（unzip / bsdtar / gzip），保持零依赖

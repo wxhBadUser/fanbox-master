@@ -1771,6 +1771,7 @@ async function diskPanel(dirPath) {
   const old = $('.disk-overlay'); if (old) old.remove();
   const ov = document.createElement('div');
   ov.className = 'input-overlay disk-overlay';
+  let reqId = 0; // 防止旧请求覆盖新结果
   ov.innerHTML = `<div class="input-dialog disk-dialog">
     <div class="input-title disk-title"></div>
     <div class="disk-body"><div class="cmdk-loading">计算中…（大目录会慢几秒）</div></div></div>`;
@@ -1780,17 +1781,27 @@ async function diskPanel(dirPath) {
   ov.onclick = (ev) => { if (ev.target === ov) close(); };
   document.addEventListener('keydown', onKey, true);
   const load = async (p) => {
+    const myId = ++reqId;
     ov.querySelector('.disk-title').textContent = '磁盘占用 · ' + p.replace(state.home, '~');
     const body = ov.querySelector('.disk-body');
     body.innerHTML = '<div class="cmdk-loading">计算中…（大目录会慢几秒）</div>';
     const d = await api('/api/du?path=' + encodeURIComponent(p));
+    if (myId !== reqId) return; // 旧请求，丢弃
     if (!d.ok) { body.innerHTML = `<div class="empty-state">${escapeHtml(d.error || '读取失败')}</div>`; return; }
     const max = d.items.length ? d.items[0].size : 1;
-    const up = p !== '/' ? `<div class="disk-row disk-up" data-dir="${escapeHtml(dirOf(p))}"><span class="disk-name">↑ 上一级</span></div>` : '';
-    body.innerHTML = `<div class="disk-total">共 ${fmtSize(d.total)}${d.more ? ` · 只显示前 ${d.items.length} 项` : ''}</div>` + up +
-      d.items.map((it) => `<div class="disk-row${it.isDir ? ' is-dir' : ''}" data-dir="${it.isDir ? escapeHtml(p + '/' + it.name) : ''}">
-        <i class="disk-bar" style="width:${Math.max(1, Math.round(it.size / max * 100))}%"></i>
-        <span class="disk-name">${it.isDir ? '📁 ' : ''}${escapeHtml(it.name)}</span><span class="disk-size">${fmtSize(it.size)}</span></div>`).join('');
+    const isWin = state.sep === '\\';
+    const up = p !== '/' && p.length > 3 ? `<div class="disk-row disk-up" data-dir="${escapeHtml(dirOf(p))}"><span class="disk-name">↑ 上一级</span></div>` : '';
+    const truncNote = d.truncated ? ' · 部分结果（扫描超时或文件过多）' : '';
+    const elapsed = d.elapsedMs ? ` · ${d.elapsedMs > 1000 ? (d.elapsedMs / 1000).toFixed(1) + 's' : d.elapsedMs + 'ms'}` : '';
+    body.innerHTML = `<div class="disk-total">共 ${fmtSize(d.total)}${d.more ? ` · 只显示前 ${d.items.length} 项` : ''}${truncNote}${elapsed}</div>` + up +
+      d.items.map((it) => {
+        const pct = max > 0 ? Math.max(1, Math.round(it.size / max * 100)) : 0;
+        const skipTag = it.skipped ? ' ⏭' : '';
+        const dirPath = it.isDir ? escapeHtml(p + state.sep + it.name) : '';
+        return `<div class="disk-row${it.isDir ? ' is-dir' : ''}" data-dir="${dirPath}">
+        <i class="disk-bar" style="width:${pct}%"></i>
+        <span class="disk-name">${it.isDir ? '📁 ' : ''}${escapeHtml(it.name)}${skipTag}</span><span class="disk-size">${fmtSize(it.size)}</span></div>`;
+      }).join('');
     body.querySelectorAll('.disk-row[data-dir]').forEach((r) => {
       if (r.dataset.dir) r.onclick = () => load(r.dataset.dir);
     });

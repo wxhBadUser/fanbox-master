@@ -226,6 +226,7 @@ window.FANBOX_DICT = {
   '计算中…（大目录会慢几秒）': 'Calculating… (big folders take a few seconds)',
   '读取失败': 'Read failed',
   '↑ 上一级': '↑ Up one level',
+  '部分结果（扫描超时或文件过多）': 'Partial results (scan timed out or too many files)',
 
   // ---------- 命令面板 ----------
   '按文件名搜索…   用 “内容:” 前缀搜文件内容，如 “内容:useState”': 'Search by filename…   prefix with “content:” to search inside files, e.g. “content:useState”',
