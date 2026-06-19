@@ -1,304 +1,359 @@
 <div align="center">
 
-# 📦 FanBox
+# 📦 FanBox for Windows
 
-<img src="assets/promo-banner.jpg" alt="FanBox · Coding Agent 的驾驶舱" width="100%">
+> **FanBox — the cockpit for coding agents. Command Claude Code or Codex, watch every file and line they change, and take over anytime.**
 
-<br><br>
+</div>
 
-> *"AI 帮你一个下午起十个项目，然后它们就再也找不到了。FanBox 帮你把它们找回来。"*
-> *"AI spins up ten projects in an afternoon. FanBox helps you find them again."*
+<p align="center">
+  <img src="assets/screenshot-volt.png" alt="FanBox · Volt skin · file browser on the left, README preview at the bottom, embedded terminal on the right" width="100%">
+</p>
+
+<div align="center">
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Release](https://img.shields.io/badge/Release-2.3.0-blue)](https://github.com/wxhBadUser/fanbox-master/releases/latest)
 [![Platform](https://img.shields.io/badge/Windows-win64-black?logo=windows)](https://github.com/wxhBadUser/fanbox-master/releases/latest)
 [![Runtime](https://img.shields.io/badge/Runtime-no--build-blueviolet)](#architecture)
 
-<br>
-
-**FanBox：Coding Agent 的驾驶舱。指挥 Claude Code、Codex 在本地干活，看清它碰过的每个文件、改过的每一行，随时接手。**<br>
-**FanBox — the cockpit for coding agents: command Claude Code or Codex, see every file and line they change, and take over anytime.**
+</div>
 
 <br>
 
-一边浏览、预览、编辑本地文件；一边在内嵌真实终端里跑 Claude Code 或任何 coding agent。<br>
- agent 每写一个文件，对应卡片就会亮起来——*找回文件 → 运行 agent → 看清改了什么*，全部在一个窗口完成。<br>
-<br>
-Browse, preview and edit local files on one side; run Claude Code or any coding agent in a real embedded terminal on the other.<br>
-Every time the agent writes a file, its card lights up — *find files → run agents → see what changed*, all in one window.
+<div align="center">
+
+**本地优先 · AI Coding Cockpit · Electron 桌面端**
 
 <br>
 
-[⬇ 下载 / Download](https://github.com/wxhBadUser/fanbox-master/releases/latest) · [Screenshots / 截图](#three-skins) · [Features / 功能](#what-it-does) · [Install / 安装](#install) · [Credits / 致谢](#credits)
+本地文件浏览 · 内嵌终端 · Claude Code / Codex CLI · 微信 ClawBot 手机控制
+
+<br>
+
+所有 agent 调用发生在**用户本机**。
 
 </div>
 
 ---
 
-<p align="center">
-  <img src="assets/screenshot-volt.png" alt="FanBox · Volt skin · file browser on the left, README preview at the bottom, embedded terminal on the right" width="100%">
-</p>
+## FanBox for Windows — Windows Edition
 
-<p align="center"><sub>▲ 真机截图：浏览 fanbox 仓库本身，README 原地预览，内嵌终端正在跑 git。本页所有截图均由 Playwright 从实时 App 中直接拍摄，未修图。<br>Real capture: browsing the fanbox repo itself, README previewed in place, git running in the embedded terminal. All screenshots in this README are taken from the live app via Playwright, unedited.</sub></p>
+本项目基于 [alchaincyf/fanbox](https://github.com/alchaincyf/fanbox) 修改而来，重点进行 **Windows 适配**：Windows 打包、node-pty 构建修复、Claude Code CLI 链路验证和微信 ClawBot Windows 运行验证。
+
+原项目遵循 MIT License，本仓库保留原项目版权声明和许可条款。
+
+> **macOS 用户请访问上游项目**[alchaincyf/fanbox](https://github.com/alchaincyf/fanbox)**。本仓库主要面向 Windows 平台。**
 
 ---
 
-<a id="why-fanbox"></a>
 ## Why FanBox · 为什么要做 FanBox
 
-AI 帮你一个下午起十个项目，但它们散在各处、名字认不出、改了啥看不见。每天的真实流程是：Finder 里翻半天 → 切到 iTerm 启 agent → 再切浏览器看效果，三个窗口来回跳。
+AI 帮你一个下午起十个项目，但它们散在各处、名字认不出、改了啥看不见。每天的真实流程是：文件管理器里翻半天 → 切到终端起 agent → 再切浏览器看效果，三个窗口来回跳。
 
-AI helps you start ten projects in an afternoon — then they scatter everywhere, the names stop making sense, and you can't see what got changed. The daily reality: dig through Finder → switch to iTerm to launch an agent → switch to the browser to check results. Three windows, endless hopping.
+FanBox 把这条链路收进一个窗口：**左边文件 × 右边/下边终端 × 原地预览**，一个有机整体。它不跟文件管理器拼文件操作，不跟 VS Code 拼编辑，专注「找回 + 预览 + 轻改 + 指挥 agent」这一条链路做到顺手。
 
-FanBox 把这条链路收进一个窗口：**左边文件 × 右边/下边终端 × 原地预览**，一个有机整体。它不跟 Finder 拼文件操作，不跟 VS Code 拼编辑，专注「找回 + 预览 + 轻改 + 指挥 agent」这一条链路做到顺手。
+**不做云、不做远程、不做账号。本地、零配置、运行时零依赖。**
 
-FanBox folds that loop into one window: **files on the left × terminal on the right/bottom × preview in place**. It doesn't compete with Finder on file ops or VS Code on editing. It does one chain well: *find → preview → light edits → command the agent*.
+---
 
-不做云、不做远程、不做账号。本地、零配置、运行时零依赖。
+## Windows 版已验证能力
 
-No cloud, no remote, no accounts. Local-first, zero config, zero runtime dependencies.
+- ✅ Windows exe 可启动（portable 免安装）
+- ✅ Electron GUI 可正常打开
+- ✅ node-pty Windows 构建和打包可用
+- ✅ 内嵌终端可用（xterm.js + WebGL）
+- ✅ Claude Code CLI 可识别和调用
+- ✅ bridge → driver → Claude 链路通过
+- ✅ 微信 ClawBot 真实链路验证通过
+- ✅ 手机微信消息可驱动 Windows 本机 Claude 回复
+- ✅ 登录态持久化通过
+- ✅ 打包版 exe 通过
+- ✅ Codex 未安装时优雅降级
 
-<a id="three-skins"></a>
-## Three skins · 三套皮肤
+---
 
-界面在 [huashu-design](https://github.com/wxhBadUser/huashu-design) 辅助下完成设计，三套皮肤不是换个主题色——配色、字体、图标、代码高亮、终端 ANSI 主题整体随之变化。
+## 使用前提
 
-The UI was designed with [huashu-design](https://github.com/wxhBadUser/huashu-design). The three skins are not theme-color swaps — palette, typography, icons, code highlighting and terminal ANSI themes all change together:
+> ⚠️ **重要说明**
 
-| | |
-|---|---|
-| <img src="assets/screenshot-volt.png" alt="Volt skin / 终端皮肤"> | **终端 · Volt** · 荧光绿 × 炭黑 × 等宽字，工业仪器面板感（默认）<br>**Volt** · neon green × charcoal × monospace, industrial instrument panel (default) |
-| <img src="assets/screenshot-archive.png" alt="Archive skin / 档案皮肤"> | **档案 · Archive** · 奶油纸 × 赤陶橙 × 衬线，温暖纸感档案馆<br>**Archive** · cream paper × terracotta × serif, a warm paper archive |
-| <img src="assets/screenshot-index.png" alt="Index skin / 索引皮肤"> | **索引 · Index** · 黑白 × 信号红/绿 × 巨号字，编辑式索引日报<br>**Index** · black & white × signal red/green × oversized type, editorial index daily |
+- **FanBox 不内置 Claude**。使用 Claude 功能需要用户本机自行安装并登录 [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview)。
+- 使用 Codex 功能需要用户本机自行安装 [Codex CLI](https://github.com/openai/codex)。
+- **当前 Windows 版主要验证了 Claude 链路**，Codex 完整链路仍在完善。
+- 使用微信 ClawBot 需要用户**自己扫码登录**自己的微信账号。
+- **FanBox 不上传、不托管、不分发用户微信/Claude/Codex 凭据**。所有数据存储在用户本机。
 
-<a id="what-it-does"></a>
-## What it does · 能做什么
+---
 
-### Files · find & preview / 文件 · 找回与预览
+## 下载 & 安装
 
-- **⌘K 全局模糊搜索 / Global fuzzy search** — 记得名字片段就行；`⌘↵` 用编辑器整包打开项目；`内容:关键词` 切全文搜索。  
-  A fragment of the name is enough; `⌘↵` opens the project in your editor; `content:keyword` switches to full-text search.
-- **强色实体图标 / Bold solid icons** — 每种文件「长得像它自己」：PDF 红、JS 黄、Markdown 蓝；照片视频按真实比例呈现。  
-  Every file type "looks like itself": red PDFs, yellow JS, blue Markdown; photos and videos render at true aspect ratio.
-- **原地预览 / Preview in place** — Markdown 渲染、HTML 实时成品、代码语法高亮、图片/视频/PDF 内嵌（HEIC 直接显示）、压缩包内容清单、透明图棋盘格垫底。  
-  Rendered Markdown, live HTML, syntax-highlighted code, inline images/video/PDF (HEIC included), archive content listing, checkerboard backing for transparent images.
-- **缩略图加速 / Thumbnail speed** — 大文件夹滚动和点击都在 0.1 秒内。  
-  Scrolling and clicking through large folders stays under 0.1s.
-- **项目徽章 / Project badges** — 文件夹卡片标 node / web / py / rs / go 徽章，一下午起的十个项目一眼认出类型。  
-  Folder cards show node / web / py / rs / go badges, so ten projects from one afternoon are recognizable at a glance.
+### 桌面版（推荐）
 
-### Watch what the agent changed · 看 agent 改了什么
+从 [GitHub Releases](https://github.com/wxhBadUser/fanbox-master/releases/latest) 下载 `FanBox 2.3.0.exe`，双击运行。
 
-- **活的仪表盘 / A live dashboard** — agent 每写一个文件，那张卡片当场荡开涟漪、按改动频率发光呼吸，agent 写到哪光走到哪。  
-  Every file the agent writes makes its card ripple and glow by change frequency; the light follows wherever the agent goes.
-- **跟随模式 / Follow mode** — 一键让文件视图 + 预览跟踪 agent 正在编辑的文件：代码随新写行高亮闪烁，HTML 边写边实时渲染（双缓冲、零白闪），Markdown 实时渲染。任何手动浏览立即把控制权交还给你。  
-  One click and the file view + preview track whatever file the agent edits: code scrolls with freshly written lines flashing, HTML renders as a live web page while it's being written (double-buffered, zero white flash), Markdown renders live. Any manual browsing hands control back to you instantly.
-- **会话回放 / Session replay** — 像刷视频一样拖时间轴，重现这段时间 agent 一步步改了哪些文件。  
-  Drag the timeline like scrubbing a video to replay which files the agent touched, step by step.
-- **变更收件箱 / Change inbox** — 跨多个项目汇总本会话所有被改动的文件，多项目并行跑 agent 不再各看各的。  
-  All files modified this session, aggregated across projects, for parallel agent runs.
-- **Git 改动 diff / Git diff** — Monaco 只读 DiffEditor 并排展示 HEAD vs 当前工作区，看清 agent 到底改了哪几行。  
-  Monaco read-only DiffEditor, HEAD vs working tree side by side.
+> ⚠️ 当前 Windows 构建**未签名**。首次运行可能出现 Windows SmartScreen 提示。
+>
+> 解决方法：点击「更多信息 (More info)」→「仍要运行 (Run anyway)」。
+>
+> 内置更新提醒：检测到 GitHub 上有新 Release 时，右下角会弹提示，不强更、可对单个版本「不再提醒」。
 
-### Agent cockpit · Agent 驾驶舱
-
-- **项目记忆 / Project memory** — 点开任何项目文件夹，看 AI 在这里干过什么：历史会话（你的第一句话当标题）、每次会话改过的文件、触发过的 skill；「▶ 续上」一键在内嵌终端 `claude --resume` / `codex resume` 接上当时的上下文。  
-  Open any project folder and see what AI did there: past sessions (your first message as the title), the files each session changed, the skills it triggered — and a "resume" button that reconnects the context via `claude --resume` / `codex resume` in the embedded terminal.
-- **截图直通车 / Screenshot express** — 系统截屏落盘即浮出直通卡：喂给终端里的 agent、收进项目 `素材/`、或先标注再发。  
-  Take a system screenshot and a card pops up in the corner: feed it to the terminal agent, file it into the project's `素材/` (assets) folder, or annotate before sending.
-- **AI 整理 / AI organize** — AI 只看元数据出整理提案（不读内容、不碰文件系统），每条建议带理由、逐条勾选过人，FanBox 执行并写回滚日志、一键整体撤销。引擎可选（Claude Code / Codex），策略提示词随便改。  
-  AI proposes a cleanup plan from metadata only (it never reads content or touches the filesystem); you approve each move; FanBox executes with a rollback log and one-click undo. Engine selectable (Claude Code / Codex), strategy prompt fully editable.
-- **发版向导 / Release wizard** — node 项目一键串起版本号、CHANGELOG、打包、推送、GitHub Release，整条命令序列在内嵌终端可见地跑。  
-  For node projects: version bump, CHANGELOG promotion, build, push and GitHub Release composed into one command sequence that runs visibly in the embedded terminal.
-- **Skills 透视 / Skills X-ray** — 本机全部 agent skills 一个视图：触发统计、健康检查、context 预算、不删文件的启停开关。  
-  Every agent skill on your machine in one view: trigger statistics, health checks (description truncation, missing frontmatter), context budget, enable/disable without deleting.
-- **Agent 用量 / Agent usage** — Claude Code 官方 5h 窗口/周配额（和 `/usage` 同源）+ 本地 token 统计；Codex 限额快照 + 窗口重置识别。  
-  Claude Code official 5h window / weekly quota (same source as `/usage`) plus local token statistics; Codex window snapshots with reset detection.
-- **磁盘占用透视 / Disk usage lens** — `du` 口径的真实占用条形榜，可下钻，专治「电脑空间又满了」。  
-  `du`-accurate bars per folder, drill-down, for the "my disk is full again" moments.
-
-### Terminal · command the agent / 终端 · 指挥 agent
-
-- **真实内嵌终端 / A real embedded terminal** — node-pty + xterm.js（WebGL 渲染），跑 Claude Code / vim / htop 不花屏，中文宽字符正确。  
-  node-pty + xterm.js (WebGL). Claude Code / vim / htop render correctly, CJK wide characters included.
-- **拖文件进终端 / Drag files in** — 从文件列表拖文件/文件夹进终端，自动插入路径喂给 agent 当上下文。  
-  Drop a file or folder into the terminal to insert its path as agent context.
-- **路径可点击 / Clickable paths** — 终端里出现的文件路径直接点击在 FanBox 打开；带空格的 macOS 截屏名、中文文件名、折行的长路径都能识别（空格边界由文件系统 stat 验证，不靠猜）。  
-  File paths appearing in terminal output open in FanBox on click; macOS screenshot names with spaces, Chinese filenames and wrapped long paths are all recognized (space boundaries verified by stat, not guessed).
-- **选中即甩给终端 / Send selection** — 预览里选一段文字，一键以「文件出处 + 围栏」格式发进终端（bracketed paste 包裹，不会被逐行误执行）。  
-  Select text in a preview and fling it into the terminal with file provenance + fencing (bracketed paste, never executed line by line).
-- **态势感知 / Situational awareness** — 标签圆点显示 agent 运行/空闲/退出；agent 把球踢回给你时终端边缘呼吸提示「轮到你」，长任务完成发系统通知。  
-  Tab dots show running/idle/exited; when the agent hands the ball back, the terminal edge breathes; long tasks fire a system notification.
-
-### Editing · WYSIWYG / 编辑 · 所见即所得
-
-- **Markdown** — Milkdown Crepe 提供 Notion 式所见即所得，打开就是编辑态，停笔 0.8 秒自动保存。  
-  Milkdown Crepe, Notion-style WYSIWYG; opens in edit mode, auto-saves 0.8s after you stop typing.
-- **代码/JSON / Code/JSON** — Monaco 编辑器（VS Code 同款内核），随皮肤切换主题。  
-  Monaco (the VS Code core), themed per skin.
-- **图片标注 / Image annotation** — 画笔/箭头/文字/打码、格式转换、压缩、调分辨率，覆盖原图前有确认。  
-  Pen/arrow/text/redaction, format conversion, compression, resizing; overwriting the original asks first.
-- **未保存守卫 / Unsaved guard** — 三种编辑器统一拦截未保存退出，Esc 旁路也堵死。  
-  All three editors intercept unsaved exits, including the Esc bypass.
-
-<a id="install"></a>
-## Install · 安装
-
-### 桌面版（推荐）/ Desktop (recommended)
-
-从 [**Releases**](https://github.com/wxhBadUser/fanbox-master/releases/latest) 下载最新安装包。
-
-Download the latest from [**Releases**](https://github.com/wxhBadUser/fanbox-master/releases/latest).
-
-> 应用内置**更新提醒**：检测到 GitHub 上有新 Release 时，右下角会弹一条提示引导下载，不强更、可对单个版本「不再提醒」。
-> Built-in **update notifications**: when a new release lands on GitHub, a capsule appears at the bottom right. Never forced; individual versions can be muted.
-
-### 网页版（不打包，直接跑）/ Web (no packaging)
-
-```bash
-node server.js
-```
-
-浏览器打开 `http://localhost:4567`。零依赖、零 build，clone 下来就能跑。网页版只有文件浏览/搜索/预览（内嵌终端和编辑器靠 Electron 提供）。
-
-Open `http://localhost:4567`. Zero dependencies, zero build — clone and run. The web version covers browsing/search/preview (the embedded terminal and editors need Electron).
-
-### 开发模式 / Development
+### 源码运行
 
 ```bash
 npm install
-npm run app          # electron . 启动完整桌面版 / full desktop app
-npm run dist         # 打包安装包（产物在 dist/，不入 git）/ build & sign the installer (output in dist/)
+npm run rebuild      # 构建 node-pty 原生模块
+npm run verify:build  # 验证构建
+npm run verify:paths  # 验证路径
+npm run app           # 启动 FanBox
 ```
 
-> 打包遇到 Electron 下载被墙：`ELECTRON_MIRROR="https://registry.npmmirror.com/-/binary/electron/" npm run dist`
+### 打包
 
-## Shortcuts · 快捷键
+```bash
+npm run dist:win      # 打包为 Windows portable exe（产物在 dist/ 目录）
+```
 
-| 操作 / Action | 键 / Key | 操作 / Action | 键 / Key |
-|---|---|---|---|
-| 全局搜索 / Global search | `⌘K` | 用编辑器打开 / Open in editor | `⌘↵` |
-| 折叠侧栏 / Toggle sidebar | `⌘B` | 后退 / Back | `⌘[` |
-| 当前目录筛选 / Filter current folder | `/` | 打开/预览 / Open/preview | `↵` |
-| 结果上下选择 / Navigate results | `↑` `↓` | 关闭 / Close | `Esc` |
+> Windows 打包使用 `electron-builder --win`，产出为 portable exe。
 
-<a id="privacy"></a>
-## Privacy & security · 隐私与安全
+---
 
-- 后端只在本机回环地址监听 + 校验 Host 头（挡 DNS rebinding），**数据不出本机**。  
-  The backend listens on loopback only and validates the Host header (anti DNS-rebinding). **Data never leaves your machine.**
-- 全部前端资源（含渲染器、字体）本地内置，**离线完全可用**。仅有的出网请求：Claude 用量接口（可选）和 GitHub 更新检查。  
-  All frontend assets (including renderers and fonts) are vendored locally — **fully usable offline**. The only outbound calls: the Claude usage API (optional) and the GitHub release check.
-- HTML 预览在隔离 origin 的沙箱 iframe 里渲染，预览不可信网页也碰不到终端能力。  
-  HTML previews render in a sandboxed iframe with an opaque origin; an untrusted page can never reach terminal capabilities.
-- 配置写入走串行化读-改-写 + 原子写（temp + fsync + rename），不丢数据、不留半截 JSON。  
-  Config writes are serialized read-modify-write with atomic persistence (temp + fsync + rename) — no data loss, no truncated JSON.
-- 删除走系统废纸篓（可恢复）；缩略图缓存按最旧优先自动裁剪，上限 400MB。  
-  Deletions go to the system Trash (recoverable); the thumbnail cache prunes oldest-first with a 400MB cap.
+## Windows 构建环境
 
-<a id="design"></a>
-## Design & acceptance · 设计与验收
+推荐以下环境：
 
-界面设计在 **[huashu-design](https://github.com/wxhBadUser/huashu-design)** 辅助下完成——三套皮肤的方向探索、组件质感、反 AI slop 审查都出自它的工作流。图标是档案暖色陶土箱体 + 米纸 squircle，从 SVG 一路生成到 icns。
+- Windows 10 或 Windows 11
+- [Node.js](https://nodejs.org/) 22 LTS 或更新版本
+- npm（随 Node.js 安装）
+- [Python 3.11+](https://www.python.org/downloads/)
+- [Visual Studio Build Tools 2022](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)
+  - 工作负载：**Desktop development with C++**
+  - 组件：MSVC v143、Windows 10/11 SDK
 
-The UI was designed with **[huashu-design](https://github.com/wxhBadUser/huashu-design)** — skin direction exploration, component polish and anti-AI-slop review all come from its workflow. The icon is a terracotta archive box on a rice-paper squircle, generated from SVG all the way to icns.
+> `npm run rebuild` 会调用 `node scripts/rebuild-win.js`，该脚本自动配置 node-pty 的 Windows 构建环境。
 
-每个开发阶段由 **5 个独立 subagent** 扮演不同角色（重度 vibe coder / 原生审美设计师 / 零文档新用户 / 终端十年老兵 / 破坏性质量官），审「成品 + 真机截图 + 代码」打分，**全部 ≥90 分且无红线才算达标**。评分标准见 `docs/05-验收角色与评分标准.md`。
+---
 
-Each development phase is reviewed by **5 independent subagents** playing different roles (heavy vibe coder / native-taste designer / zero-docs newcomer / ten-year terminal veteran / destructive QA), scoring the product + live screenshots + code. **Everything ships at ≥90 with zero red lines.** See `docs/05-验收角色与评分标准.md`.
+## 微信 ClawBot 使用说明
 
-<a id="credits"></a>
+1. 启动 FanBox
+2. 打开 ClawBot 面板
+3. 点击「二维码登录」
+4. 用自己的微信扫码
+5. 选择 Claude target
+6. 从手机发送消息即可驱动本机 Claude
+7. 登录态保存在用户本机数据目录（`%APPDATA%/FanBox/wechat/` 或 `%APPDATA%/Electron/wechat/`）
+
+> 首次连接需要扫码授权。后续启动自动恢复连接（只要 token 未过期）。
+
+---
+
+## Three skins · 三套皮肤
+
+界面在 [huashu-design](https://github.com/wxhBadUser/huashu-design) 辅助下完成设计。三套皮肤不是换个主题色——配色、字体、图标、代码高亮、终端 ANSI 主题整体随之变化。
+
+| | |
+|---|---|
+| <img src="assets/screenshot-volt.png" alt="Volt skin"> | **终端 · Volt** · 荧光绿 × 炭黑 × 等宽字，工业仪器面板感（默认） |
+| <img src="assets/screenshot-archive.png" alt="Archive skin"> | **档案 · Archive** · 奶油纸 × 赤陶橙 × 衬线，温暖纸感档案馆 |
+| <img src="assets/screenshot-index.png" alt="Index skin"> | **索引 · Index** · 黑白 × 信号红/绿 × 巨号字，编辑式索引日报 |
+
+---
+
+## 数据与隐私
+
+- **本地优先**：所有数据存储在本机，不上传云端。
+- **不上传 Claude/Codex/微信凭据**：凭据仅在用户本机用于 API 调用。
+- **不内置任何账号**：FanBox 不要求注册或登录。
+- **agent 调用发生在用户本机**：所有 Claude/Codex 进程在用户本机运行。
+- **验证脚本使用 `.tmp/verify-wechat/` 隔离目录**：不读写真实 account。
+- **不要提交 `account.json`、`config.json`、logs、recordings、`dist/`、`node_modules/`** 到版本控制。
+
+---
+
+## 快捷键
+
+| 操作 | 键 |
+|---|---|
+| 全局搜索 | `Ctrl+K` |
+| 用编辑器打开 | `Ctrl+Enter` |
+| 折叠侧栏 | `Ctrl+B` |
+| 后退 | `Ctrl+[` |
+| 当前目录筛选 | `/` |
+| 打开/预览 | `Enter` |
+| 结果上下选择 | `↑` `↓` |
+| 关闭 | `Esc` |
+
+> Windows 快捷键已适配 Ctrl 代替 ⌘。
+
+---
+
+## 常见问题
+
+### Electron 被当成 Node 启动
+
+如果运行 `npm run app` 后只显示 Node 终端而没有窗口，请确保 Electron 已正确安装：
+
+```bash
+npm install
+npx electron --version
+```
+
+### node-pty rebuild 失败
+
+确保已安装 Visual Studio Build Tools 2022，然后运行：
+
+```bash
+npm run rebuild
+```
+
+如果仍然失败，检查：
+
+- Python 3.11+ 是否在 PATH 中
+- MSVC v143 是否安装
+- Windows 10/11 SDK 是否安装
+
+### Claude 找不到
+
+确保已安装 Claude Code CLI：
+
+```bash
+npm install -g @anthropic-ai/claude-code
+claude --version
+```
+
+### Codex 未安装
+
+FanBox 会在 Codex 未安装时优雅降级，不报错。Claude 链路仍然正常工作。
+
+### Windows SmartScreen 提示
+
+当前构建未签名。点击「更多信息」→「仍要运行」。
+
+### 打包版无法打开
+
+请确保：
+
+1. Windows 10 或更高版本（不支持 Windows 7/8）
+2. 没有安全软件拦截
+3. 尝试以管理员身份运行
+
+### 微信二维码无法登录
+
+1. 确保本机网络可以访问微信服务器
+2. 二维码有时效性，过期后点击重新生成
+3. 检查 ClawBot 面板连接状态
+
+---
+
+## 当前限制
+
+- **Codex 完整链路尚未验证**：当前 Windows 版主要验证了 Claude 链路，Codex 完整端到端测试仍在进行中。
+- **Windows 搜索/缩略图/防休眠/截图直通车仍在完善**：部分功能（全文搜索、缩略图缓存、防休眠、截图直通）尚在适配中。
+- **安装包未签名**：当前 Windows 构建为未签名 portable exe。
+- **Windows 版目前是 MVP**：功能稳定但还有完善空间。
+- **macOS 原功能不保证全部已在 Windows 等价实现**：部分 macOS 特有功能尚未移植。
+
+---
+
+## Roadmap
+
+- [x] Windows 路径治理
+- [x] Windows node-pty 构建
+- [x] Windows exe 打包
+- [x] Claude Code CLI Windows 链路验证
+- [x] 微信 ClawBot Windows 运行验证
+- [ ] Codex Windows 链路验证
+- [ ] Windows 搜索适配
+- [ ] Windows 缩略图适配
+- [ ] Windows 截图直通车
+- [ ] Windows 防休眠
+- [ ] 安装体验优化（签名、安装向导）
+- [ ] 签名/发布流程
+- [ ] 自动更新
+
+---
+
+## Architecture · 技术架构
+
+| 层 | 技术 |
+|---|---|
+| 后端 | 零依赖 Node.js `server.js`（文件 API + 静态服务 + 缩略图） |
+| 桌面壳 | Electron 33 + node-pty（asarUnpack 原生模块） |
+| 终端 | xterm.js + WebGL + unicode11 |
+| 编辑器 | Monaco（代码）+ Milkdown Crepe（Markdown） |
+| 打包 | electron-builder → Windows portable exe |
+
+```
+fanbox/
+├── server.js               # 零依赖 Node 后端
+├── electron/
+│   ├── main.js             # 主进程（窗口/pty/剪贴板/菜单）
+│   ├── preload.js          # 暴露 fanboxPty / fanboxFs / fanboxClipboard
+│   ├── atomic-json.js      # 原子 JSON 读写
+│   └── wechat/
+│       ├── bridge.js       # 微信 ClawBot 桥接
+│       ├── driver.js       # Claude/Codex driver
+│       ├── ilink.js        # iLink 协议
+│       └── memory.js       # 微信记忆
+├── public/
+│   ├── index.html
+│   ├── style.css
+│   ├── app.js              # 前端单页应用
+│   └── vendor/             # xterm / monaco / milkdown 本地资源
+├── scripts/
+│   ├── rebuild-win.js      # Windows node-pty 构建
+│   ├── verify-windows-build.js
+│   ├── verify-paths.js
+│   ├── verify-wechat-bridge.js
+│   └── run-app.js
+├── build/                  # 图标 + entitlements
+├── docs/                   # 设计文档
+└── experiments/            # 实验脚本
+```
+
+---
+
 ## Standing on the shoulders of giants · 建在巨人肩膀上
 
 FanBox 的核心能力来自这些出色的开源项目：
 
-FanBox's core capabilities come from these excellent open-source projects:
-
-| 项目 / Project | 用在哪 / Used for | License |
+| 项目 | 用在哪 | License |
 |---|---|---|
-| [Electron](https://www.electronjs.org/) | 桌面壳，让零依赖 Node 后端长出真实终端和原生能力<br>The desktop shell that gives a zero-dependency Node backend a real terminal and native powers | MIT |
-| [node-pty](https://github.com/microsoft/node-pty) | 伪终端，内嵌终端的「真 shell」来源<br>The pseudo-terminal behind the embedded "real shell" | MIT |
-| [xterm.js](https://xtermjs.org/) | 终端渲染（含 [addon-webgl](https://github.com/xtermjs/xterm.js) GPU 加速、addon-fit 自适应、addon-unicode11 CJK 宽字符）<br>Terminal rendering (addon-webgl GPU acceleration, addon-fit, addon-unicode11 for CJK) | MIT |
-| [Monaco Editor](https://microsoft.github.io/monaco-editor/) | 代码/JSON 编辑与 Git diff 视图，VS Code 同款内核<br>Code/JSON editing and Git diff view, the VS Code core | MIT |
-| [Milkdown](https://milkdown.dev/)（Crepe） | Markdown 所见即所得编辑<br>Markdown WYSIWYG editing | MIT |
-| [marked](https://marked.js.org/) | Markdown 预览渲染<br>Markdown preview rendering | MIT |
-| [highlight.js](https://highlightjs.org/) | 代码语法高亮<br>Syntax highlighting | BSD-3-Clause |
-| [esbuild](https://esbuild.github.io/) | 把 Milkdown 打成单文件本地 vendor，运行时保持 no-build<br>Bundling Milkdown into a single local vendor file, keeping runtime no-build | MIT |
-| [electron-builder](https://www.electron.build/) | 打包签名 dmg<br>Packaging and signing the dmg | MIT |
-| [Playwright](https://playwright.dev/) | 驱动 Electron 实拍本 README 截图 + UI 验证<br>Driving Electron for README screenshots + UI verification | Apache-2.0 |
-
-所有前端依赖都 vendor 到本地（`public/vendor/`），这是「离线完全可用」的底气，也意味着上面每个项目的代码真实地跑在你机器上。谢谢它们。
-
-Every frontend dependency is vendored locally (`public/vendor/`) — that's what makes "fully usable offline" true, and it means each project above actually runs on your machine. Thank you.
-
-<a id="architecture"></a>
-## Architecture · 技术架构
-
-| 层 / Layer | 用什么 / Stack |
-|---|---|
-| 后端 / Backend | 零依赖 Node.js `server.js`（文件 API + 静态服务 + 缩略图）<br>Zero-dependency Node.js `server.js` (file APIs + static serving + thumbnails) |
-| 桌面壳 / Desktop shell | Electron 33 + node-pty（asarUnpack 原生模块）<br>Electron 33 + node-pty (asarUnpack native module) |
-| 终端 / Terminal | xterm.js + WebGL + unicode11 |
-| 编辑器 / Editors | Monaco（代码）+ Milkdown Crepe（Markdown）<br>Monaco (code) + Milkdown Crepe (Markdown) |
-| 打包 / Packaging | electron-builder → 签名 arm64 .dmg<br>electron-builder → signed arm64 .dmg |
-
-<details>
-<summary>项目结构 / Project layout</summary>
-
-```
-fanbox/
-├── server.js               # 零依赖 Node 后端（文件 API + 缩略图 + 静态服务）
-│                           # Zero-dependency Node backend (file APIs + thumbnails + static)
-├── electron/
-│   ├── main.js             # 主进程（窗口/pty/剪贴板/fs.watch/菜单）
-│   │                       # Main process (window/pty/clipboard/fs.watch/menu)
-│   └── preload.js          # 暴露 fanboxPty / fanboxFs / fanboxClipboard
-│                           # Exposes fanboxPty / fanboxFs / fanboxClipboard
-├── public/
-│   ├── index.html
-│   ├── style.css
-│   ├── app.js              # 前端单页应用 / Frontend single-page app
-│   └── vendor/             # xterm / monaco / milkdown 本地资源
-│                           # xterm / monaco / milkdown local assets
-├── src-vendor/             # esbuild 入口，产出 public/vendor/milkdown
-│                           # esbuild entries producing public/vendor/milkdown
-├── build/                  # 图标 + entitlements / Icons + entitlements
-├── docs/                   # 概念/PRD/路线图/验收标准
-│                           # Concepts/PRD/roadmap/acceptance criteria
-└── experiments/            # 实验脚本（含 README 截图脚本）
-                            # Experiment scripts (incl. README screenshot script)
-```
-
-</details>
-
-## Author · 关于作者
-
-**花叔 Huashu**——AI Native Coder，独立开发者。代表作：小猫补光灯（App Store 付费榜 Top1）。
-
-**Huashu (花叔)** — AI Native Coder, indie developer. Known for Cat Light (App Store paid chart Top 1).
-
-| 平台 / Platform | 链接 / Link |
-|------|------|
-| 🌐 官网 / Web | [bookai.top](https://bookai.top) · [huasheng.ai](https://www.huasheng.ai) |
-| 𝕏 Twitter | [@AlchainHust](https://x.com/AlchainHust) |
-| 📺 B站 / Bilibili | [花叔](https://space.bilibili.com/14097567) |
-| 📕 小红书 / Xiaohongshu | [花叔](https://www.xiaohongshu.com/user/profile/5abc6f17e8ac2b109179dfdf) |
-| 💬 公众号 / WeChat | 微信搜「花叔」 / Search "花叔" |
-
-更多 AI 造物：
-
-More AI creations:
-
-- [女娲.skill](https://github.com/wxhBadUser/nuwa-skill)（蒸馏任何人的思维方式 / distill anyone's way of thinking）
-- [huashu-design](https://github.com/wxhBadUser/huashu-design)（一句话拿回一份能交付的设计 / a deliverable design from one sentence）
+| [Electron](https://www.electronjs.org/) | 桌面壳 | MIT |
+| [node-pty](https://github.com/microsoft/node-pty) | 伪终端 | MIT |
+| [xterm.js](https://xtermjs.org/) | 终端渲染 | MIT |
+| [Monaco Editor](https://microsoft.github.io/monaco-editor/) | 代码/JSON 编辑与 Git diff | MIT |
+| [Milkdown](https://milkdown.dev/) (Crepe) | Markdown 所见即所得编辑 | MIT |
+| [marked](https://marked.js.org/) | Markdown 预览渲染 | MIT |
+| [highlight.js](https://highlightjs.org/) | 代码语法高亮 | BSD-3-Clause |
+| [esbuild](https://esbuild.github.io/) | 前端 vendor 打包 | MIT |
+| [electron-builder](https://www.electron.build/) | 打包 exe | MIT |
+| [Playwright](https://playwright.dev/) | UI 验证截图 | Apache-2.0 |
 
 ---
 
-<div align="center">
+## Credits · 致谢
 
-**Finder** 帮你管理文件。**IDE** 帮你写代码。**FanBox** 帮你看清 AI 在你机器上干了什么。<br>
-**Finder** manages your files. **IDEs** write your code. **FanBox** shows you what AI did on your machine.<br><br>
+本项目基于 [alchaincyf/fanbox](https://github.com/alchaincyf/fanbox) 修改而来。
 
-MIT License
+感谢原作者花叔（Huashu）和原项目提供的 FanBox 设计与实现。本仓库主要聚焦 **Windows 适配**、Windows 构建、Claude Code CLI 链路验证和微信 ClawBot Windows 运行验证。
 
-</div>
+界面设计在 [huashu-design](https://github.com/wxhBadUser/huashu-design) 辅助下完成。
+
+## Author · 关于原作者
+
+**花叔 Huashu** — AI Native Coder，独立开发者。代表作：小猫补光灯（App Store 付费榜 Top1）。
+
+| 平台 | 链接 |
+|---|---|
+| 🌐 官网 | [bookai.top](https://bookai.top) · [huasheng.ai](https://www.huasheng.ai) |
+| 𝕏 Twitter | [@AlchainHust](https://x.com/AlchainHust) |
+| 📺 B站 | [花叔](https://space.bilibili.com/14097567) |
+| 📕 小红书 | [花叔](https://www.xiaohongshu.com/user/profile/5abc6f17e8ac2b109179dfdf) |
+| 💬 公众号 | 微信搜「花叔」 |
+
+---
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
