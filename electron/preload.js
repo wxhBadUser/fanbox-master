@@ -33,7 +33,8 @@ contextBridge.exposeInMainWorld('fanboxFs', {
 
 contextBridge.exposeInMainWorld('fanboxClipboard', {
   copyImage: (path) => ipcRenderer.invoke('clip:image', { path }),
-  copyFile: (path) => ipcRenderer.invoke('clip:file', { path }),
+  copyFile: (path) => ipcRenderer.invoke('clip:file', { paths: [path] }),     // 单文件（旧版兼容）
+  copyFiles: (paths) => ipcRenderer.invoke('clip:file', { paths }),            // 多文件数组
 });
 
 contextBridge.exposeInMainWorld('fanboxDrop', {

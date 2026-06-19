@@ -534,11 +534,54 @@ ipcMain.handle('clip:image', (e, { path: p }) => {
   try { const img = nativeImage.createFromPath(p); if (img.isEmpty()) return { ok: false, error: '不是可读图片' }; clipboard.writeImage(img); return { ok: true }; }
   catch (err) { return { ok: false, error: err.message }; }
 });
-ipcMain.handle('clip:file', (e, { path: p }) => new Promise((resolve) => {
-  const { execFile } = require('child_process');
-  // argv 传路径，避免拼进 AppleScript 字面量被注入
-  execFile('osascript', ['-e', 'on run argv', '-e', 'set the clipboard to (POSIX file (item 1 of argv))', '-e', 'end run', p], (err) => resolve({ ok: !err, error: err && err.message }));
-}));
+ipcMain.handle('clip:file', async (e, args) => {
+  // 兼容 { path } 和 { paths } 两种参数格式，避免旧调用点 regress
+  const raw = (args && args.paths) || (args && args.path) || [];
+  const list = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+  // 安全校验
+  if (!list.length) return { ok: false, error: '路径为空' };
+  for (const p of list) {
+    if (typeof p !== 'string' || !p.trim()) return { ok: false, error: '无效路径' };
+    if (p === '__fanbox_roots__') return { ok: false, error: '不支持复制虚拟节点' };
+    try { if (!fs.existsSync(p)) return { ok: false, error: `文件不存在` }; } catch { return { ok: false, error: `路径无效` }; }
+  }
+  if (list.length > 20) return { ok: false, error: '最多同时复制 20 个文件' };
+
+  if (process.platform === 'win32') {
+    // 用 PowerShell + .NET Windows.Forms SetFileDropList 把文件本体写入 Windows 剪贴板，
+    // 资源管理器/桌面/微信聊天等可 Ctrl+V 粘贴。
+    // 路径以 JSON 数组编码进环境变量 FB_CLIP_PATHS，避免 shell 注入；
+    // PowerShell 必须 -STA（Single-Threaded Apartment）才能操作剪贴板。
+    const psCode = [
+      'try {',
+      '  Add-Type -AssemblyName System.Windows.Forms;',
+      '  $json = [Environment]::GetEnvironmentVariable("FB_CLIP_PATHS","Process");',
+      '  $paths = $json | ConvertFrom-Json;',
+      '  $sc = New-Object System.Collections.Specialized.StringCollection;',
+      '  foreach ($p in $paths) { $sc.Add($p) | Out-Null };',
+      '  [System.Windows.Forms.Clipboard]::SetFileDropList($sc);',
+      '} catch { exit 2 }',
+    ].join(' ');
+    const { execFile } = require('child_process');
+    const run = () => new Promise((resolve) =>
+      execFile('powershell', ['-NoProfile', '-NonInteractive', '-STA', '-Command', psCode], {
+        env: { ...process.env, FB_CLIP_PATHS: JSON.stringify(list) },
+        windowsHide: true,
+        timeout: 8000,
+      }, (err) => resolve(err))
+    );
+    let err = await run();
+    if (err) { await new Promise((r) => setTimeout(r, 250)); err = await run(); } // 剪贴板被占用则重试一次
+    return { ok: !err, count: list.length, error: err ? '剪贴板被其它程序占用，请重试' : undefined };
+  }
+
+  // macOS：用 osascript 写入 Finder 可粘贴的文件引用（仅支持单文件）
+  return new Promise((resolve) => {
+    const { execFile } = require('child_process');
+    const p = list[0];
+    execFile('osascript', ['-e', 'on run argv', '-e', 'set the clipboard to (POSIX file (item 1 of argv))', '-e', 'end run', p], (err) => resolve({ ok: !err, count: err ? 0 : 1, error: err && err.message }));
+  });
+});
 // ---------- 剪贴板截图导入（微信 Alt+A 等存入 ~/.fanbox/screenshots）----------
 const FANBOX_SHOTS_DIR = path.join(os.homedir(), '.fanbox', 'screenshots');
 ipcMain.handle('clip:save-image', async () => {

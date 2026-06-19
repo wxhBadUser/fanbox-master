@@ -806,7 +806,7 @@ function renderPreviewActions(e) {
     { icon: ic('term', 'currentColor', 15), title: '在编辑器打开', fn: () => openWith(e.path, 'editor') },
     { icon: ic('folder', 'currentColor', 15), title: '在访达显示', fn: () => openWith(e.path, 'reveal') },
     ...(e.kind === 'image' && clip ? [{ icon: ic('image', 'currentColor', 15), title: '复制图片（可粘贴到其它应用）', fn: () => copyImage(e.path) }] : []),
-    ...(clip ? [{ icon: ic('copy', 'currentColor', 15), title: '复制文件（访达里可粘贴）', fn: () => copyFile(e.path) }] : []),
+    ...(clip ? [{ icon: ic('copy', 'currentColor', 15), title: '复制文件', fn: () => copyFile(e.path) }] : []),
     { icon: ic('clip', 'currentColor', 15), title: '复制路径', fn: () => copyPath(e.path) },
   ];
   acts.forEach((a) => {
@@ -833,7 +833,7 @@ function renderPreviewFoot(e) {
   f.innerHTML = `<span title="大小">${e.size ? fmtSize(e.size) : '0 B'}</span><span title="创建时间">创建 ${fmtDateTime(e.btime)}</span><span title="修改时间">改 ${fmtDateTime(e.mtime)}</span>`;
 }
 async function copyImage(p) { const r = await window.fanboxClipboard.copyImage(p); toast(r.ok ? '已复制图片，可粘贴到其它应用' : '复制图片失败：' + (r.error || ''), !r.ok); }
-async function copyFile(p) { const r = await window.fanboxClipboard.copyFile(p); toast(r.ok ? '已复制文件，可在访达里粘贴' : '复制文件失败', !r.ok); }
+async function copyFile(p) { const r = await window.fanboxClipboard.copyFiles([p]); toast(r.ok ? '已复制文件' : '复制文件失败', !r.ok); }
 async function closePreview() {
   if (!await guardDirty()) return;
   mona.disposeIfAny(); crepe.disposeIfAny(); imgEditState = null;
@@ -1233,6 +1233,13 @@ async function copyPath(p) {
   try { await navigator.clipboard.writeText(p); toast('已复制路径'); }
   catch { toast('复制失败（浏览器限制），路径：' + p, true); }
 }
+async function copyFileDirectly(p, { label } = {}) {
+  const clip = window.fanboxClipboard;
+  if (!clip || !clip.copyFiles) { toast('复制文件不可用', true); return; }
+  const r = await clip.copyFiles([p]);
+  toast(r.ok ? (label || '已复制文件') : '复制文件失败', !r.ok);
+}
+async function copyShotFile(p) { copyFileDirectly(p, { label: '已复制截图文件' }); }
 // 记录最近打开：内部预览/编辑也算「打开过」，本地即时置顶 + 异步落库
 function recordRecent(p) {
   if (!p) return;
@@ -1802,6 +1809,7 @@ function showContextMenu(ev, e) {
   items.push({ label: '在编辑器打开', fn: () => openWith(e.path, 'editor') });
   items.push({ label: '在 Finder 显示', fn: () => openWith(e.path, 'reveal') });
   items.push({ label: '复制路径', fn: () => copyPath(e.path) });
+  if (!e.drive) items.push({ label: '复制文件', fn: () => copyFileDirectly(e.path) });
   items.push({ sep: true });
   items.push({ label: isFav(e.path) ? '取消收藏' : '收藏', fn: () => toggleFav(e) });
   items.push({ label: '重命名…', fn: () => doRename(e) });
@@ -4133,7 +4141,7 @@ async function loadScreenshots(panel) {
       <span class="shot-thumb"><img src="/api/thumb?path=${encodeURIComponent(s.path)}&w=120&v=${s.mtime}" loading="lazy" decoding="async" onerror="this.outerHTML='<span class=svg-icon>'+(window.__svgImg||'')+'</span>'"></span>
       <span class="cp-name">${escapeHtml(s.name)}</span>
       <span class="cp-time">${fmtTime(s.mtime)}</span>
-      <span class="shot-actions"><button class="ghost-btn shot-copy" title="复制路径">📋</button><button class="ghost-btn shot-reveal" title="在资源管理器中显示">📁</button></span>
+      <span class="shot-actions"><button class="ghost-btn shot-copy" title="复制路径">📋</button><button class="ghost-btn shot-reveal" title="在资源管理器中显示">📁</button><button class="ghost-btn shot-copyfile" title="复制文件">📄</button></span>
     </div>`).join('');
   } catch {
     body.innerHTML = '<div class="cp-empty">渲染列表时出错</div>';
@@ -4157,6 +4165,9 @@ async function loadScreenshots(panel) {
   });
   panel.querySelectorAll('.shot-reveal').forEach((btn) => {
     btn.onclick = (ev) => { ev.stopPropagation(); openWith(btn.closest('.shot-row').dataset.path, 'reveal'); };
+  });
+  panel.querySelectorAll('.shot-copyfile').forEach((btn) => {
+    btn.onclick = (ev) => { ev.stopPropagation(); copyShotFile(btn.closest('.shot-row').dataset.path); };
   });
 }
 async function toggleScreenshotPanel() {
