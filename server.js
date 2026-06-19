@@ -412,7 +412,7 @@ async function searchFiles(query, rootPath, deadlineTs) {
     onDir: (f) => scoreInto(f, 6),
   });
   matches.sort((a, b) => b.score - a.score);
-  return { results: matches.slice(0, 80), truncated };
+  return { results: matches.slice(0, 80), truncated, engine: (PLATFORM === 'darwin' ? 'mac' : 'win') + '-walk' };
 }
 
 async function grepFiles(query, rootPath) {
@@ -444,11 +444,10 @@ async function grepFiles(query, rootPath) {
     }
     if (hits.length) results.push({ ...f, hits });
   }
-  return { results, truncated };
+  return { results, truncated, engine: (PLATFORM === 'darwin' ? 'mac' : 'win') + '-grep' };
 }
 
 // ---------- Spotlight（mdfind）内容搜索：白嫖系统索引 ----------
-// 覆盖全文 + PDF/docx + 截图/图片里的 OCR 文字，毫秒级返回；Spotlight 没索引到的（代码目录等）由 grep 兜底
 function mdfind(args) {
   return new Promise((resolve) => {
     execFile('mdfind', args, { timeout: 6000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
@@ -460,40 +459,43 @@ async function contentSearch(query, rootPath) {
   const root = resolvePath(rootPath);
   const q = (query || '').trim();
   if (!q || q.length < 2) return { results: [] };
-  // 属性查询而非自由文本：CJK 子串匹配更稳；[cd] = 忽略大小写/音调
-  const esc = q.replace(/[\\"*]/g, '');
-  const paths = await mdfind(['-onlyin', root, `(kMDItemTextContent == "*${esc}*"cd) || (kMDItemDisplayName == "*${esc}*"cd)`]);
-  if (paths === null || !paths.length) {
-    const fb = await grepFiles(query, rootPath); // mdfind 不可用或无命中 → 原 grep 兜底
-    return { ...fb, engine: 'grep' };
-  }
-  const results = [];
-  const deadline = Date.now() + 2500;
-  for (const p of paths) {
-    if (results.length >= 60 || Date.now() > deadline) break;
-    if (/\/(node_modules|\.git|Library\/Caches)\//.test(p)) continue;
-    let st; try { st = await fsp.stat(p); } catch { continue; }
-    if (st.isDirectory()) continue;
-    const name = path.basename(p);
-    results.push({ name, path: p, isDir: false, kind: kindOf(name, false), hidden: name.startsWith('.'), size: st.size, mtime: st.mtimeMs, btime: st.birthtimeMs || 0 });
-  }
-  results.sort((a, b) => b.mtime - a.mtime); // 近改优先，「我刚写的那句话」浮在最上面
-  // 给文本类命中补行级预览（只读前几个小文件，别拖慢整体）
-  const lower = q.toLowerCase();
-  let read = 0;
-  for (const r of results) {
-    if (read >= 12) break;
-    if (r.kind !== 'text' || r.size > 512 * 1024) continue;
-    read++;
-    let content; try { content = await fsp.readFile(r.path, 'utf8'); } catch { continue; }
-    const lines = content.split('\n');
-    const hits = [];
-    for (let i = 0; i < lines.length && hits.length < 3; i++) {
-      if (lines[i].toLowerCase().includes(lower)) hits.push({ line: i + 1, text: lines[i].trim().slice(0, 200) });
+  // 平台分叉：macOS 用 Spotlight，Windows/Linux 走 grep
+  if (PLATFORM === 'darwin') {
+    // 属性查询而非自由文本：CJK 子串匹配更稳；[cd] = 忽略大小写/音调
+    const esc = q.replace(/[\\"*]/g, '');
+    const paths = await mdfind(['-onlyin', root, `(kMDItemTextContent == "*${esc}*"cd) || (kMDItemDisplayName == "*${esc}*"cd)`]);
+    if (paths !== null && paths.length) {
+      const results = [];
+      const deadline = Date.now() + 2500;
+      for (const p of paths) {
+        if (results.length >= 60 || Date.now() > deadline) break;
+        if (/\/(node_modules|\.git|Library\/Caches)\//.test(p)) continue;
+        let st; try { st = await fsp.stat(p); } catch { continue; }
+        if (st.isDirectory()) continue;
+        const name = path.basename(p);
+        results.push({ name, path: p, isDir: false, kind: kindOf(name, false), hidden: name.startsWith('.'), size: st.size, mtime: st.mtimeMs, btime: st.birthtimeMs || 0 });
+      }
+      results.sort((a, b) => b.mtime - a.mtime);
+      const lower = q.toLowerCase();
+      let read = 0;
+      for (const r of results) {
+        if (read >= 12) break;
+        if (r.kind !== 'text' || r.size > 512 * 1024) continue;
+        read++;
+        let content; try { content = await fsp.readFile(r.path, 'utf8'); } catch { continue; }
+        const lines = content.split('\n');
+        const hits = [];
+        for (let i = 0; i < lines.length && hits.length < 3; i++) {
+          if (lines[i].toLowerCase().includes(lower)) hits.push({ line: i + 1, text: lines[i].trim().slice(0, 200) });
+        }
+        if (hits.length) r.hits = hits;
+      }
+      return { results, truncated: paths.length > results.length, engine: 'spotlight' };
     }
-    if (hits.length) r.hits = hits;
   }
-  return { results, truncated: paths.length > results.length, engine: 'spotlight' };
+  // Windows/Linux 及 Spotlight 不可用时走 grep 兜底
+  const fb = await grepFiles(query, rootPath);
+  return { ...fb, engine: (PLATFORM === 'darwin' ? 'mac' : 'win') + '-grep-fallback' };
 }
 
 async function recentFiles(rootPath) {
