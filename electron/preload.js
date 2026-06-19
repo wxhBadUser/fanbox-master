@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('fanboxFs', {
   watch: (dir) => ipcRenderer.invoke('fs:watch', { dir }),
   watchSet: (dirs) => ipcRenderer.invoke('fs:watch-set', { dirs }),
   onChanged: (cb) => { const h = (e, m) => cb(m); ipcRenderer.on('fs:changed', h); return () => ipcRenderer.removeListener('fs:changed', h); },
+  trash: (path) => ipcRenderer.invoke('fs:trash', { path }),
 });
 
 contextBridge.exposeInMainWorld('fanboxClipboard', {

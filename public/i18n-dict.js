@@ -76,6 +76,10 @@ window.FANBOX_DICT = {
   '取消收藏': 'Unfavorite',
   '重命名…': 'Rename…',
   '移到废纸篓': 'Move to Trash',
+  '删除到回收站': 'Move to Recycle Bin',
+  '已移到回收站': 'Moved to Recycle Bin',
+  '移到回收站失败': 'Failed to move to Recycle Bin',
+  '不支持删除此项目': 'Cannot delete this item',
   '新建文件夹…': 'New folder…',
   '新建文件…': 'New file…',
 
@@ -407,6 +411,7 @@ window.FANBOX_DICT_RULES = [
   [/^已另存为 (.+)$/, (m) => `Saved as ${m[1]}`],
   [/^把文件夹「(.+)」移到废纸篓？可从废纸篓恢复。$/, (m) => `Move folder "${m[1]}" to Trash? You can restore it from Trash.`],
   [/^把「(.+)」移到废纸篓？（系统废纸篓里随时可恢复）$/, (m) => `Move "${m[1]}" to Trash? (Restorable from the system Trash anytime)`],
+  [/^确定要把「(.+)」移到回收站吗？$/, (m) => `Are you sure you want to move "${m[1]}" to Recycle Bin?`],
   [/^刚变更：\n([\s\S]+)$/, (m) => `Just changed:\n${m[1]}`],
   [/^改·(\d+)$/, (m) => `edited·${m[1]}`],
   // 面包屑 / 标题

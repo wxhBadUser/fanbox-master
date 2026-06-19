@@ -582,6 +582,51 @@ ipcMain.handle('clip:file', async (e, args) => {
     execFile('osascript', ['-e', 'on run argv', '-e', 'set the clipboard to (POSIX file (item 1 of argv))', '-e', 'end run', p], (err) => resolve({ ok: !err, count: err ? 0 : 1, error: err && err.message }));
   });
 });
+// ---------- 删除到回收站（shell.trashItem，非永久删除）----------
+ipcMain.handle('fs:trash', async (e, { path: p }) => {
+  // 安全校验
+  if (!p || typeof p !== 'string' || !p.trim()) return { ok: false, error: '路径为空' };
+  if (p === '__fanbox_roots__') return { ok: false, error: '不支持删除虚拟节点' };
+  // 阻止盘符根目录（C:\ D:\ 等）
+  if (/^[A-Za-z]:\\?$/.test(p)) return { ok: false, error: '不支持删除磁盘根目录' };
+  // 阻止项目根目录
+  try {
+    const projRoot = path.resolve(__dirname, '..');
+    if (path.resolve(p) === projRoot) return { ok: false, error: '不支持删除项目根目录' };
+  } catch { /* */ }
+  // 路径必须存在
+  try { if (!fs.existsSync(p)) return { ok: false, error: '文件不存在' }; } catch { return { ok: false, error: '路径无效' }; }
+
+  // 优先使用 Electron shell.trashItem（Electron 20+，当前 33.x）
+  if (shell.trashItem) {
+    try {
+      await shell.trashItem(p);
+      return { ok: true };
+    } catch (err) {
+      // shell.trashItem 失败时 fallback 到 PowerShell（仅 Windows）
+      if (process.platform !== 'win32') {
+        return { ok: false, error: err.message || String(err) };
+      }
+      // Windows fallback：继续走下面的 PowerShell 方案
+    }
+  }
+  // Fallback：Windows PowerShell + Microsoft.VisualBasic
+  if (process.platform === 'win32') {
+    return new Promise((resolve) => {
+      let isDir = false;
+      try { isDir = fs.lstatSync(p).isDirectory(); } catch { return resolve({ ok: false, error: '文件不存在' }); }
+      const method = isDir ? 'DeleteDirectory' : 'DeleteFile';
+      const ps = p.replace(/'/g, "''");
+      const cmd = `powershell -NoProfile -Command "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::${method}('${ps}','OnlyErrorDialogs','SendToRecycleBin')"`;
+      require('child_process').exec(cmd, { windowsHide: true, timeout: 15000 }, (err) => {
+        if (!err) return resolve({ ok: true });
+        resolve({ ok: false, error: err.message || String(err) });
+      });
+    });
+  }
+  // 非 Windows 且 shell.trashItem 不可用
+  return { ok: false, error: '当前平台不支持删除到回收站' };
+});
 // ---------- 剪贴板截图导入（微信 Alt+A 等存入 ~/.fanbox/screenshots）----------
 const FANBOX_SHOTS_DIR = path.join(os.homedir(), '.fanbox', 'screenshots');
 ipcMain.handle('clip:save-image', async () => {

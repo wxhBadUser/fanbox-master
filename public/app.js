@@ -1536,14 +1536,27 @@ async function doRename(e) {
   await refresh();
 }
 async function doTrash(e) {
-  // 文件秒删（花叔的选择），但删整个文件夹给一次轻确认——误删项目目录代价高
-  if (e.isDir) {
-    const ok = await confirmDialog(`把文件夹「${e.name}」移到废纸篓？可从废纸篓恢复。`);
-    if (!ok) return;
+  // 安全检查：虚拟路径、盘符根目录不允许删除
+  if (e.path === '__fanbox_roots__' || e.drive) { toast('不支持删除此项目', true); return; }
+  // 删除前确认弹窗（文件和文件夹都弹）
+  const isWin = window.fanboxEnv && window.fanboxEnv.platform === 'win32';
+  const label = isWin ? '回收站' : '废纸篓';
+  const ok = await confirmDialog(isWin
+    ? `确定要把「${e.name}」移到回收站吗？`
+    : `把「${e.name}」移到废纸篓？（系统废纸篓里随时可恢复）`);
+  if (!ok) return;
+  // 桌面版走 Electron IPC，网页版走 server API
+  let r;
+  if (window.fanboxFs && window.fanboxFs.trash) {
+    r = await window.fanboxFs.trash(e.path);
+  } else {
+    r = await apiPost('/api/trash', { path: e.path });
   }
-  const r = await apiPost('/api/trash', { path: e.path });
-  if (r.error) { toast('删除失败：' + r.error + '（首次需在弹窗里允许控制 Finder）', true); return; }
-  toast('已移到废纸篓，可从废纸篓恢复');
+  if (r.error) {
+    toast(isWin ? '移到回收站失败' : '删除失败：' + r.error, true);
+    return;
+  }
+  toast(isWin ? '已移到回收站' : '已移到废纸篓，可从废纸篓恢复');
   if (state.selected === e.path) closePreview();
   await refresh();
 }
@@ -1813,7 +1826,10 @@ function showContextMenu(ev, e) {
   items.push({ sep: true });
   items.push({ label: isFav(e.path) ? '取消收藏' : '收藏', fn: () => toggleFav(e) });
   items.push({ label: '重命名…', fn: () => doRename(e) });
-  items.push({ label: '移到废纸篓', danger: true, fn: () => doTrash(e) });
+  if (!e.drive && e.path !== '__fanbox_roots__') {
+    const isWin = window.fanboxEnv && window.fanboxEnv.platform === 'win32';
+    items.push({ label: isWin ? '删除到回收站' : '移到废纸篓', danger: true, fn: () => doTrash(e) });
+  }
   popupMenu(ev, items);
 }
 // 在鼠标位置弹一个菜单（右键菜单与空白处双击菜单共用）
