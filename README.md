@@ -344,13 +344,21 @@ FanBox 的核心能力来自这些出色的开源项目：
 
 **花叔 Huashu** — AI Native Coder，独立开发者。代表作：小猫补光灯（App Store 付费榜 Top1）。
 
-| 平台 | 链接 |
-|---|---|
-| 🌐 官网 | [bookai.top](https://bookai.top) · [huasheng.ai](https://www.huasheng.ai) |
-| 𝕏 Twitter | [@AlchainHust](https://x.com/AlchainHust) |
-| 📺 B站 | [花叔](https://space.bilibili.com/14097567) |
-| 📕 小红书 | [花叔](https://www.xiaohongshu.com/user/profile/5abc6f17e8ac2b109179dfdf) |
-| 💬 公众号 | 微信搜「花叔」 |
+---
+
+## About Me · 关于作者
+
+**wxh** — 中国科学技术大学（USTC）在读博士生，方向是深度学习图像处理、大模型开发与 AI Agent 应用。
+
+做 FanBox 的初衷很简单：每天在文件管理器、终端、浏览器之间来回切太累了，想做一个把所有 agent 工作流收进一个窗口的工具。选择了 Fork 而非从零造轮子，因为花叔的 FanBox 已经有很好的设计基底，我主要做 Windows 适配和链路验证。
+
+项目还在早期，我本人科研任务也比较重，更新可能不会很快。但只要有空就会继续完善，也欢迎大家提 Issue 和 PR，一起让这个工具变得更好用。
+
+如果这个项目对你有帮助，**点个 Star ⭐** 就是最大的鼓励。感谢关注！
+
+## 免责声明
+
+本人时间有限，维护和更新主要靠业余时间，更新节奏可能较慢，望见谅。项目目前处于 MVP 阶段，功能稳定但仍有不完善之处。欢迎各位大佬提交 PR 共同改进，我会尽快 review 和合并。
 
 ---
 
