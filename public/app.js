@@ -390,7 +390,6 @@ function renderFiles() {
   if (state.cwd === '__fanbox_roots__') {
     const list = state.entries || [];
     state.visible = list;
-    // 简单状态栏
     const sb = $('#statusbar'); if (sb) { sb.classList.remove('hidden'); sb.innerHTML = `<span>${list.length} 个磁盘</span>`; }
     const grid = document.createElement('div');
     grid.className = 'grid grid-roots';
@@ -399,7 +398,30 @@ function renderFiles() {
       it.className = 'item drive-item';
       it.dataset.index = i;
       it.dataset.path = e.path;
-      it.innerHTML = `<span class="svg-icon drive-icon">${ic('hard-drive', 'currentColor', 48)}</span><span class="drive-name">${escapeHtml(e.name)}</span>`;
+
+      // 构建额外信息
+      const vol = e.volumeName ? escapeHtml(e.volumeName) : '';
+      const typeLabel = e.driveTypeLabel || '';
+      const fsLabel = e.fileSystem || '';
+      let metaLine = '';
+      if (vol && typeLabel) metaLine = `${typeLabel} / ${vol}`;
+      else if (vol) metaLine = vol;
+      else if (typeLabel) metaLine = typeLabel;
+
+      let sizeHtml = '';
+      let barHtml = '';
+      if (e.diskSize && e.free != null) {
+        const usedPct = Math.round(((e.diskSize - e.free) / e.diskSize) * 100);
+        sizeHtml = `<div class="drive-size">剩余 ${fmtSize(e.free)} / 共 ${fmtSize(e.diskSize)}</div>`;
+        barHtml = `<div class="drive-usage"><div class="drive-usage-bar" style="width:${usedPct}%"></div></div>`;
+      }
+
+      it.innerHTML = `<span class="svg-icon drive-icon">${ic('hard-drive', 'currentColor', 40)}</span>`
+        + `<span class="drive-name">${escapeHtml(e.name)}</span>`
+        + (metaLine ? `<span class="drive-meta">${metaLine}</span>` : '')
+        + (fsLabel ? `<span class="drive-fs">${fsLabel}</span>` : '')
+        + sizeHtml
+        + barHtml;
       it.onclick = () => { state.cursor = i; highlightCursor(); };
       it.ondblclick = () => navigate(e.path);
       it.oncontextmenu = (ev) => { ev.preventDefault(); ev.stopPropagation(); state.cursor = i; showContextMenu(ev, e); };

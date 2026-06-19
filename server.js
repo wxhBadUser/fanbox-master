@@ -13,7 +13,7 @@ const fsp = require('fs/promises');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { exec, spawn, execFile } = require('child_process');
+const { exec, spawn, execFile, execFileSync } = require('child_process');
 const { URL } = require('url');
 
 const HOME = os.homedir();
@@ -135,15 +135,85 @@ function sendJSON(res, code, obj) {
 
 // ---------- 业务逻辑 ----------
 
+// 预设驱动类型标签
+const DRIVE_TYPE_LABELS = {
+  2: '可移动磁盘', 3: '本地磁盘', 4: '网络驱动器',
+  5: '光驱', 6: 'RAM 磁盘',
+};
+
+// 磁盘信息 30 秒缓存
+let driveCache = null;
+let driveCacheAt = 0;
+const DRIVE_CACHE_TTL = 30_000;
+
 // Windows 枚举可用盘符（跳过 A: B: 软驱历史）
 function listWindowsDrives() {
-  const drives = [];
-  for (let i = 67; i <= 90; i++) { // C 到 Z
-    const letter = String.fromCharCode(i);
-    const root = letter + ':\\';
-    try { fs.accessSync(root); } catch { continue; }
-    drives.push({ name: letter + ':', path: root, isDir: true, kind: 'dir', drive: true, size: 0, mtime: 0, btime: 0, hidden: false });
+  const now = Date.now();
+  if (driveCache && (now - driveCacheAt) < DRIVE_CACHE_TTL) {
+    return driveCache;
   }
+
+  const drives = [];
+  // 优先用 PowerShell 查询磁盘信息
+  let psData = null;
+  try {
+    const raw = execFileSync('powershell.exe', [
+      '-NoProfile', '-Command',
+      'Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID,DriveType,VolumeName,FileSystem,Size,FreeSpace | ConvertTo-Json -Compress'
+    ], { timeout: 2000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    if (raw && raw.trim()) {
+      psData = JSON.parse(raw.trim());
+      // PowerShell 返回单个对象时转成数组
+      if (psData && !Array.isArray(psData)) psData = [psData];
+    }
+  } catch { /* 查询失败，走 fallback */ }
+
+  if (psData && Array.isArray(psData)) {
+    for (const d of psData) {
+      if (!d || !d.DeviceID) continue;
+      const id = d.DeviceID.replace(':', '');
+      const letter = id[0];
+      if (!letter || letter < 'C') continue; // 跳过 A: B:
+      const name = letter + ':';
+      const root = letter + ':\\';
+      let canAccess = false;
+      try { fs.accessSync(root); canAccess = true; } catch { /* 跳过 */ }
+      if (!canAccess) continue;
+
+      const size = Number(d.Size) || 0;
+      const free = Number(d.FreeSpace) || 0;
+      const used = size - free;
+      const usedRatio = size > 0 ? Math.round((used / size) * 100) / 100 : 0;
+
+      drives.push({
+        name, path: root, isDir: true, kind: 'dir', drive: true,
+        size: 0, mtime: 0, btime: 0, hidden: false,
+        volumeName: d.VolumeName || '',
+        fileSystem: d.FileSystem || '',
+        driveType: Number(d.DriveType) || 0,
+        driveTypeLabel: DRIVE_TYPE_LABELS[Number(d.DriveType)] || '磁盘',
+        diskSize: size, free, used, usedRatio,
+      });
+    }
+  }
+
+  // fallback: PowerShell 失败或返回为空时，用 fs.accessSync 基本枚举
+  if (!drives.length) {
+    for (let i = 67; i <= 90; i++) {
+      const letter = String.fromCharCode(i);
+      const root = letter + ':\\';
+      try { fs.accessSync(root); } catch { continue; }
+      drives.push({
+        name: letter + ':', path: root, isDir: true, kind: 'dir', drive: true,
+        size: 0, mtime: 0, btime: 0, hidden: false,
+        volumeName: '', fileSystem: '', driveType: 0, driveTypeLabel: '本地磁盘',
+        diskSize: 0, free: 0, used: 0, usedRatio: 0,
+      });
+    }
+  }
+
+  driveCache = drives;
+  driveCacheAt = now;
   return drives;
 }
 
