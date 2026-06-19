@@ -1282,13 +1282,62 @@ const thumbInflight = new Map(); // cacheFile -> Promise，去重并发生成
 function run(cmd, args) {
   return new Promise((resolve, reject) => execFile(cmd, args, { timeout: 15000 }, (e) => (e ? reject(e) : resolve())));
 }
-// 图片走 sips 缩放（快）；视频/PDF/其它走 qlmanage QuickLook 抽帧
+// Windows PowerShell System.Drawing 缩略图（.NET 自带，零依赖）
+// 脚本落盘到 THUMB_DIR/_thumb.ps1（首用时写一次），用 -File 调用——argv 传参，
+// 不把路径拼进命令字面量，含空格/中文/引号的路径也不会炸。
+let _psThumbScript = null;
+function psThumbScript() {
+  if (_psThumbScript) return _psThumbScript;
+  fs.mkdirSync(THUMB_DIR, { recursive: true });
+  const file = path.join(THUMB_DIR, '_thumb.ps1');
+  // 缩放保比例、HighQualityBicubic；jpeg 带 quality 参数，png 保留透明通道
+  fs.writeFileSync(file, `param([string]$src,[string]$out,[int]$size,[string]$fmt)
+$ErrorActionPreference='Stop'
+try {
+  Add-Type -AssemblyName System.Drawing
+  $img=[System.Drawing.Image]::FromFile($src)
+  try {
+    $w=[int]$img.Width; $h=[int]$img.Height
+    if($w -ge $h){ $nw=$size; $nh=[Math]::Max(1,[int]([double]$h*$size/$w)) } else { $nh=$size; $nw=[Math]::Max(1,[int]([double]$w*$size/$h)) }
+    $bmp=New-Object System.Drawing.Bitmap($nw,$nh)
+    try {
+      $g=[System.Drawing.Graphics]::FromImage($bmp)
+      try {
+        $g.InterpolationMode=[System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $g.PixelOffsetMode=[System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $g.DrawImage($img,0,0,$nw,$nh)
+        if($fmt -eq 'png'){ $bmp.Save($out,[System.Drawing.Imaging.ImageFormat]::Png) }
+        else {
+          $enc=[System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders()|Where-Object{$_.MimeType -eq 'image/jpeg'}
+          $ep=New-Object System.Drawing.Imaging.EncoderParameters(1)
+          $ep.Param[0]=New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality,82L)
+          $bmp.Save($out,$enc,$ep)
+        }
+      } finally { $g.Dispose() }
+    } finally { $bmp.Dispose() }
+  } finally { $img.Dispose() }
+} catch { exit 1 }
+`);
+  _psThumbScript = file;
+  return file;
+}
+function psThumb(src, out, size, fmt) {
+  return new Promise((resolve, reject) => {
+    execFile('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', psThumbScript(), '-src', src, '-out', out, '-size', String(size), '-fmt', fmt],
+      { timeout: 30000, windowsHide: true }, (e) => (e ? reject(e) : resolve()));
+  });
+}
+// 图片缩略图生成：macOS 走 sips（快）；Windows 走 PowerShell System.Drawing（零依赖）
 async function generateThumb(src, e, size, cacheFile, isImg) {
   await fsp.mkdir(THUMB_DIR, { recursive: true });
   if (isImg) {
     const fmt = cacheFile.endsWith('.png') ? 'png' : 'jpeg';
+    if (PLATFORM === 'win32') { await psThumb(src, cacheFile, size, fmt); return; }
     await run('sips', ['-s', 'format', fmt, '-Z', String(size), src, '--out', cacheFile]);
     return;
+  }
+  if (PLATFORM === 'win32') {
+    throw new Error('no win thumbnailer for non-image');
   }
   const tmpDir = path.join(THUMB_DIR, '_ql_' + process.pid + '_' + crypto.randomBytes(4).toString('hex'));
   await fsp.mkdir(tmpDir, { recursive: true });
@@ -1304,7 +1353,7 @@ async function pruneThumbs(maxBytes = 400 * 1024 * 1024) {
   try {
     const files = await fsp.readdir(THUMB_DIR);
     const stats = (await Promise.all(files.map(async (f) => {
-      if (f.startsWith('_ql_')) return null;
+      if (f.startsWith('_ql_') || f === '_thumb.ps1') return null;
       const fp = path.join(THUMB_DIR, f);
       try { const s = await fsp.stat(fp); return s.isFile() ? { fp, size: s.size, t: s.mtimeMs } : null; } catch { return null; }
     }))).filter(Boolean);
