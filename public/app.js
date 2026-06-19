@@ -4095,53 +4095,102 @@ function toggleChangesPanel() {
 }
 // ---------- 截图直通车 ----------
 let shotRefreshTimer = null;
+function importClipboardShotToast(msg) { toast(msg, true); }
+async function importClipboardShot({ silent = false } = {}) {
+  const w = window.fanboxShot;
+  if (!w || !w.saveClipboardImage) {
+    if (!silent) toast('剪贴板截图导入仅限桌面版', true);
+    return null;
+  }
+  let r;
+  try { r = await w.saveClipboardImage(); } catch { if (!silent) toast('导入剪贴板截图失败', true); return null; }
+  if (!r.ok && r.reason === 'empty') { if (!silent) toast('剪贴板里没有图片', true); return null; }
+  if (!r.ok) { if (!silent) toast('导入失败：' + (r.error || ''), true); return null; }
+  if (!silent) toast(r.deduped ? '这张截图已经在最近截图里' : '已导入剪贴板截图');
+  return r;
+}
+async function loadScreenshots(panel) {
+  // panel 是外部传入的 DOM 引用（避免 innerHTML 重建后 this 丢失）
+  if (!panel) return;
+  const body = panel.querySelector('.shot-body');
+  if (!body) return;
+  // 显示加载态——但不卡住按钮交互
+  body.innerHTML = '<div class="cp-empty">加载中…</div>';
+  let data;
+  try { data = await api('/api/screenshots/recent'); } catch { body.innerHTML = '<div class="cp-empty">加载失败，请检查网络或刷新重试</div>'; return; }
+  if (!data || !Array.isArray(data.items)) { body.innerHTML = '<div class="cp-empty">返回数据异常</div>'; return; }
+  if (!data.items.length) {
+    const dirs = (data.dirs || []).length ? data.dirs.map((d) => escapeHtml(tilde(d))).join('<br>') : '';
+    body.innerHTML = dirs
+      ? `<div class="cp-empty">截图目录存在但暂无截图：<br>${dirs}</div>`
+      : '<div class="cp-empty">暂未找到截图目录。按 Win+PrintScreen 截一张回来</div>';
+    return;
+  }
+  console.debug('[screenshots] loaded', data.items.length, 'items, engine:', data.platform);
+  let rows;
+  try {
+    rows = data.items.map((s) => `<div class="cp-row shot-row" data-path="${escapeHtml(s.path)}">
+      <span class="shot-thumb"><img src="/api/thumb?path=${encodeURIComponent(s.path)}&w=120&v=${s.mtime}" loading="lazy" decoding="async" onerror="this.outerHTML='<span class=svg-icon>'+(window.__svgImg||'')+'</span>'"></span>
+      <span class="cp-name">${escapeHtml(s.name)}</span>
+      <span class="cp-time">${fmtTime(s.mtime)}</span>
+      <span class="shot-actions"><button class="ghost-btn shot-copy" title="复制路径">📋</button><button class="ghost-btn shot-reveal" title="在资源管理器中显示">📁</button></span>
+    </div>`).join('');
+  } catch {
+    body.innerHTML = '<div class="cp-empty">渲染列表时出错</div>';
+    return;
+  }
+  body.innerHTML = `<div class="cp-list shot-list">${rows}</div>`;
+  // 绑定事件
+  panel.querySelectorAll('.shot-row').forEach((row) => {
+    row.onclick = (ev) => {
+      if (ev.target.closest('.shot-actions')) return;
+      const p = row.dataset.path;
+      document.body.removeChild(panel); clearShotTimer();
+      navigate(dirOf(p)).then(() => {
+        const e = state.entries.find((x) => x.path === p) || { path: p, name: baseOf(p), kind: 'image', isDir: false };
+        applySelection(p); openPreview(e); recordRecent(p);
+      });
+    };
+  });
+  panel.querySelectorAll('.shot-copy').forEach((btn) => {
+    btn.onclick = (ev) => { ev.stopPropagation(); copyPath(btn.closest('.shot-row').dataset.path); };
+  });
+  panel.querySelectorAll('.shot-reveal').forEach((btn) => {
+    btn.onclick = (ev) => { ev.stopPropagation(); openWith(btn.closest('.shot-row').dataset.path, 'reveal'); };
+  });
+}
 async function toggleScreenshotPanel() {
   const existing = $('#screenshot-pop');
   if (existing) { existing.remove(); clearShotTimer(); return; }
   const pop = document.createElement('div');
   pop.id = 'screenshot-pop';
   pop.className = 'changes-pop';
-  pop.innerHTML = '<div class="cp-head">最近截图<span class="cp-head-btns"><button id="shot-refresh" class="ghost-btn">↻ 刷新</button></span></div><div class="cp-empty">加载中u2026</div>';
+  // 初始 header 始终显示两个按钮
+  pop.innerHTML = `<div class="cp-head">最近截图<span class="cp-head-btns"><button id="shot-clipboard" class="ghost-btn">📋 导入剪贴板截图</button><button id="shot-refresh" class="ghost-btn">↻ 刷新</button></span></div><div class="shot-body"><div class="cp-empty">加载中…</div></div>`;
   document.body.appendChild(pop);
   const btn = $('#btn-screenshots'); const r = btn.getBoundingClientRect();
   pop.style.top = (r.bottom + 6) + 'px';
   pop.style.right = (window.innerWidth - r.right) + 'px';
-  const refresh = async () => {
-    let data;
-    try { data = await api('/api/screenshots/recent'); } catch { pop.innerHTML = '<div class="cp-head">最近截图</div><div class="cp-empty">加载失败</div>'; return; }
-    if (!data.items || !data.items.length) {
-      const dirs = (data.dirs || []).map((d) => escapeHtml(tilde(d))).join('<br>');
-      pop.innerHTML = dirs ? `<div class="cp-head">最近截图</div><div class="cp-empty">截图目录存在但暂无截图：<br>${dirs}</div>` : '<div class="cp-head">最近截图</div><div class="cp-empty">暂未找到截图目录。按 Win+PrintScreen 截一张回来</div>';
-      return;
-    }
-    const rows = data.items.map((s) => `<div class="cp-row shot-row" data-path="${escapeHtml(s.path)}">
-      <span class="shot-thumb"><img src="/api/thumb?path=${encodeURIComponent(s.path)}&w=120&v=${s.mtime}" loading="lazy" decoding="async" onerror="this.outerHTML='<span class=\\'svg-icon\\'>${iconSvg({kind:'image'}, 24)}</span>'"></span>
-      <span class="cp-name">${escapeHtml(s.name)}</span>
-      <span class="cp-time">${fmtTime(s.mtime)}</span>
-      <span class="shot-actions"><button class="ghost-btn shot-copy" title="复制路径">📋</button><button class="ghost-btn shot-reveal" title="在资源管理器中显示">📁</button></span>
-    </div>`).join('');
-    pop.innerHTML = `<div class="cp-head">最近截图<span class="cp-head-btns"><button id="shot-refresh" class="ghost-btn">↻ 刷新</button></span></div><div class="cp-list shot-list">${rows}</div>`;
-    pop.querySelectorAll('.shot-row').forEach((row) => {
-      row.onclick = async (ev) => {
-        if (ev.target.closest('.shot-actions')) return;
-        const p = row.dataset.path;
-        pop.remove(); clearShotTimer();
-        await navigate(dirOf(p));
-        const e = state.entries.find((x) => x.path === p) || { path: p, name: baseOf(p), kind: 'image', isDir: false };
-        applySelection(p); openPreview(e); recordRecent(p);
-      };
-    });
-    pop.querySelectorAll('.shot-copy').forEach((btn) => {
-      btn.onclick = (ev) => { ev.stopPropagation(); copyPath(btn.closest('.shot-row').dataset.path); };
-    });
-    pop.querySelectorAll('.shot-reveal').forEach((btn) => {
-      btn.onclick = (ev) => { ev.stopPropagation(); openWith(btn.closest('.shot-row').dataset.path, 'reveal'); };
-    });
-    const refBtn = $('#shot-refresh'); if (refBtn) refBtn.onclick = refresh;
-  };
-  refresh();
+  // 导入剪贴板截图
+  const clipBtn = $('#shot-clipboard');
+  if (clipBtn) {
+    clipBtn.onclick = async (ev) => {
+      ev.stopPropagation();
+      const result = await importClipboardShot({ silent: false });
+      if (result && result.ok) loadScreenshots(pop);
+    };
+  }
+  // 刷新
+  const refBtn = $('#shot-refresh');
+  if (refBtn) refBtn.onclick = (ev) => { ev.stopPropagation(); loadScreenshots(pop); };
+  // 加载已有截图
+  loadScreenshots(pop);
+  // 静默尝试导入剪贴板（不阻塞 UI）
+  importClipboardShot({ silent: true }).then((result) => { if (result && result.ok) loadScreenshots(pop); }).catch(() => {});
+  // 面板打开时每 5s 自动刷新
   clearShotTimer();
-  shotRefreshTimer = setInterval(() => { if ($('#screenshot-pop')) refresh(); else clearShotTimer(); }, 5000);
+  shotRefreshTimer = setInterval(() => { if ($('#screenshot-pop')) loadScreenshots(pop); else clearShotTimer(); }, 5000);
+  // 点别处关闭
   setTimeout(() => {
     const close = (ev) => { if (!ev.target.closest('#screenshot-pop') && !ev.target.closest('#btn-screenshots')) { pop.remove(); clearShotTimer(); } };
     document.addEventListener('click', close);
