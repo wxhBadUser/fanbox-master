@@ -28,6 +28,7 @@ const { app, BrowserWindow, ipcMain, shell, nativeImage, Menu, clipboard, dialog
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const crypto = require('crypto');
 const { writeJsonAtomicSync, readJsonSafe } = require('./atomic-json');
 
 // 复用现有后端：require 即 listen 127.0.0.1:PORT，不自动开浏览器
@@ -538,6 +539,36 @@ ipcMain.handle('clip:file', (e, { path: p }) => new Promise((resolve) => {
   // argv 传路径，避免拼进 AppleScript 字面量被注入
   execFile('osascript', ['-e', 'on run argv', '-e', 'set the clipboard to (POSIX file (item 1 of argv))', '-e', 'end run', p], (err) => resolve({ ok: !err, error: err && err.message }));
 }));
+// ---------- 剪贴板截图导入（微信 Alt+A 等存入 ~/.fanbox/screenshots）----------
+const FANBOX_SHOTS_DIR = path.join(os.homedir(), '.fanbox', 'screenshots');
+ipcMain.handle('clip:save-image', async () => {
+  try {
+    const img = clipboard.readImage();
+    if (img.isEmpty()) return { ok: false, reason: 'empty' };
+    const buf = img.toPNG();
+    if (!buf || !buf.length) return { ok: false, reason: 'empty' };
+    // 用内容 hash 去重
+    const hash = crypto.createHash('md5').update(buf).digest('hex');
+    const ts = new Date().toISOString().replace(/[T:.]/g, '').slice(0, 15); // 20260619-153012
+    const name = `clipboard-${ts}-${hash.slice(0, 8)}.png`;
+    const dir = FANBOX_SHOTS_DIR;
+    const fsp = fs.promises;
+    await fsp.mkdir(dir, { recursive: true });
+    // 检查 hash 是否已被存过（去重）
+    let existingNames;
+    try { existingNames = await fsp.readdir(dir); } catch { existingNames = []; }
+    for (const f of existingNames) {
+      if (f.includes(hash.slice(0, 8))) {
+        const existingPath = path.join(dir, f);
+        let st; try { st = await fsp.stat(existingPath); } catch { continue; }
+        return { ok: true, path: existingPath, name: f, deduped: true };
+      }
+    }
+    const dest = path.join(dir, name);
+    await fsp.writeFile(dest, buf);
+    return { ok: true, path: dest, name, deduped: false };
+  } catch (err) { return { ok: false, error: err.message }; }
+});
 
 // 拖拽落盘：file-promise 类拖入（截图浮窗等）没有真实路径，把字节写进临时目录换路径
 ipcMain.handle('drop:save', (e, { name, buf }) => {

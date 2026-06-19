@@ -517,9 +517,11 @@ async function recentFiles(rootPath) {
 
 // ---------- 截图直通车：发现并返回最近截图 ----------
 // Windows Win+PrintScreen 截图目录：Pictures\Screenshots（含 OneDrive 接管）
+// 额外扫描 FanBox 自己的 ~/.fanbox/screenshots（剪贴板截图导入）
 const SHOT_IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'webp', 'bmp']);
 function findScreenshotDirs() {
   const dirs = [];
+  // 系统截图目录
   if (PLATFORM === 'win32') {
     const home = os.homedir();
     for (const sub of ['Pictures\\Screenshots', 'OneDrive\\Pictures\\Screenshots', 'OneDrive\\图片\\屏幕截图', 'Pictures\\屏幕截图']) {
@@ -527,6 +529,9 @@ function findScreenshotDirs() {
       try { if (fs.statSync(d).isDirectory() && !dirs.includes(d)) dirs.push(d); } catch { /* */ }
     }
   }
+  // FanBox 自己的剪贴板截图缓存目录
+  const shotDir = path.join(CONFIG_DIR, 'screenshots');
+  try { if (fs.statSync(shotDir).isDirectory() && !dirs.includes(shotDir)) dirs.push(shotDir); } catch { /* */ }
   return dirs;
 }
 async function recentScreenshots() {

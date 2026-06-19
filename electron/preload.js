@@ -50,6 +50,8 @@ contextBridge.exposeInMainWorld('fanboxDrop', {
 contextBridge.exposeInMainWorld('fanboxShot', {
   // 系统截屏落盘事件（截图直通车）
   onNew: (cb) => { const h = (e, m) => cb(m); ipcRenderer.on('shot:new', h); return () => ipcRenderer.removeListener('shot:new', h); },
+  // 剪贴板截图导入（微信 Alt+A 等）：读取系统剪贴板中的图片并保存到 ~/.fanbox/screenshots/
+  saveClipboardImage: () => ipcRenderer.invoke('clip:save-image'),
 });
 
 contextBridge.exposeInMainWorld('fanboxUpdate', {
