@@ -515,6 +515,43 @@ async function recentFiles(rootPath) {
   return { results: all.slice(0, 60), truncated };
 }
 
+// ---------- 截图直通车：发现并返回最近截图 ----------
+// Windows Win+PrintScreen 截图目录：Pictures\Screenshots（含 OneDrive 接管）
+const SHOT_IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'webp', 'bmp']);
+function findScreenshotDirs() {
+  const dirs = [];
+  if (PLATFORM === 'win32') {
+    const home = os.homedir();
+    for (const sub of ['Pictures\\Screenshots', 'OneDrive\\Pictures\\Screenshots', 'OneDrive\\图片\\屏幕截图', 'Pictures\\屏幕截图']) {
+      const d = path.join(home, sub);
+      try { if (fs.statSync(d).isDirectory() && !dirs.includes(d)) dirs.push(d); } catch { /* */ }
+    }
+  }
+  return dirs;
+}
+async function recentScreenshots() {
+  const dirs = findScreenshotDirs();
+  if (!dirs.length) return { ok: true, platform: PLATFORM, dirs: [], items: [] };
+  const items = [];
+  const deadline = Date.now() + 2000;
+  for (const dir of dirs) {
+    let names;
+    try { names = await fsp.readdir(dir); } catch { continue; }
+    for (const name of names) {
+      if (!SHOT_IMAGE_EXT.has(ext(name))) continue;
+      const full = path.join(dir, name);
+      try {
+        const st = await fsp.stat(full);
+        if (st.isFile()) items.push({ name, path: full, mtime: st.mtimeMs, size: st.size });
+      } catch { /* */ }
+      if (Date.now() > deadline) break;
+    }
+    if (Date.now() > deadline) break;
+  }
+  items.sort((a, b) => b.mtime - a.mtime);
+  return { ok: true, platform: PLATFORM, dirs, items: items.slice(0, 10) };
+}
+
 // ---------- 文件操作（编辑 / 废纸篓 / 重命名 / 新建）----------
 // 都带护栏：编辑只认文本类、删除走系统废纸篓可恢复、名称拒绝路径分隔符与空字节。
 
@@ -2165,6 +2202,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/recent') {
       return sendJSON(res, 200, await recentFiles(qp.get('root') || HOME));
+    }
+    if (p === '/api/screenshots/recent') {
+      return sendJSON(res, 200, await recentScreenshots());
     }
     if (p === '/api/term-verify' && req.method === 'POST') {
       return sendJSON(res, 200, await termVerify(await readBody(req)));

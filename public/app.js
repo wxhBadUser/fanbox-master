@@ -2472,6 +2472,7 @@ function bindEvents() {
   $('#cmdk-trigger').onclick = () => cmdk.open();
   $('#btn-recent').onclick = showRecent;
   $('#btn-changes').onclick = () => toggleChangesPanel();
+  $('#btn-screenshots').onclick = toggleScreenshotPanel;
   $('#term-wechat').onclick = () => wechatView.toggle();
   // 启动时点一下连接状态，连着就给终端里的微信按钮点绿点（不挡初始化）
   if (window.fanboxWechat) window.fanboxWechat.env().then((e) => wechatView.syncDot(!!(e && e.connected))).catch(() => {});
@@ -4092,6 +4093,61 @@ function toggleChangesPanel() {
     document.addEventListener('click', close);
   }, 0);
 }
+// ---------- 截图直通车 ----------
+let shotRefreshTimer = null;
+async function toggleScreenshotPanel() {
+  const existing = $('#screenshot-pop');
+  if (existing) { existing.remove(); clearShotTimer(); return; }
+  const pop = document.createElement('div');
+  pop.id = 'screenshot-pop';
+  pop.className = 'changes-pop';
+  pop.innerHTML = '<div class="cp-head">最近截图<span class="cp-head-btns"><button id="shot-refresh" class="ghost-btn">↻ 刷新</button></span></div><div class="cp-empty">加载中u2026</div>';
+  document.body.appendChild(pop);
+  const btn = $('#btn-screenshots'); const r = btn.getBoundingClientRect();
+  pop.style.top = (r.bottom + 6) + 'px';
+  pop.style.right = (window.innerWidth - r.right) + 'px';
+  const refresh = async () => {
+    let data;
+    try { data = await api('/api/screenshots/recent'); } catch { pop.innerHTML = '<div class="cp-head">最近截图</div><div class="cp-empty">加载失败</div>'; return; }
+    if (!data.items || !data.items.length) {
+      const dirs = (data.dirs || []).map((d) => escapeHtml(tilde(d))).join('<br>');
+      pop.innerHTML = dirs ? `<div class="cp-head">最近截图</div><div class="cp-empty">截图目录存在但暂无截图：<br>${dirs}</div>` : '<div class="cp-head">最近截图</div><div class="cp-empty">暂未找到截图目录。按 Win+PrintScreen 截一张回来</div>';
+      return;
+    }
+    const rows = data.items.map((s) => `<div class="cp-row shot-row" data-path="${escapeHtml(s.path)}">
+      <span class="shot-thumb"><img src="/api/thumb?path=${encodeURIComponent(s.path)}&w=120&v=${s.mtime}" loading="lazy" decoding="async" onerror="this.outerHTML='<span class=\\'svg-icon\\'>${iconSvg({kind:'image'}, 24)}</span>'"></span>
+      <span class="cp-name">${escapeHtml(s.name)}</span>
+      <span class="cp-time">${fmtTime(s.mtime)}</span>
+      <span class="shot-actions"><button class="ghost-btn shot-copy" title="复制路径">📋</button><button class="ghost-btn shot-reveal" title="在资源管理器中显示">📁</button></span>
+    </div>`).join('');
+    pop.innerHTML = `<div class="cp-head">最近截图<span class="cp-head-btns"><button id="shot-refresh" class="ghost-btn">↻ 刷新</button></span></div><div class="cp-list shot-list">${rows}</div>`;
+    pop.querySelectorAll('.shot-row').forEach((row) => {
+      row.onclick = async (ev) => {
+        if (ev.target.closest('.shot-actions')) return;
+        const p = row.dataset.path;
+        pop.remove(); clearShotTimer();
+        await navigate(dirOf(p));
+        const e = state.entries.find((x) => x.path === p) || { path: p, name: baseOf(p), kind: 'image', isDir: false };
+        applySelection(p); openPreview(e); recordRecent(p);
+      };
+    });
+    pop.querySelectorAll('.shot-copy').forEach((btn) => {
+      btn.onclick = (ev) => { ev.stopPropagation(); copyPath(btn.closest('.shot-row').dataset.path); };
+    });
+    pop.querySelectorAll('.shot-reveal').forEach((btn) => {
+      btn.onclick = (ev) => { ev.stopPropagation(); openWith(btn.closest('.shot-row').dataset.path, 'reveal'); };
+    });
+    const refBtn = $('#shot-refresh'); if (refBtn) refBtn.onclick = refresh;
+  };
+  refresh();
+  clearShotTimer();
+  shotRefreshTimer = setInterval(() => { if ($('#screenshot-pop')) refresh(); else clearShotTimer(); }, 5000);
+  setTimeout(() => {
+    const close = (ev) => { if (!ev.target.closest('#screenshot-pop') && !ev.target.closest('#btn-screenshots')) { pop.remove(); clearShotTimer(); } };
+    document.addEventListener('click', close);
+  }, 0);
+}
+function clearShotTimer() { if (shotRefreshTimer) { clearInterval(shotRefreshTimer); shotRefreshTimer = null; } }
 // WOW2 会话回放：像刷视频一样拖时间轴，重现这段时间 agent 一步步改了哪些文件
 function openReplay() {
   const tl = state.changeTimeline.slice();
