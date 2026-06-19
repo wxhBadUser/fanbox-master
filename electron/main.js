@@ -28,6 +28,7 @@ const { app, BrowserWindow, ipcMain, shell, nativeImage, Menu, clipboard, dialog
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const { writeJsonAtomicSync, readJsonSafe } = require('./atomic-json');
 
 // 复用现有后端：require 即 listen 127.0.0.1:PORT，不自动开浏览器
 process.env.FANBOX_NO_OPEN = '1';
@@ -269,9 +270,9 @@ const M = (zh, en) => (uiLang() === 'zh' ? zh : en);
 // 仅限 pmset disablesleep 0/1 的 sudoers 免密规则，之后静默切换。
 // 智能模式：只有「开关开 且 有终端在跑」才真正禁休眠；终端全退/退出 app 立即恢复，绝不让 Mac 一直不睡。
 const CONFIG = path.join(os.homedir(), '.fanbox', 'config.json');
-function readConfig() { try { return JSON.parse(fs.readFileSync(CONFIG, 'utf8')); } catch { return {}; } }
+function readConfig() { return readJsonSafe(CONFIG, {}); }
 function writeConfig(patch) {
-  try { const c = readConfig(); Object.assign(c, patch); fs.mkdirSync(path.dirname(CONFIG), { recursive: true }); fs.writeFileSync(CONFIG, JSON.stringify(c, null, 2)); }
+  try { const c = readConfig(); Object.assign(c, patch); writeJsonAtomicSync(CONFIG, c); }
   catch { /* 写失败不致命，下次再写 */ }
 }
 let lidIntent = false; // 用户意图（菜单勾选），跨会话持久

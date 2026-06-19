@@ -9,10 +9,20 @@
  * 5. codex 未安装时不崩溃
  *
  * 用法：node scripts/verify-wechat-bridge.js
+ *
+ * 注意：该脚本自动使用隔离测试目录（.tmp/verify-wechat/），
+ * 不会读写真实用户 account 数据。
  */
 'use strict';
 
 const path = require('path');
+const fs = require('fs');
+
+// 隔离测试目录：防止脚本意外读写真实 ~/.fanbox/wechat/ 下的 account 数据
+const TEST_DIR = path.resolve(__dirname, '..', '.tmp', 'verify-wechat');
+process.env.FANBOX_WECHAT_DIR = TEST_DIR;
+// 确保测试目录存在
+fs.mkdirSync(TEST_DIR, { recursive: true });
 
 const BRIDGE_PATH = path.resolve(__dirname, '..', 'electron', 'wechat', 'bridge');
 const DRIVER_PATH = path.resolve(__dirname, '..', 'electron', 'wechat', 'driver');

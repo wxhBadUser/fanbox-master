@@ -12,6 +12,8 @@ const memory = require('./memory');
 let DATA_DIR = null;
 function dataDir() {
   if (DATA_DIR) return DATA_DIR;
+  // 优先环境变量，支持测试脚本隔离
+  if (process.env.FANBOX_WECHAT_DIR) { DATA_DIR = process.env.FANBOX_WECHAT_DIR; return DATA_DIR; }
   try { DATA_DIR = path.join(require('electron').app.getPath('userData'), 'wechat'); }
   catch { DATA_DIR = path.join(os.homedir(), '.fanbox', 'wechat'); }
   return DATA_DIR;

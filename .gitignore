@@ -17,5 +17,15 @@ build/*
 # 本地运行时（翻箱的收藏/最近记录存在用户主目录，不入库）
 .fanbox/
 
+# 验证脚本的临时测试目录
+.tmp/
+
 # 验证脚本的截图产物（可复跑重生成，不入库）
 experiments/bugfix-202606/shots/
+
+# Windows 资源管理器缩略图缓存
+Thumbs.db
+Desktop.ini
+
+# 终端录制文件（用户本机数据）
+*.cast
