@@ -307,8 +307,13 @@ window.FANBOX_DICT = {
   '近5h': 'last 5h',
   '今日': 'today',
   '本周': 'this week',
+  '7天': '7 days',
+  '30天': '30 days',
+  '今日请求': 'today reqs',
   'token 总量 · 本地会话日志统计': 'Total tokens · from local session logs',
   '没找到 Claude Code / Codex 的本机会话记录': 'No local Claude Code / Codex session logs found',
+  '暂无本地用量记录': 'No local usage records',
+  '最近使用': 'Last used',
 
   // ---------- Skills 透视 ----------
   '扫描本机 skills…': 'Scanning local skills…',

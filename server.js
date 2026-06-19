@@ -1699,7 +1699,7 @@ async function parseClaudeFile(file, stat) {
 }
 
 async function claudeUsage() {
-  const cutoff = Date.now() - 8 * 86400000;
+  const cutoff = Date.now() - 31 * 86400000; // 31 days to cover last30d
   const files = [];
   let dirs;
   try { dirs = await fsp.readdir(CLAUDE_PROJ); } catch { return null; } // 没装/没用过 Claude Code
@@ -1717,18 +1717,20 @@ async function claudeUsage() {
   for (const { fp, st } of files) { try { all.push(...await parseClaudeFile(fp, st)); } catch { /* 单文件坏不挡整体 */ } }
   const now = Date.now();
   const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
-  const mk = () => ({ total: 0, input: 0, output: 0, cacheRead: 0, cacheCreate: 0, msgs: 0 });
-  const last5h = mk(), today = mk(), week = mk();
+  const mk = () => ({ total: 0, input: 0, output: 0, cacheRead: 0, cacheCreate: 0, requests: 0 });
+  const last5h = mk(), today = mk(), week = mk(), last30d = mk();
+  let lastSeenAt = 0;
   for (const e of all) {
+    if (e.t > lastSeenAt) lastSeenAt = e.t;
     const tot = e.in + e.out + e.cc + e.cr;
-    for (const [b, from] of [[last5h, now - 5 * 3600000], [today, dayStart.getTime()], [week, now - 7 * 86400000]]) {
-      if (e.t >= from) { b.total += tot; b.input += e.in; b.output += e.out; b.cacheRead += e.cr; b.cacheCreate += e.cc; b.msgs++; }
+    for (const [b, from] of [[last5h, now - 5 * 3600000], [today, dayStart.getTime()], [week, now - 7 * 86400000], [last30d, now - 30 * 86400000]]) {
+      if (e.t >= from) { b.total += tot; b.input += e.in; b.output += e.out; b.cacheRead += e.cr; b.cacheCreate += e.cc; b.requests++; }
     }
   }
-  return { last5h, today, week };
+  return { last5h, today, week, last30d, lastSeenAt: lastSeenAt || null };
 }
 
-// 从最近改动的 rollout 文件尾部抓最后一条带 rate_limits 的 token_count（官方配额快照）
+// Codex：1) 官方配额快照（rate_limits）2) 本地 token 统计（token_count 事件聚合）
 async function codexUsage() {
   const files = [];
   const walk = async (dir, depth) => {
@@ -1745,7 +1747,10 @@ async function codexUsage() {
   await walk(CODEX_SESS, 0);
   if (!files.length) return null;
   files.sort((a, b) => b.mtimeMs - a.mtimeMs);
-  for (const f of files.slice(0, 10)) { // 最新几个会话里找；都没有就放弃
+
+  // 1) 官方配额快照
+  let rateLimits = null;
+  for (const f of files.slice(0, 10)) {
     try {
       const fh = await fsp.open(f.fp, 'r');
       let txt;
@@ -1763,8 +1768,6 @@ async function codexUsage() {
         const rl = pl && pl.rate_limits;
         if (!rl || (!rl.primary && !rl.secondary)) continue;
         const capturedAt = Date.parse(d.timestamp || '') || f.mtimeMs;
-        // 快照是「当时」的数：窗口在快照之后重置过的话，旧百分比就完全失真（比如 21 小时前
-        // 的 5h 窗口 57%），归零并标 stale——没有新会话日志就说明重置后根本没用过
         const win = (w) => {
           if (!w) return null;
           let resetsAt = w.resets_at || 0;
@@ -1775,11 +1778,47 @@ async function codexUsage() {
           const stale = !!end && end < Date.now();
           return { usedPercent: stale ? 0 : w.used_percent, windowMinutes: w.window_minutes, resetsAt: stale ? 0 : resetsAt, stale };
         };
-        return { planType: rl.plan_type || '', capturedAt, primary: win(rl.primary), secondary: win(rl.secondary) };
+        rateLimits = { planType: rl.plan_type || '', capturedAt, primary: win(rl.primary), secondary: win(rl.secondary) };
+        break;
       }
+      if (rateLimits) break;
     } catch { /* 下一个文件 */ }
   }
-  return null;
+
+  // 2) 本地 token 统计：从 token_count 事件聚合
+  const now = Date.now();
+  const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+  const mk = () => ({ total: 0, input: 0, output: 0, requests: 0 });
+  const today = mk(), week = mk(), last30d = mk();
+  let lastSeenAt = 0;
+  for (const f of files) {
+    try {
+      const fh = await fsp.open(f.fp, 'r');
+      let txt;
+      try {
+        const buf = Buffer.alloc(f.size);
+        await fh.read(buf, 0, f.size, 0);
+        txt = buf.toString('utf8');
+      } finally { await fh.close(); }
+      for (const line of txt.split('\n')) {
+        if (!line.includes('"token_count"')) continue;
+        let d; try { d = JSON.parse(line); } catch { continue; }
+        const pl = d && d.payload;
+        if (!pl || !pl.token_count) continue;
+        const tc = pl.token_count;
+        const inp = tc.input_tokens || 0;
+        const out = tc.output_tokens || 0;
+        const t = Date.parse(d.timestamp || '') || f.mtimeMs;
+        if (t > lastSeenAt) lastSeenAt = t;
+        const tot = inp + out;
+        for (const [b, from] of [[today, dayStart.getTime()], [week, now - 7 * 86400000], [last30d, now - 30 * 86400000]]) {
+          if (t >= from) { b.total += tot; b.input += inp; b.output += out; b.requests++; }
+        }
+      }
+    } catch { /* 单文件坏不挡整体 */ }
+  }
+  const local = (today.requests || week.requests || last30d.requests) ? { today, week, last30d, lastSeenAt: lastSeenAt || null } : null;
+  return rateLimits ? { ...rateLimits, local } : local;
 }
 
 // Claude Code 官方限额窗口（和它 /usage 面板同源）：5h 滚动窗口 + 周配额的百分比和重置时间。
@@ -2215,8 +2254,14 @@ async function agentUsage() {
     codexUsage().catch(() => null),
     claudeOfficialLimits().catch(() => null),
   ]);
-  const claudeOut = (claude || claudeLimits) ? { ...(claude || {}), official: claudeLimits } : null;
-  const data = { ok: true, at: Date.now(), claude: claudeOut, codex };
+  const claudeOut = (claude || claudeLimits)
+    ? { available: true, source: 'local-jsonl', ...(claude || {}), official: claudeLimits, estimatedCost: null }
+    : { available: false, source: null, today: null, last7d: null, last30d: null, lastSeenAt: null, estimatedCost: null, error: 'No local usage file found' };
+  const codexLocal = codex && codex.local;
+  const codexOut = codex
+    ? { available: true, source: 'local-jsonl', planType: codex.planType || '', capturedAt: codex.capturedAt || null, primary: codex.primary || null, secondary: codex.secondary || null, local: codexLocal || null, estimatedCost: null }
+    : { available: false, source: null, today: null, last7d: null, last30d: null, lastSeenAt: null, estimatedCost: null, error: 'No local usage file found' };
+  const data = { ok: true, platform: PLATFORM, at: Date.now(), claude: claudeOut, codex: codexOut };
   usageResultCache = { at: Date.now(), data };
   return data;
 }

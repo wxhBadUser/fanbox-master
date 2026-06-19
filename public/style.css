@@ -183,6 +183,9 @@ kbd {
 .usage-trio { display: flex; gap: 4px; margin: 5px 0 3px; }
 .usage-trio span { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1px; background: var(--bg-3); border-radius: 6px; padding: 5px 2px; font-size: 10px; color: var(--text-faint); }
 .usage-trio b { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+.usage-trio-sub { margin-top: 2px; }
+.usage-trio-sub span { background: transparent; padding: 3px 2px; }
+.usage-trio-sub b { font-size: 11.5px; }
 
 .theme-switch { padding: 12px 8px 6px; border-top: 1px solid var(--border); }
 .theme-switch-label { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 7px; }

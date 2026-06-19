@@ -201,6 +201,25 @@ async function runTests() {
       check('终端面板出现', false, 'btn-terminal not found');
     }
 
+    // ========== 8. 用量面板基础验证 ==========
+    console.log('\n--- 8. 用量面板基础验证 ---');
+
+    const usageToggle = await win.$('[data-testid="usage-toggle"]').catch(() => null);
+    check('用量面板入口存在', !!usageToggle, 'usage-toggle');
+    if (usageToggle) {
+      await usageToggle.click();
+      await win.waitForTimeout(2000);
+      const usageBody = await win.$('[data-testid="usage-body"]').catch(() => null);
+      const isHidden = usageBody ? await usageBody.evaluate((el) => el.classList.contains('hidden')).catch(() => true) : true;
+      check('用量面板展开', !isHidden, 'hidden=' + isHidden);
+      if (usageBody && !isHidden) {
+        const usageText = await usageBody.innerText().catch(() => '');
+        // 不依赖真实数据，只检查不白屏、有 Claude/Codex 区块或暂无提示
+        const hasContent = /Claude|Codex|暂无|No local/.test(usageText);
+        check('用量面板有内容', hasContent, usageText.slice(0, 80));
+      }
+    }
+
     // ========== 最终检查 ==========
     check('渲染层零 console error', win._errs.length === 0, win._errs.slice(0, 3).join(' | '));
 

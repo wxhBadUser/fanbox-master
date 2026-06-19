@@ -3716,32 +3716,56 @@ const usagePanel = {
     const box = $('#usage-body');
     if (!d || !d.ok) { box.innerHTML = '<div class="usage-sub">读取失败</div>'; return; }
     let h = '';
-    if (d.codex) {
+    // Claude Code
+    if (d.claude && d.claude.available) {
+      const c = d.claude;
+      h += `<div class="usage-agent">Claude Code</div>`;
+      if (c.official) {
+        if (c.official.fiveHour) h += this.bar('5h 窗口', c.official.fiveHour.usedPercent, this.fmtReset(c.official.fiveHour.resetsAt));
+        if (c.official.sevenDay) h += this.bar('周配额', c.official.sevenDay.usedPercent, this.fmtReset(c.official.sevenDay.resetsAt));
+      }
+      if (c.today || c.last5h) {
+        h += `<div class="usage-trio">
+          <span><b>${this.fmtTok((c.last5h || c.today).total)}</b>近5h</span>
+          <span><b>${this.fmtTok(c.today.total)}</b>今日</span>
+          <span><b>${this.fmtTok(c.week.total)}</b>本周</span>
+        </div>`;
+        if (c.last30d) {
+          h += `<div class="usage-trio usage-trio-sub">
+            <span><b>${c.today.requests || 0}</b>今日请求</span>
+            <span><b>${this.fmtTok(c.week.total)}</b>7天</span>
+            <span><b>${this.fmtTok(c.last30d.total)}</b>30天</span>
+          </div>`;
+        }
+        h += `<div class="usage-sub">token 总量 · 本地会话日志统计</div>`;
+      }
+      if (c.lastSeenAt) h += `<div class="usage-sub">最近使用：${this.ago(c.lastSeenAt)}</div>`;
+    } else if (d.claude && !d.claude.available) {
+      h += `<div class="usage-agent">Claude Code</div><div class="usage-sub">暂无本地用量记录</div>`;
+    }
+    // Codex
+    if (d.codex && d.codex.available) {
       const c = d.codex;
       h += `<div class="usage-agent">Codex${c.planType ? ` <i class="usage-plan">${escapeHtml(c.planType)}</i>` : ''}</div>`;
       if (c.primary) h += this.bar('5h 窗口', c.primary.usedPercent, c.primary.stale ? '窗口已重置，跑一次 Codex 才有新数' : '');
       if (c.secondary) h += this.bar('周配额', c.secondary.usedPercent, c.secondary.stale ? '窗口已重置，跑一次 Codex 才有新数' : this.fmtReset(c.secondary.resetsAt));
-      h += `<div class="usage-sub">快照：${this.ago(c.capturedAt)}的 Codex 会话</div>`;
-    }
-    if (d.claude) {
-      const c = d.claude;
-      h += `<div class="usage-agent">Claude Code</div>`;
-      if (c.official) {
-        // 官方限额窗口（和 Claude Code /usage 面板同源）：5h 滚动窗口 + 周配额，优先展示
-        if (c.official.fiveHour) h += this.bar('5h 窗口', c.official.fiveHour.usedPercent, this.fmtReset(c.official.fiveHour.resetsAt));
-        if (c.official.sevenDay) h += this.bar('周配额', c.official.sevenDay.usedPercent, this.fmtReset(c.official.sevenDay.resetsAt));
-      }
-      if (c.last5h) {
-        // 本地 token 统计照常保留（拿不到官方数据时就只剩这块）
+      if (c.local) {
+        const l = c.local;
         h += `<div class="usage-trio">
-          <span><b>${this.fmtTok(c.last5h.total)}</b>近5h</span>
-          <span><b>${this.fmtTok(c.today.total)}</b>今日</span>
-          <span><b>${this.fmtTok(c.week.total)}</b>本周</span>
+          <span><b>${this.fmtTok(l.today.total)}</b>今日</span>
+          <span><b>${this.fmtTok(l.week.total)}</b>7天</span>
+          <span><b>${this.fmtTok(l.last30d.total)}</b>30天</span>
         </div>
         <div class="usage-sub">token 总量 · 本地会话日志统计</div>`;
+        if (l.lastSeenAt) h += `<div class="usage-sub">最近使用：${this.ago(l.lastSeenAt)}</div>`;
+      } else if (c.capturedAt) {
+        h += `<div class="usage-sub">快照：${this.ago(c.capturedAt)}的 Codex 会话</div>`;
       }
+    } else if (d.codex && !d.codex.available) {
+      h += `<div class="usage-agent">Codex</div><div class="usage-sub">暂无本地用量记录</div>`;
     }
-    if (!d.codex && !d.claude) h = '<div class="usage-sub">没找到 Claude Code / Codex 的本机会话记录</div>';
+    if ((!d.claude || !d.claude.available) && (!d.codex || !d.codex.available))
+      h = '<div class="usage-sub">暂无本地用量记录</div>';
     box.innerHTML = h;
   },
   async refresh() {
