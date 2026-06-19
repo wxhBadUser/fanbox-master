@@ -29,6 +29,9 @@ const IGNORE_DIRS = new Set([
   'node_modules', '.git', '.next', 'dist', 'build', '.cache', '.venv', 'venv',
   '__pycache__', '.DS_Store', 'Pods', '.gradle', 'target', '.idea', '.vscode-test',
   'DerivedData', '.expo', '.turbo', 'vendor', '.svn', '.hg',
+  // Windows 系统与缓存目录——盘符根目录直接跳过，避免权限报错或死循环
+  'AppData', 'Local Settings', 'Application Data', '$Recycle.Bin',
+  'System Volume Information',
 ]);
 
 const TEXT_EXT = new Set([
@@ -349,6 +352,8 @@ async function walk(root, { onFile, onDir, limit = 4000, deadline }) {
     for (const d of dirents) {
       if (d.name === '.DS_Store') continue;
       const full = path.join(dir, d.name);
+      // 符号链接跳过——避免通过 NTFS 接合点/符号链接钻入已忽略目录或形成循环
+      if (d.isSymbolicLink()) continue;
       const isDir = d.isDirectory();
       if (isDir) {
         if (IGNORE_DIRS.has(d.name)) continue;
@@ -412,7 +417,7 @@ async function searchFiles(query, rootPath, deadlineTs) {
     onDir: (f) => scoreInto(f, 6),
   });
   matches.sort((a, b) => b.score - a.score);
-  return { results: matches.slice(0, 80), truncated, engine: (PLATFORM === 'darwin' ? 'mac' : 'win') + '-walk' };
+  return { results: matches.slice(0, 80), truncated, engine: PLATFORM + '-walk' };
 }
 
 async function grepFiles(query, rootPath) {
@@ -444,7 +449,7 @@ async function grepFiles(query, rootPath) {
     }
     if (hits.length) results.push({ ...f, hits });
   }
-  return { results, truncated, engine: (PLATFORM === 'darwin' ? 'mac' : 'win') + '-grep' };
+  return { results, truncated, engine: PLATFORM + '-grep' };
 }
 
 // ---------- Spotlight（mdfind）内容搜索：白嫖系统索引 ----------
@@ -495,7 +500,7 @@ async function contentSearch(query, rootPath) {
   }
   // Windows/Linux 及 Spotlight 不可用时走 grep 兜底
   const fb = await grepFiles(query, rootPath);
-  return { ...fb, engine: (PLATFORM === 'darwin' ? 'mac' : 'win') + '-grep-fallback' };
+  return { ...fb, engine: PLATFORM + '-grep-fallback' };
 }
 
 async function recentFiles(rootPath) {

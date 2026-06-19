@@ -1994,14 +1994,22 @@ const cmdk = {
     this.timer = setTimeout(async () => {
       const root = this.root();
       let data, term;
-      if (isContent) {
-        term = q.replace(/^(内容[:：]|content:)/i, '').trim();
-        data = await api(`/api/content?q=${encodeURIComponent(term)}&root=${encodeURIComponent(root)}`);
-        this.results = data.results.map((r) => ({ ...r, content: true }));
-      } else {
-        term = q.trim();
-        data = await api(`/api/search?q=${encodeURIComponent(term)}&root=${encodeURIComponent(root)}`);
-        this.results = data.results;
+      try {
+        if (isContent) {
+          term = q.replace(/^(内容[:：]|content:)/i, '').trim();
+          data = await api(`/api/content?q=${encodeURIComponent(term)}&root=${encodeURIComponent(root)}`);
+          this.results = data.results.map((r) => ({ ...r, content: true }));
+        } else {
+          term = q.trim();
+          data = await api(`/api/search?q=${encodeURIComponent(term)}&root=${encodeURIComponent(root)}`);
+          this.results = data.results;
+        }
+        if (data.engine) console.debug('[search] engine:', data.engine);
+      } catch (e) {
+        console.error('[search] error:', e);
+        $('#cmdk-results').innerHTML = '<div class="cmdk-loading">⚠ 搜索请求失败，请重试</div>';
+        this.results = [];
+        return;
       }
       this.truncated = data.truncated;
       this.isContent = isContent;
@@ -2027,7 +2035,7 @@ const cmdk = {
       li.onclick = () => this.choose(i, false);
       ul.appendChild(li);
     });
-    if (this.truncated) ul.insertAdjacentHTML('beforeend', `<div class="cmdk-loading">⚠ 结果可能不完整，换更具体的关键词或缩小到当前目录</div>`);
+    if (this.truncated) ul.insertAdjacentHTML('beforeend', `<div class="cmdk-loading">⚠ 已显示部分结果，结果可能不完整。换更具体的关键词或缩小搜索范围</div>`);
     this.scrollActive();
   },
   move(d) { if (!this.results.length) return; this.active = (this.active + d + this.results.length) % this.results.length; this.renderResults(); },
