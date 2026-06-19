@@ -316,6 +316,19 @@ kbd {
 /* 收藏按钮（悬停出现，可直接收藏，无需先预览） */
 .fav-btn { position: absolute; opacity: 0; transition: 0.12s; cursor: pointer; color: var(--text-faint); font-size: 15px; }
 .grid .item .fav-btn { top: 6px; right: 8px; }
+
+/* 此电脑虚拟根目录盘符卡片样式 */
+.grid.grid-roots { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; padding: 20px; }
+.grid.grid-roots .item.drive-item {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 24px 12px; border-radius: 12px; cursor: default; gap: 8px;
+  background: var(--bg-2); border: 1.5px solid transparent; transition: all 0.2s ease;
+}
+.grid.grid-roots .item.drive-item:hover { background: var(--bg-3); border-color: var(--accent-soft); }
+.grid.grid-roots .item.drive-item.cursor { box-shadow: 0 0 0 2px var(--accent) inset; }
+.grid.grid-roots .item.drive-item .drive-icon { opacity: 0.7; }
+.grid.grid-roots .item.drive-item:hover .drive-icon { opacity: 1; }
+.grid.grid-roots .item.drive-item .drive-name { font-size: 15px; font-weight: 650; color: var(--text); }
 .list .row .fav-btn { position: static; justify-self: center; }
 .item:hover .fav-btn, .row:hover .fav-btn { opacity: 0.65; }
 .fav-btn:hover { opacity: 1 !important; color: var(--yellow); transform: scale(1.2); }
@@ -1008,6 +1021,8 @@ kbd {
 /* 终端头：文件跟随按钮 */
 .term-actions #file-follow { font-size: 11px; padding: 3px 8px; font-family: var(--font-ui); }
 .term-actions #file-follow.on { color: var(--accent); background: var(--accent-soft); }
+.term-actions #term-cwd-follow { font-size: 11px; padding: 3px 8px; font-family: var(--font-ui); }
+.term-actions #term-cwd-follow.on { color: var(--accent); background: var(--accent-soft); }
 .term-actions #term-max.on { color: var(--accent-ink); background: var(--accent); }
 .nav-buttons #btn-sidebar.on { color: var(--accent); border-color: var(--accent); }
 

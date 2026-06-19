@@ -38,6 +38,8 @@ const SVG = {
   minimize: '<polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/>',
   undo: '<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>',
   redo: '<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>',
+  'hard-drive': '<ellipse cx="12" cy="8" rx="9" ry="3"/><path d="M3 8v8a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3V8"/><line x1="3" y1="11" x2="21" y2="11"/><line x1="7" y1="14" x2="9" y2="14"/><line x1="7" y1="17" x2="9" y2="17"/>',
+  computer: '<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><circle cx="12" cy="10" r="2"/><line x1="2" y1="10" x2="5" y2="10"/><line x1="19" y1="10" x2="22" y2="10"/>',
   // 高辨识度文件类型图标
   md: '<rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M6 15.5V9l3 3 3-3v6.5"/><path d="M17 9v4.5"/><path d="M14.8 12.5L17 15l2.2-2.5"/>',
   html: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="9.3 12.5 7.5 14.5 9.3 16.5"/><polyline points="14.7 12.5 16.5 14.5 14.7 16.5"/>',
@@ -291,6 +293,11 @@ async function navigate(p, pushHistory = true) {
     updateWatches();
     // 手动跳目录 = 接管浏览，文件跟随让位（跟随自己发起的导航除外）
     if (follow.on && !follow.navving) setFileFollow(false, '手动接管，文件跟随已停');
+    // 终端跟随目录：文件区切换后自动 cd 活动终端
+    if (typeof term !== 'undefined' && term.followCwd && data.path && data.path !== '__fanbox_roots__') {
+      // 不阻塞导航，异步查终端状态再决定要不要发 cd
+      term.maybeCdTo(data.path);
+    }
   } catch (e) { toast('打开失败', true); }
 }
 // 汇总当前要监听的目录：浏览目录 + 每个终端会话的项目目录，发给主进程做增量监听
@@ -321,7 +328,9 @@ function renderBreadcrumb() {
     if (i > 0) { const s = document.createElement('span'); s.className = 'sep'; s.textContent = '›'; bc.appendChild(s); }
     const el = document.createElement('span');
     el.className = 'crumb' + (i === arr.length - 1 ? ' last' : '');
-    if (c.name === '/') el.innerHTML = ic('monitor', 'currentColor', 15);
+    if (c.virtual === 'roots') el.innerHTML = ic('computer', 'currentColor', 15);
+    else if (c.name === '/') el.innerHTML = ic('monitor', 'currentColor', 15);
+    else if (c.drive) el.innerHTML = ic('hard-drive', 'currentColor', 14) + ' ' + escapeHtml(c.name);
     else el.textContent = c.name;
     el.onclick = () => navigate(c.path);
     bc.appendChild(el);
@@ -377,6 +386,31 @@ function renderStatusbar() {
 function renderFiles() {
   if (state.skillsMode) return; // skills 视图自管 #file-area，文件渲染不要清掉它
   const area = $('#file-area');
+  // Windows 此电脑虚拟根目录：显示盘符卡片
+  if (state.cwd === '__fanbox_roots__') {
+    const list = state.entries || [];
+    state.visible = list;
+    // 简单状态栏
+    const sb = $('#statusbar'); if (sb) { sb.classList.remove('hidden'); sb.innerHTML = `<span>${list.length} 个磁盘</span>`; }
+    const grid = document.createElement('div');
+    grid.className = 'grid grid-roots';
+    list.forEach((e, i) => {
+      const it = document.createElement('div');
+      it.className = 'item drive-item';
+      it.dataset.index = i;
+      it.dataset.path = e.path;
+      it.innerHTML = `<span class="svg-icon drive-icon">${ic('hard-drive', 'currentColor', 48)}</span><span class="drive-name">${escapeHtml(e.name)}</span>`;
+      it.onclick = () => { state.cursor = i; highlightCursor(); };
+      it.ondblclick = () => navigate(e.path);
+      it.oncontextmenu = (ev) => { ev.preventDefault(); ev.stopPropagation(); state.cursor = i; showContextMenu(ev, e); };
+      grid.appendChild(it);
+    });
+    area.innerHTML = '';
+    area.appendChild(grid);
+    state.cols = 0;
+    return;
+  }
+
   const list = visibleEntries();
   state.visible = list;
   renderStatusbar();
@@ -1724,6 +1758,11 @@ async function diskPanel(dirPath) {
 
 // 右键上下文菜单
 function closeContextMenu() { const m = $('#context-menu'); if (m) m.remove(); }
+// 打开新终端，带路径验证
+function openNewTerminalAt(cwd) {
+  if (!cwd || cwd === '__fanbox_roots__') { toast('无法在此位置打开终端', true); return; }
+  term.openInDir(cwd);
+}
 function showContextMenu(ev, e) {
   ev.preventDefault();
   closeContextMenu();
@@ -1732,8 +1771,10 @@ function showContextMenu(ev, e) {
   else items.push({ label: '预览', fn: () => { state.selected = e.path; openPreview(e); renderFiles(); } });
   if (e.isDir) items.push({ label: 'AI 整理…', fn: () => organizeLaunch(e.path) });
   if (e.isDir) items.push({ label: '磁盘占用透视', fn: () => diskPanel(e.path) });
-  if (e.isDir) items.push({ label: '在终端打开', fn: () => term.openInDir(e.path) });
-  else items.push({ label: '在所在目录开终端', fn: () => term.openInDir(dirOf(e.path)) });
+  // 盘符：显示「在此磁盘打开新终端」
+  if (e.drive) items.push({ label: '在此磁盘打开新终端', fn: () => openNewTerminalAt(e.path) });
+  else if (e.isDir) items.push({ label: '在此文件夹打开新终端', fn: () => openNewTerminalAt(e.path) });
+  else items.push({ label: '在所在目录打开新终端', fn: () => openNewTerminalAt(dirOf(e.path)) });
   if (e.kind === 'text') items.push({ label: '编辑文本', fn: () => enterEditMode(e) });
   if (e.kind === 'image') items.push({ label: '编辑图片', fn: () => enterImageEdit(e) });
   items.push({ label: '在编辑器打开', fn: () => openWith(e.path, 'editor') });
@@ -2424,6 +2465,18 @@ function bindEvents() {
   syncMute();
   muteBtn.onclick = () => { state.muted = !state.muted; localStorage.setItem('fb_muted', state.muted ? '1' : '0'); syncMute(); if (!state.muted) playChime('tick'); };
   $('#term-close').onclick = () => term.close();
+  // 终端跟随目录开关：文件区切换目录时自动 cd 到对应路径
+  const followBtn = $('#term-cwd-follow');
+  if (followBtn) {
+    term.followCwd = localStorage.getItem('fb_term_follow') === '1';
+    followBtn.classList.toggle('on', term.followCwd);
+    followBtn.onclick = () => {
+      term.followCwd = !term.followCwd;
+      localStorage.setItem('fb_term_follow', term.followCwd ? '1' : '0');
+      followBtn.classList.toggle('on', term.followCwd);
+      toast(term.followCwd ? '终端跟随目录：已开启' : '终端跟随目录：已关闭');
+    };
+  }
   $('#btn-sidebar').onclick = () => toggleSidebar();
   $('#file-follow').onclick = () => setFileFollow(!follow.on);
   // 定位文件按钮已撤（双击终端 tab 即可定位，见 term.locateCwd / renderTabs 的 ondblclick）
@@ -2467,13 +2520,18 @@ function bindEvents() {
   const blankMenu = (e) => {
     if (e.target.closest('.item') || e.target.closest('.row')) return; // 条目自身的菜单不抢
     e.preventDefault();
-    popupMenu(e, [
-      { label: '新建文件夹…', fn: () => doCreate('dir') },
-      { label: '新建文件…', fn: () => doCreate('file') },
-      { sep: true },
-      { label: 'AI 整理…', fn: () => organizeLaunch(state.cwd) },
-      { label: '磁盘占用透视', fn: () => diskPanel(state.cwd) },
-    ]);
+    const items = [];
+    // __fanbox_roots__ 不是真实目录，不显示打开终端
+    if (state.cwd !== '__fanbox_roots__') {
+      items.push({ label: '打开新终端', fn: () => openNewTerminalAt(state.cwd) });
+      items.push({ sep: true });
+    }
+    items.push({ label: '新建文件夹…', fn: () => doCreate('dir') });
+    items.push({ label: '新建文件…', fn: () => doCreate('file') });
+    items.push({ sep: true });
+    items.push({ label: 'AI 整理…', fn: () => organizeLaunch(state.cwd) });
+    items.push({ label: '磁盘占用透视', fn: () => diskPanel(state.cwd) });
+    popupMenu(e, items);
   };
   $('#file-area').addEventListener('dblclick', blankMenu);
   $('#file-area').addEventListener('contextmenu', blankMenu);
@@ -2938,6 +2996,7 @@ const TERM_ASK_RE = /(Do you want to (proceed|continue|make this edit|allow|use 
 const term = {
   sessions: [], seq: 0, active: null, maximized: false,
   dock: localStorage.getItem('fb_term_dock') || 'right',
+  followCwd: false, // 终端跟随目录开关，由 term-follow 按钮控制
   available() { return !!(window.fanboxPty && window.Terminal && !window.__noXterm); },
   // 每套皮肤一整套手调 ANSI 主题——暗皮肤暗终端、亮皮肤亮终端，不再出现「暖纸里嵌黑块」
   themes: {
@@ -3079,6 +3138,35 @@ const term = {
       const s = this.sessions.find((x) => x.id === this.active); if (s) s.xterm.focus();
     };
     if (wasHidden) setTimeout(write, 300); else write();
+  },
+  // 文件区导航后尝试 cd 终端：仅当活动终端空闲时才发 cd 命令
+  async maybeCdTo(dir) {
+    if (!this.active) return;
+    const sess = this.sessions.find((s) => s.id === this.active);
+    if (!sess || sess.dead) return;
+    // 检查终端是否空闲（裸 shell）
+    const idle = await this.isPlainShell(sess);
+    if (!idle) return; // agent 正跑着，不打搅
+    // Windows cmd: cd /d "path", powershell: Set-Location, posix: cd
+    const plat = state.platform === 'win32' ? 'win32' : 'posix';
+    const q = (s) => s.replace(/"/g, '""');
+    if (plat === 'win32') {
+      // 判断shell类型 - 默认是powershell
+      try {
+        const r = await window.fanboxPty.proc(sess.id);
+        const proc = r && r.ok ? String(r.proc).toLowerCase() : '';
+        if (proc.includes('cmd') || proc.includes('cmd.exe')) {
+          this.input(this.active, `cd /d "${q(dir)}"\r`);
+        } else {
+          this.input(this.active, `Set-Location -LiteralPath "${q(dir)}"\r`);
+        }
+      } catch {
+        // fallback to powershell
+        this.input(this.active, `Set-Location -LiteralPath "${q(dir)}"\r`);
+      }
+    } else {
+      this.input(this.active, `cd ${shQuote(dir)}\r`);
+    }
   },
   // 用户输入统一入口：记 lastInput 供回显过滤（击键/粘贴/拖路径/跟随 cd 引发的重绘不算 agent 干活）
   input(id, d) {

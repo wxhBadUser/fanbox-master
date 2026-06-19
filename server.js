@@ -135,7 +135,31 @@ function sendJSON(res, code, obj) {
 
 // ---------- 业务逻辑 ----------
 
+// Windows 枚举可用盘符（跳过 A: B: 软驱历史）
+function listWindowsDrives() {
+  const drives = [];
+  for (let i = 67; i <= 90; i++) { // C 到 Z
+    const letter = String.fromCharCode(i);
+    const root = letter + ':\\';
+    try { fs.accessSync(root); } catch { continue; }
+    drives.push({ name: letter + ':', path: root, isDir: true, kind: 'dir', drive: true, size: 0, mtime: 0, btime: 0, hidden: false });
+  }
+  return drives;
+}
+
 async function listDir(dirPath) {
+  // Windows 虚拟根目录：返回所有可用盘符
+  if (PLATFORM === 'win32' && dirPath === '__fanbox_roots__') {
+    const entries = listWindowsDrives();
+    return {
+      path: '__fanbox_roots__',
+      parent: null,
+      entries,
+      breadcrumb: [{ name: '此电脑', path: '__fanbox_roots__', virtual: 'roots' }],
+      project: null,
+    };
+  }
+
   const dir = resolvePath(dirPath);
   const dirents = await fsp.readdir(dir, { withFileTypes: true });
   const entries = [];
@@ -191,10 +215,21 @@ async function listDir(dirPath) {
   }
 
   const parts = dir.split(path.sep).filter(Boolean);
-  const breadcrumb = [{ name: PLATFORM === 'win32' ? dir.split(path.sep)[0] : '/', path: PLATFORM === 'win32' ? parts[0] + path.sep : path.sep }];
-  let acc = PLATFORM === 'win32' ? parts[0] + path.sep : path.sep;
-  const start = PLATFORM === 'win32' ? 1 : 0;
-  for (let i = start; i < parts.length; i++) {
+  // Windows：面包屑从「此电脑」开始，然后盘符、各层目录
+  if (PLATFORM === 'win32') {
+    const breadcrumb = [{ name: '此电脑', path: '__fanbox_roots__', virtual: 'roots' }];
+    breadcrumb.push({ name: parts[0], path: parts[0] + '\\', drive: true });
+    let acc = parts[0] + '\\';
+    for (let i = 1; i < parts.length; i++) {
+      acc = path.join(acc, parts[i]);
+      breadcrumb.push({ name: parts[i], path: acc });
+    }
+    return { path: dir, parent: path.dirname(dir), entries, breadcrumb, project };
+  }
+  // macOS/Linux：保持原有的 / → Users → ... 结构
+  const breadcrumb = [{ name: '/', path: path.sep }];
+  let acc = path.sep;
+  for (let i = 0; i < parts.length; i++) {
     acc = path.join(acc, parts[i]);
     breadcrumb.push({ name: parts[i], path: acc });
   }
