@@ -276,15 +276,37 @@ async function runTests() {
     const usageToggle = await win.$('[data-testid="usage-toggle"]').catch(() => null);
     check('用量面板入口存在', !!usageToggle, 'usage-toggle');
     if (usageToggle) {
+      // 先重置 localStorage 状态：之前 run 可能残留 fb_usage_open='1'，再点会把它关掉。
+      // 显式置 '0' 让 click 一定走「关→开」路径，断言稳定。
+      await win.evaluate(() => { try { localStorage.setItem('fb_usage_open', '0'); } catch (e) {} }).catch(() => {});
       await usageToggle.click();
-      await win.waitForTimeout(2000);
+      // 等 body 实际从 hidden 切走（不用裸等 2s）
+      const opened = await win.evaluate(async () => {
+        const body = document.querySelector('[data-testid="usage-body"]');
+        if (!body) return false;
+        for (let i = 0; i < 40; i++) { // 最多等 4s
+          if (!body.classList.contains('hidden')) return true;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        return false;
+      }).catch(() => false);
       const usageBody = await win.$('[data-testid="usage-body"]').catch(() => null);
       const isHidden = usageBody ? await usageBody.evaluate((el) => el.classList.contains('hidden')).catch(() => true) : true;
-      check('用量面板展开', !isHidden, 'hidden=' + isHidden);
+      check('用量面板展开', opened && !isHidden, 'opened=' + opened + ' hidden=' + isHidden);
       if (usageBody && !isHidden) {
-        const usageText = await usageBody.innerText().catch(() => '');
-        // 不依赖真实数据，只检查不白屏、有 Claude/Codex 区块或暂无提示
-        const hasContent = /Claude|Codex|暂无|No local/.test(usageText);
+        // 等内容出现：api('/api/agent-usage') 异步加载，最坏 ~3s（外部 OAuth 接口）
+        const usageText = await win.evaluate(async () => {
+          const body = document.querySelector('[data-testid="usage-body"]');
+          if (!body) return '';
+          for (let i = 0; i < 60; i++) { // 最多等 6s
+            const t = (body.innerText || body.textContent || '').trim();
+            if (t && t.length > 0) return t;
+            await new Promise((r) => setTimeout(r, 100));
+          }
+          return (body.innerText || body.textContent || '').trim();
+        }).catch(() => '');
+        // 不依赖真实数据，只检查不白屏、有 Claude/Codex 区块或暂无/读取失败等提示
+        const hasContent = /Claude|Codex|暂无|No local|读取失败|loading/i.test(usageText);
         check('用量面板有内容', hasContent, usageText.slice(0, 80));
       }
     }
