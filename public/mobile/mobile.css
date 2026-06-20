@@ -550,6 +550,227 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 .file-row { width: 100%; }
 .root-row .root-path { max-width: 55%; }
 
+/* ---------- Phase 2A-1：Agent 切换 + 会话消息 ---------- */
+.agent-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-1);
+}
+.agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: var(--fs-meta);
+  font-weight: 500;
+  color: var(--fg-2);
+  background: var(--bg-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-pill);
+  transition: background 80ms ease, border-color 80ms ease, color 80ms ease;
+  white-space: nowrap;
+}
+.agent-chip:hover { background: var(--card); border-color: var(--blue-line); }
+.agent-chip.is-active {
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-color: var(--blue-line);
+}
+.agent-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-3);
+  flex: 0 0 auto;
+}
+.agent-chip.is-installed .agent-chip-dot { background: var(--ok); }
+.agent-chip.is-missing .agent-chip-dot { background: var(--fg-3); border: 1px dashed var(--fg-3); }
+
+.agent-messages {
+  margin-top: var(--s-3);
+  max-height: 360px;
+  min-height: 80px;
+  overflow-y: auto;
+  padding: var(--s-2);
+  background: var(--bg-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-control);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.message-bubble {
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  max-width: 90%;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+.message-bubble-user {
+  align-self: flex-end;
+  background: var(--blue-soft);
+  color: var(--fg);
+  border: 1px solid var(--blue-line);
+}
+.message-bubble-agent {
+  align-self: flex-start;
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+.message-bubble-system {
+  align-self: center;
+  background: transparent;
+  color: var(--fg-3);
+  font-size: var(--fs-meta);
+  font-style: italic;
+  border: 1px dashed var(--border-soft);
+}
+.message-role {
+  display: block;
+  font-size: 11px;
+  color: var(--fg-3);
+  margin-bottom: 2px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.agent-input-row {
+  display: flex;
+  gap: var(--s-2);
+  align-items: stretch;
+  margin-top: var(--s-3);
+}
+.agent-input {
+  flex: 1 1 0;
+  min-height: 56px;
+  max-height: 160px;
+  padding: 10px 12px;
+  font-size: var(--fs-body);
+  font-family: var(--font);
+  color: var(--fg);
+  background: var(--bg-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-control);
+  outline: 0;
+  resize: vertical;
+}
+.agent-input:focus { border-color: var(--blue-line); }
+.agent-input:disabled { color: var(--fg-3); cursor: not-allowed; }
+.agent-input::placeholder { color: var(--fg-3); }
+.agent-input-note {
+  margin-top: var(--s-1);
+  font-size: 11px;
+  color: var(--fg-3);
+  text-align: right;
+}
+
+/* ---------- Phase 2A-1：CTA / Sessions 列表 ---------- */
+.card-cta { background: var(--blue-soft); border-color: var(--blue-line); }
+.card-cta .card-h { color: var(--blue); }
+.cta-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  flex: 0 0 auto;
+}
+.cta-row .btn-primary,
+.cta-row .btn-ghost { width: auto; min-width: 160px; margin-top: 0; }
+
+.sessions-list { display: flex; flex-direction: column; gap: var(--s-2); margin-bottom: var(--s-3); }
+.session-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--s-3);
+  background: var(--card);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-control);
+  transition: background 80ms ease, border-color 80ms ease;
+}
+.session-card:hover { background: var(--bg-2); border-color: var(--blue-line); }
+.session-card:active { background: var(--blue-soft); }
+.session-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin-bottom: var(--s-1);
+}
+.session-title {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 70%;
+}
+.session-source {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-2);
+  background: var(--bg-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-pill);
+  padding: 1px 8px;
+  letter-spacing: 0.02em;
+  flex: 0 0 auto;
+}
+.session-source-wechat { color: #047857; background: #ECFDF5; border-color: #A7F3D0; }
+.session-source-mobile { color: var(--blue); background: var(--blue-soft); border-color: var(--blue-line); }
+.session-source-desktop { color: var(--fg-2); background: var(--bg-2); border-color: var(--border-soft); }
+.session-preview {
+  font-size: var(--fs-meta);
+  color: var(--fg-2);
+  line-height: 1.5;
+  margin: var(--s-1) 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.session-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin-top: var(--s-1);
+  font-size: 11px;
+  color: var(--fg-3);
+}
+.session-meta-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  max-width: 75%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  font-size: 11px;
+  border-radius: var(--r-pill);
+  background: var(--bg-2);
+  color: var(--fg-2);
+  border: 1px solid var(--border-soft);
+  flex: 0 0 auto;
+}
+.session-status-running { color: var(--ok); border-color: #A7F3D0; background: #ECFDF5; }
+.session-status-idle { color: var(--fg-2); }
+.session-status-error { color: var(--err); border-color: #FECACA; background: #FEF2F2; }
+.session-status-unknown { color: var(--fg-3); border-style: dashed; }
+
 /* ---------- 空状态 / skeleton / 通用 ---------- */
 .empty {
   color: var(--fg-3);

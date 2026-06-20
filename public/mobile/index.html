@@ -37,7 +37,9 @@
     </header>
 
     <main class="app-main">
-      <!-- Home Tab -->
+      <!-- ============================== -->
+      <!-- Home Tab                       -->
+      <!-- ============================== -->
       <section class="tab-pane" data-tab="home" hidden>
         <div class="card flow-card">
           <div class="flow">
@@ -88,18 +90,32 @@
               <span class="qa-icon" data-i="files"></span>
               <span class="qa-label">Files</span>
             </button>
+            <button class="qa-tile" data-go="agent" type="button">
+              <span class="qa-icon" data-i="agents"></span>
+              <span class="qa-label">Agent</span>
+            </button>
             <button class="qa-tile" data-go="skills" type="button">
               <span class="qa-icon" data-i="skills"></span>
               <span class="qa-label">Skills</span>
             </button>
-            <button class="qa-tile" data-go="agents" type="button">
-              <span class="qa-icon" data-i="agents"></span>
-              <span class="qa-label">Agents</span>
-            </button>
-            <button class="qa-tile" data-go="usage" type="button">
+            <button class="qa-tile" data-go="sessions" type="button">
               <span class="qa-icon" data-i="usage"></span>
-              <span class="qa-label">Usage</span>
+              <span class="qa-label">Sessions</span>
             </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h">Usage · Today / This week</div>
+          <div class="card-grid card-grid-2" style="border: none; padding: 0;">
+            <div>
+              <div class="card-meta">Today</div>
+              <div id="home-usage-today" class="card-big">—</div>
+            </div>
+            <div>
+              <div class="card-meta">This week</div>
+              <div id="home-usage-week" class="card-big">—</div>
+            </div>
           </div>
         </div>
 
@@ -109,7 +125,9 @@
         </div>
       </section>
 
-      <!-- Files Tab -->
+      <!-- ============================== -->
+      <!-- Files Tab                      -->
+      <!-- ============================== -->
       <section class="tab-pane" data-tab="files" hidden>
         <div class="card flow-card">
           <div class="flow">
@@ -126,6 +144,19 @@
             <select id="files-root" class="field field-select"></select>
             <input id="files-q" class="field field-input" type="search" placeholder="搜索文件名…" maxlength="80" autocomplete="off">
             <button id="files-go" class="btn-ghost" type="button">搜索</button>
+          </div>
+        </div>
+
+        <div class="card card-cta">
+          <div class="card-row card-row-between">
+            <div>
+              <div class="card-h">当前文件夹</div>
+              <div id="files-cwd-label" class="card-meta">未选择</div>
+            </div>
+            <div class="cta-row">
+              <button id="files-open-agent" class="btn-primary" type="button" disabled>在此文件夹打开 Agent</button>
+              <button id="files-view-sessions" class="btn-ghost" type="button" disabled>查看此文件夹 Sessions</button>
+            </div>
           </div>
         </div>
 
@@ -151,7 +182,81 @@
         </div>
       </section>
 
-      <!-- Skills Tab -->
+      <!-- ============================== -->
+      <!-- Agent Tab (Phase 2A-1)         -->
+      <!-- ============================== -->
+      <section class="tab-pane" data-tab="agent" hidden>
+        <div class="card flow-card">
+          <div class="flow">
+            <div class="flow-node">Files</div>
+            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
+            <div class="flow-node flow-node-active">cwd</div>
+            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
+            <div class="flow-node">Agent Shell</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-row card-row-between">
+            <div>
+              <div class="card-h">cwd</div>
+              <div id="agent-cwd" class="card-meta">未选择</div>
+            </div>
+            <button id="agent-pick-cwd" class="btn-ghost" type="button">选择文件夹</button>
+          </div>
+          <div class="card-h" style="margin-top: var(--s-3);">Agent</div>
+          <div id="agent-switcher" class="agent-switcher"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-row card-row-between">
+            <div>
+              <div class="card-h">Session</div>
+              <div id="agent-session-status" class="card-meta">未选择</div>
+            </div>
+            <span id="agent-status-pill"></span>
+          </div>
+          <div id="agent-messages" class="agent-messages">
+            <div class="empty">请先选择 cwd + agent</div>
+          </div>
+          <div class="agent-input-row">
+            <textarea id="agent-input" class="agent-input" rows="2" maxlength="4000" disabled placeholder="Sending tasks will be enabled after desktop approval is implemented."></textarea>
+            <button id="agent-send" class="btn-primary" type="button" disabled>Send</button>
+          </div>
+          <div class="agent-input-note">Desktop approval will be added in Phase 2A-2</div>
+        </div>
+
+        <div class="card-grid card-grid-2">
+          <div class="card card-stat">
+            <div class="card-h">Context files</div>
+            <div id="agent-context-files" class="card-p">—</div>
+          </div>
+          <div class="card card-stat">
+            <div class="card-h">Skill suggestions</div>
+            <div id="agent-skill-suggestions" class="card-p">—</div>
+          </div>
+          <div class="card card-stat card-stat-wide">
+            <div class="card-h">Usage · Today / This week</div>
+            <div class="card-meta">
+              <span id="agent-usage-today">—</span> today · <span id="agent-usage-week">—</span> week
+            </div>
+          </div>
+        </div>
+
+        <div class="card card-tip">
+          <div class="card-h">Desktop approval required</div>
+          <p class="card-p">本轮 Phase 2A-1 仅显示 session 外壳。发送任务需 Phase 2A-2 引入电脑端二次确认。</p>
+          <div class="card-row" style="margin-top: var(--s-2);">
+            <span class="status-dot status-dot-ok"></span><span class="card-p">Read-only</span>
+            <span class="status-dot status-dot-ok" style="margin-left: 12px;"></span><span class="card-p">No raw terminal</span>
+            <span class="status-dot status-dot-ok" style="margin-left: 12px;"></span><span class="card-p">No shell access</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================== -->
+      <!-- Skills Tab                     -->
+      <!-- ============================== -->
       <section class="tab-pane" data-tab="skills" hidden>
         <div class="card">
           <div class="field-row">
@@ -164,62 +269,52 @@
         </div>
       </section>
 
-      <!-- Agents Tab -->
-      <section class="tab-pane" data-tab="agents" hidden>
+      <!-- ============================== -->
+      <!-- Sessions Tab (Phase 2A-1)      -->
+      <!-- ============================== -->
+      <section class="tab-pane" data-tab="sessions" hidden>
         <div class="card flow-card">
           <div class="flow">
-            <div class="flow-node">Detect only</div>
+            <div class="flow-node">desktop</div>
             <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
-            <div class="flow-node flow-node-active">No launch</div>
+            <div class="flow-node flow-node-active">mobile</div>
             <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
-            <div class="flow-node">No task</div>
-          </div>
-        </div>
-
-        <div class="card card-tip">
-          <div class="card-h">Read-only detection only</div>
-          <p class="card-p">No Start · No Run · No Send · No Terminal · No Execute</p>
-        </div>
-
-        <div id="agents-list" class="agent-grid">
-          <div class="skeleton" style="height: 84px;"></div>
-          <div class="skeleton" style="height: 84px;"></div>
-          <div class="skeleton" style="height: 84px;"></div>
-          <div class="skeleton" style="height: 84px;"></div>
-        </div>
-      </section>
-
-      <!-- Usage Tab -->
-      <section class="tab-pane" data-tab="usage" hidden>
-        <div class="card flow-card">
-          <div class="flow">
-            <div class="flow-node">Sanitized stats</div>
-            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
-            <div class="flow-node flow-node-active">No raw logs</div>
-          </div>
-        </div>
-
-        <div class="card-grid card-grid-2">
-          <div class="card card-stat">
-            <div class="card-h">Today</div>
-            <div id="usage-today" class="card-big">—</div>
-            <div class="card-meta">tokens</div>
-          </div>
-          <div class="card card-stat">
-            <div class="card-h">This week</div>
-            <div id="usage-week" class="card-big">—</div>
-            <div class="card-meta">tokens</div>
+            <div class="flow-node">wechat</div>
           </div>
         </div>
 
         <div class="card">
-          <div class="card-h">Per Agent</div>
-          <div id="usage-list" class="usage-list"></div>
+          <div class="field-row">
+            <select id="sessions-source" class="field field-select">
+              <option value="">所有来源</option>
+              <option value="desktop">desktop</option>
+              <option value="mobile">mobile</option>
+              <option value="wechat">wechat</option>
+            </select>
+            <select id="sessions-agent" class="field field-select">
+              <option value="">所有 agent</option>
+              <option value="claude">claude</option>
+              <option value="codex">codex</option>
+              <option value="opencode">opencode</option>
+              <option value="qoder">qoder</option>
+              <option value="shell">shell</option>
+              <option value="unknown">unknown</option>
+            </select>
+          </div>
+          <div class="field-row" style="margin-top: var(--s-2);">
+            <input id="sessions-q" class="field field-input" type="search" placeholder="搜索 title / preview / cwd…" maxlength="80" autocomplete="off">
+          </div>
         </div>
 
         <div class="card card-tip">
-          <div class="card-h">Raw logs are never exposed on mobile.</div>
-          <p class="card-p">移动端不返回 JSONL 路径、token、cookie、API key、secret、password。</p>
+          <div class="card-h">隐私保护</div>
+          <p class="card-p">只读摘要 · 不显示 raw stdout · 不显示 JSONL · 不显示 token/cookie/API key · 不显示 claudeSession/codexSession</p>
+        </div>
+
+        <div id="sessions-list" class="sessions-list">
+          <div class="skeleton" style="height: 84px; margin-bottom: 8px;"></div>
+          <div class="skeleton" style="height: 84px; margin-bottom: 8px;"></div>
+          <div class="skeleton" style="height: 84px; margin-bottom: 8px;"></div>
         </div>
       </section>
     </main>
@@ -233,17 +328,17 @@
         <span class="tab-icon" data-i="files"></span>
         <span class="tab-label">Files</span>
       </button>
+      <button class="tab-btn" data-tab-btn="agent" type="button" role="tab">
+        <span class="tab-icon" data-i="agents"></span>
+        <span class="tab-label">Agent</span>
+      </button>
       <button class="tab-btn" data-tab-btn="skills" type="button" role="tab">
         <span class="tab-icon" data-i="skills"></span>
         <span class="tab-label">Skills</span>
       </button>
-      <button class="tab-btn" data-tab-btn="agents" type="button" role="tab">
-        <span class="tab-icon" data-i="agents"></span>
-        <span class="tab-label">Agents</span>
-      </button>
-      <button class="tab-btn" data-tab-btn="usage" type="button" role="tab">
+      <button class="tab-btn" data-tab-btn="sessions" type="button" role="tab">
         <span class="tab-icon" data-i="usage"></span>
-        <span class="tab-label">Usage</span>
+        <span class="tab-label">Sessions</span>
       </button>
     </nav>
   </div>

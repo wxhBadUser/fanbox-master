@@ -2,6 +2,7 @@
    FanBox Mobile · Mobile Console
    Phase 1 · 5 Tab · 只读 · LAN + Token
    Phase 1 修复 · 真实手机运行时硬化
+   Phase 2A-1 · Sessions + Agent Workspace Shell（只读外壳 + 偏好写入）
    ============================================================ */
 (function () {
   'use strict';
@@ -13,7 +14,7 @@
   function setToken(t) { try { localStorage.setItem(TOKEN_KEY, t || ''); } catch (e) {} }
   function clearToken() { try { localStorage.removeItem(TOKEN_KEY); } catch (e) {} }
 
-  // ---------------- API 包装（强制 GET + Bearer） ----------------
+  // ---------------- API 包装（GET + Bearer） ----------------
   async function api(path, opts) {
     opts = opts || {};
     if (opts.method && opts.method !== 'GET' && opts.method !== 'HEAD') {
@@ -27,6 +28,31 @@
         'Authorization': 'Bearer ' + t,
         'Accept': 'application/json'
       }
+    });
+    var j = null;
+    try { j = await r.json(); } catch (e) { j = { ok: false, error: 'bad_response' }; }
+    if (r.status === 401) { clearToken(); showPair('会话已失效，请重新配对'); throw new Error('unauthorized'); }
+    if (!j || !j.ok) throw new Error((j && j.error) || ('http_' + r.status));
+    return j;
+  }
+
+  // Phase 2A-1：POST 包装（仅限 mobile 偏好写入；不暴露任意写端点）
+  // 白名单：仅 /api/mobile/context/* 允许 POST
+  var POST_ALLOWLIST = /^\/api\/mobile\/context\/(cwd|select)$/;
+  async function apiPost(path, body) {
+    if (!POST_ALLOWLIST.test(path)) {
+      throw new Error('POST 端点不在白名单：' + path);
+    }
+    var t = getToken();
+    if (!t) throw new Error('no_token');
+    var r = await fetch(path, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + t,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(body || {})
     });
     var j = null;
     try { j = await r.json(); } catch (e) { j = { ok: false, error: 'bad_response' }; }
@@ -143,7 +169,7 @@
     $all('.tab-btn').forEach(function (b) {
       b.classList.toggle('is-active', b.getAttribute('data-tab-btn') === name);
     });
-    var renderers = { home: renderHome, files: renderFiles, skills: renderSkills, agents: renderAgents, usage: renderUsage };
+    var renderers = { home: renderHome, files: renderFiles, agent: renderAgent, skills: renderSkills, sessions: renderSessions };
     if (renderers[name]) {
       try { renderers[name](); } catch (e) { console.error('render', name, e); }
     }
@@ -168,9 +194,13 @@
   // ---------------- Home ----------------
   async function renderHome() {
     var rootsBox = $('#home-roots');
+    var todayEl = $('#home-usage-today');
+    var weekEl = $('#home-usage-week');
     clearChildren(rootsBox);
-    try {
-      var r = await api('/api/mobile/roots');
+    if (todayEl) todayEl.textContent = '—';
+    if (weekEl) weekEl.textContent = '—';
+    // 并行：roots + usage
+    var rootsP = api('/api/mobile/roots').then(function (r) {
       var roots = pickList(r.roots);
       if (!roots.length) {
         rootsBox.appendChild(emptyBlock('No roots available', 'allowedRoots 列表为空'));
@@ -183,10 +213,16 @@
         ]);
         rootsBox.appendChild(row);
       });
-    } catch (e) {
+    }).catch(function (e) {
       clearChildren(rootsBox);
       rootsBox.appendChild(emptyBlock('Failed to load roots', String(e && e.message || e)));
-    }
+    });
+    var usageP = api('/api/mobile/usage').then(function (j) {
+      var s = (j && j.summary) || {};
+      if (todayEl) todayEl.textContent = fmtTokens(s.todayTokens);
+      if (weekEl) weekEl.textContent = fmtTokens(s.weekTokens);
+    }).catch(function () { /* 用量失败不阻断 Home */ });
+    try { await Promise.all([rootsP, usageP]); } catch (e) { /* */ }
   }
 
   // ---------------- Files ----------------
@@ -377,9 +413,21 @@
 
   async function renderFiles() {
     await loadRoots();
+    paintFilesCwd();
     if (!filesState.lastResults.length) {
       runSearch();
     }
+  }
+
+  // Phase 2A-1：Files "current folder" CTA —— 显示当前 root + 启用按钮
+  function paintFilesCwd() {
+    var label = $('#files-cwd-label');
+    var openBtn = $('#files-open-agent');
+    var sessBtn = $('#files-view-sessions');
+    var root = $('#files-root') ? $('#files-root').value : (filesState.root || '');
+    if (label) label.textContent = root ? relPath(root) : '未选择';
+    if (openBtn) openBtn.disabled = !root;
+    if (sessBtn) sessBtn.disabled = !root;
   }
 
   // ---------------- Skills ----------------
@@ -541,6 +589,345 @@
     });
   }
 
+  // ---------------- Phase 2A-1：Agent Workspace Shell ----------------
+  // 4 个固定 agent：claude / codex / opencode / qoder（fallback 占位）
+  var AGENT_CHIPS = [
+    { id: 'claude',   label: 'Claude Code' },
+    { id: 'codex',    label: 'Codex' },
+    { id: 'opencode', label: 'OpenCode' },
+    { id: 'qoder',    label: 'Qoder' }
+  ];
+  var agentState = {
+    cwd: '',
+    agentId: '',
+    sessionId: '',
+    sessions: [],
+    installedMap: {}, // agentId -> bool
+    usage: null
+  };
+
+  // 把"当前 Agent Tab 是否被实际切换过"记下来，避免 user 选完 root 后重复拉
+  var agentLoadedOnce = false;
+
+  async function renderAgent() {
+    paintAgentSwitcher();
+    paintAgentStatus();
+    paintAgentCwd();
+    paintAgentMessages();
+    paintAgentUsage();
+    paintAgentContext();
+    // 第一次进入：拉一次 context + sessions
+    if (!agentLoadedOnce) {
+      agentLoadedOnce = true;
+      try {
+        var ctx = await api('/api/mobile/context/current');
+        agentState.cwd = ctx.cwd || '';
+        agentState.agentId = ctx.agentId || '';
+        agentState.sessionId = ctx.sessionId || '';
+        paintAgentCwd();
+        paintAgentSwitcher();
+      } catch (e) { /* ignore */ }
+    }
+    // 拉 agent 安装情况（不强制失败；不阻塞 UI）
+    try {
+      var r = await api('/api/mobile/agents');
+      var items = pickList(r);
+      items.forEach(function (a) { agentState.installedMap[a.id] = !!a.installed; });
+      paintAgentSwitcher();
+    } catch (e) { /* ignore */ }
+    // 拉 sessions（如果 cwd 非空）
+    if (agentState.cwd) {
+      await refreshAgentSessions();
+    } else {
+      paintAgentSessionsEmpty('请先在 Files 选择 cwd');
+    }
+  }
+
+  function paintAgentCwd() {
+    var cwdEl = $('#agent-cwd');
+    if (cwdEl) cwdEl.textContent = agentState.cwd ? relPath(agentState.cwd) : '未选择';
+  }
+
+  function paintAgentSwitcher() {
+    var box = $('#agent-switcher');
+    if (!box) return;
+    clearChildren(box);
+    AGENT_CHIPS.forEach(function (a) {
+      var installed = agentState.installedMap[a.id];
+      var installedKnown = (typeof installed === 'boolean');
+      var chip = el('button', {
+        class: 'agent-chip' +
+          (agentState.agentId === a.id ? ' is-active' : '') +
+          (installedKnown ? (installed ? ' is-installed' : ' is-missing') : ''),
+        type: 'button',
+        'data-agent-id': a.id
+      }, [
+        el('span', { class: 'agent-chip-dot' }),
+        tspan(a.label)
+      ]);
+      chip.addEventListener('click', function () { onPickAgent(a.id); });
+      box.appendChild(chip);
+    });
+  }
+
+  function paintAgentStatus() {
+    var el1 = $('#agent-session-status');
+    var el2 = $('#agent-status-pill');
+    if (el1) {
+      if (agentState.sessionId) el1.textContent = 'session ' + agentState.sessionId;
+      else el1.textContent = agentState.cwd ? '未选择 session' : '未选择 cwd';
+    }
+    if (el2) {
+      clearChildren(el2);
+      var kind = agentState.sessionId ? 'ok' : 'unknown';
+      var text = agentState.sessionId ? 'ready' : 'no session';
+      el2.appendChild(statusPill(text, kind));
+    }
+  }
+
+  function paintAgentMessages() {
+    var box = $('#agent-messages');
+    if (!box) return;
+    clearChildren(box);
+    var cur = agentState.sessions.find(function (s) { return s.sessionId === agentState.sessionId; });
+    if (!cur) {
+      if (!agentState.cwd) {
+        box.appendChild(emptyBlock('请先在 Files 选择 cwd', 'cwd → agent → session'));
+      } else if (agentState.sessions.length === 0) {
+        box.appendChild(emptyBlock('当前 cwd 暂无 session', '可在 Sessions 页面查看其他来源'));
+      } else {
+        box.appendChild(emptyBlock('未选择 session', '点击下方最近 session，或切换 agent'));
+      }
+      return;
+    }
+    // v1：detail 不暴露 messages 全文（mobile-sessions.js scrubSessionDetail）
+    // 这里给一个安全摘要气泡
+    var preview = (cur.summary && cur.summary.lastMessagePreview) || '';
+    if (preview) {
+      var b = el('div', { class: 'message-bubble message-bubble-agent' }, [
+        el('span', { class: 'message-role', text: (cur.summary.lastRole || 'agent') + ' · ' + (cur.agentId || 'unknown') }),
+        tspan(preview)
+      ]);
+      box.appendChild(b);
+    } else {
+      box.appendChild(emptyBlock('无 preview 内容', 'session ' + cur.sessionId));
+    }
+    if (cur.context && (cur.context.files || cur.context.skills)) {
+      var files = (cur.context.files || []).slice(0, 3);
+      var skills = (cur.context.skills || []).slice(0, 3);
+      if (files.length || skills.length) {
+        var meta = el('div', { class: 'message-bubble message-bubble-system' });
+        if (files.length) meta.appendChild(tspan('files: ' + files.map(relPath).join(', ') + '\n'));
+        if (skills.length) meta.appendChild(tspan('skills: ' + skills.join(', ')));
+        box.appendChild(meta);
+      }
+    }
+  }
+
+  function paintAgentSessionsEmpty(sub) {
+    agentState.sessions = [];
+    var box = $('#agent-messages');
+    if (box) {
+      clearChildren(box);
+      box.appendChild(emptyBlock('当前 cwd 暂无 session', sub || '可在 Sessions 页面查看其他来源'));
+    }
+  }
+
+  function paintAgentUsage() {
+    var t = $('#agent-usage-today');
+    var w = $('#agent-usage-week');
+    if (!t || !w) return;
+    if (agentState.usage && agentState.usage.summary) {
+      t.textContent = fmtTokens(agentState.usage.summary.todayTokens);
+      w.textContent = fmtTokens(agentState.usage.summary.weekTokens);
+    } else {
+      t.textContent = '—';
+      w.textContent = '—';
+    }
+  }
+
+  function paintAgentContext() {
+    var f = $('#agent-context-files');
+    var s = $('#agent-skill-suggestions');
+    if (!f || !s) return;
+    var cur = agentState.sessions.find(function (x) { return x.sessionId === agentState.sessionId; });
+    if (cur && cur.context) {
+      var files = (cur.context.files || []).map(relPath).join(' · ') || '—';
+      var skills = (cur.context.skills || []).join(' · ') || '—';
+      f.textContent = files;
+      s.textContent = skills;
+    } else {
+      f.textContent = '—';
+      s.textContent = '—';
+    }
+  }
+
+  async function refreshAgentSessions() {
+    if (!agentState.cwd) {
+      paintAgentSessionsEmpty('请先在 Files 选择 cwd');
+      return;
+    }
+    try {
+      var j = await api('/api/mobile/sessions?cwd=' + encodeURIComponent(agentState.cwd) + '&limit=50');
+      var items = pickList(j);
+      agentState.sessions = items;
+      // 选最近一个匹配的 session（按 agentId 过滤）
+      var sameAgent = items.find(function (s) { return s.agentId === agentState.agentId; });
+      if (sameAgent) {
+        agentState.sessionId = sameAgent.sessionId;
+      } else if (!agentState.sessionId && items[0]) {
+        agentState.sessionId = items[0].sessionId;
+      }
+      paintAgentStatus();
+      paintAgentMessages();
+      paintAgentContext();
+    } catch (e) {
+      // 静默失败 —— 不显示错误，避免阻断
+      paintAgentSessionsEmpty('加载失败：' + (e && e.message || e));
+    }
+  }
+
+  // 用户在 Agent 页面点 chip
+  async function onPickAgent(agentId) {
+    agentState.agentId = agentId;
+    agentState.sessionId = '';
+    paintAgentSwitcher();
+    paintAgentStatus();
+    // 同步偏好到后端
+    try {
+      await apiPost('/api/mobile/context/select', {
+        cwd: agentState.cwd || '',
+        agentId: agentId,
+        sessionId: ''
+      });
+    } catch (e) { /* 偏好写失败不阻断 UI */ }
+    if (agentState.cwd) await refreshAgentSessions();
+    else paintAgentMessages();
+  }
+
+  // 用户在 Files 页面点"在此文件夹打开 Agent"
+  async function onFilesOpenAgent() {
+    var root = $('#files-root') ? $('#files-root').value : (filesState.root || '');
+    if (!root) return;
+    try {
+      await apiPost('/api/mobile/context/cwd', { cwd: root });
+    } catch (e) {
+      console.warn('set context cwd failed', e);
+    }
+    agentState.cwd = root;
+    // 选择后端记忆的 lastAgent（如果有），否则默认 claude
+    agentState.agentId = 'claude';
+    agentState.sessionId = '';
+    agentLoadedOnce = true;
+    showTab('agent');
+  }
+
+  // 用户在 Files 页面点"查看此文件夹 Sessions"
+  async function onFilesViewSessions() {
+    var root = $('#files-root') ? $('#files-root').value : (filesState.root || '');
+    if (!root) return;
+    var qEl = $('#sessions-q');
+    if (qEl) qEl.value = '';
+    showTab('sessions');
+    // 触发一次刷新
+    await renderSessions();
+  }
+
+  // 用户在 Agent 页面点"选择文件夹" —— 简化：直接复用 Files 的 root select（暂不实现 picker）
+  function onAgentPickCwd() {
+    // 切到 Files 页面，让用户在那里选 root
+    showTab('files');
+  }
+
+  // ---------------- Phase 2A-1：Sessions Tab ----------------
+  var sessionsState = { items: [], source: '', agent: '', q: '', loaded: false };
+
+  async function renderSessions() {
+    var list = $('#sessions-list');
+    if (list) {
+      clearChildren(list);
+      list.appendChild(el('div', { class: 'skeleton', style: 'height: 84px; margin-bottom: 8px;' }));
+      list.appendChild(el('div', { class: 'skeleton', style: 'height: 84px; margin-bottom: 8px;' }));
+    }
+    sessionsState.source = ($('#sessions-source') && $('#sessions-source').value) || '';
+    sessionsState.agent  = ($('#sessions-agent')  && $('#sessions-agent').value)  || '';
+    sessionsState.q      = ($('#sessions-q')      && $('#sessions-q').value)      || '';
+    var qs = [];
+    if (sessionsState.source) qs.push('source=' + encodeURIComponent(sessionsState.source));
+    if (sessionsState.agent)  qs.push('agentId=' + encodeURIComponent(sessionsState.agent));
+    if (sessionsState.q)      qs.push('q=' + encodeURIComponent(sessionsState.q));
+    qs.push('limit=50');
+    try {
+      var j = await api('/api/mobile/sessions?' + qs.join('&'));
+      sessionsState.items = pickList(j);
+      sessionsState.loaded = true;
+      paintSessions();
+    } catch (e) {
+      sessionsState.items = [];
+      sessionsState.loaded = true;
+      paintSessions(String(e && e.message || e));
+    }
+  }
+
+  function paintSessions(errMsg) {
+    var list = $('#sessions-list');
+    if (!list) return;
+    clearChildren(list);
+    if (errMsg) {
+      list.appendChild(emptyBlock('加载失败', errMsg));
+      return;
+    }
+    if (!sessionsState.items.length) {
+      list.appendChild(emptyBlock('No sessions', 'desktop / mobile / wechat 三类来源暂无数据'));
+      return;
+    }
+    sessionsState.items.forEach(function (s) {
+      list.appendChild(buildSessionCard(s));
+    });
+  }
+
+  function buildSessionCard(s) {
+    var src = s.source || 'desktop';
+    var srcLabel = src === 'wechat' ? 'wechat' : (src === 'mobile' ? 'mobile' : 'desktop');
+    var status = (s.status || 'unknown');
+    var preview = (s.summary && s.summary.lastMessagePreview) || '';
+    var card = el('button', { class: 'session-card', type: 'button' }, [
+      el('div', { class: 'session-head' }, [
+        el('div', { class: 'session-title', text: s.title || srcLabel, title: s.title || '' }),
+        el('span', { class: 'session-source session-source-' + src, text: srcLabel })
+      ]),
+      preview ? el('div', { class: 'session-preview', text: preview }) : null,
+      el('div', { class: 'session-foot' }, [
+        el('div', { class: 'session-meta-row' }, [
+          tspan(s.agentId || 'unknown'),
+          tspan('·'),
+          tspan(s.cwdLabel || relPath(s.cwd)),
+          tspan('·'),
+          tspan(fmtTime(s.lastActiveAt))
+        ]),
+        el('span', { class: 'session-status session-status-' + status, text: status })
+      ])
+    ]);
+    card.addEventListener('click', function () { onPickSession(s); });
+    return card;
+  }
+
+  // 用户点 session 卡片 → 切到 Agent + 设置偏好
+  async function onPickSession(s) {
+    try {
+      await apiPost('/api/mobile/context/select', {
+        cwd: s.cwd || '',
+        agentId: s.agentId || 'unknown',
+        sessionId: s.sessionId || ''
+      });
+    } catch (e) { /* ignore */ }
+    agentState.cwd = s.cwd || '';
+    agentState.agentId = s.agentId || '';
+    agentState.sessionId = s.sessionId || '';
+    agentLoadedOnce = true;
+    showTab('agent');
+  }
+
   // ---------------- Empty ----------------
   function emptyBlock(title, sub) {
     var n = el('div', { class: 'empty' });
@@ -631,13 +1018,34 @@
       filesQ.addEventListener('keydown', function (e) { if (e.key === 'Enter') runSearch(); });
     }
     var filesRoot = document.getElementById('files-root');
-    if (filesRoot) filesRoot.addEventListener('change', function () { if (filesState.q) runSearch(); });
+    if (filesRoot) filesRoot.addEventListener('change', function () { paintFilesCwd(); if (filesState.q) runSearch(); });
     var filesPreviewClose = document.getElementById('files-preview-close');
     if (filesPreviewClose) filesPreviewClose.addEventListener('click', function () {
       revokeAllObjectUrls();
       var p = document.getElementById('files-preview');
       if (p) p.hidden = true;
     });
+    // Phase 2A-1：Files → Agent / Sessions
+    var filesOpenAgent = document.getElementById('files-open-agent');
+    if (filesOpenAgent) filesOpenAgent.addEventListener('click', onFilesOpenAgent);
+    var filesViewSessions = document.getElementById('files-view-sessions');
+    if (filesViewSessions) filesViewSessions.addEventListener('click', onFilesViewSessions);
+    // Phase 2A-1：Agent tab
+    var agentPickCwd = document.getElementById('agent-pick-cwd');
+    if (agentPickCwd) agentPickCwd.addEventListener('click', onAgentPickCwd);
+    // Phase 2A-1：Sessions filters
+    var sessionsSource = document.getElementById('sessions-source');
+    if (sessionsSource) sessionsSource.addEventListener('change', renderSessions);
+    var sessionsAgent = document.getElementById('sessions-agent');
+    if (sessionsAgent) sessionsAgent.addEventListener('change', renderSessions);
+    var sessionsQ = document.getElementById('sessions-q');
+    if (sessionsQ) {
+      var st = null;
+      sessionsQ.addEventListener('input', function () {
+        if (st) clearTimeout(st);
+        st = setTimeout(renderSessions, 300);
+      });
+    }
     // skills filter
     var skillsQ = document.getElementById('skills-q');
     if (skillsQ) skillsQ.addEventListener('input', paintSkills);
@@ -686,12 +1094,25 @@
       paintAgents: paintAgents,
       paintUsage: paintUsage,
       renderFilePreview: renderFilePreview,
+      // Phase 2A-1
+      paintAgentSwitcher: paintAgentSwitcher,
+      paintSessions: paintSessions,
+      buildSessionCard: buildSessionCard,
+      onFilesOpenAgent: onFilesOpenAgent,
+      onFilesViewSessions: onFilesViewSessions,
+      onPickSession: onPickSession,
+      onPickAgent: onPickAgent,
       // 状态
       skillsState: skillsState,
       filesState: filesState,
+      agentState: agentState,
+      sessionsState: sessionsState,
       AGENT_FALLBACK: AGENT_FALLBACK,
+      AGENT_CHIPS: AGENT_CHIPS,
+      POST_ALLOWLIST: POST_ALLOWLIST,
       // API（mock 时可换）
-      api: api
+      api: api,
+      apiPost: apiPost
     };
   }
 })();

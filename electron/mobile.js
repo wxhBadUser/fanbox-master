@@ -18,6 +18,9 @@ const path = require('path');
 const fsp = require('fs').promises;
 const fs = require('fs');
 
+// Phase 2A-1：session 汇总 + mobile 偏好读写
+const mobileSessions = require('./mobile-sessions');
+
 // ---------- 路径 ----------
 
 const HOME = os.homedir();
@@ -1339,6 +1342,103 @@ async function handleMobileApiV2(req, res, url) {
 }
 
 
+// ============================================================
+// Phase 2A-1 路由分发器：sessions + context（只读 session + 偏好写入）
+// 硬约束：
+//   1. 全部走 requireMobileAuth（token + LAN）
+//   2. GET /api/mobile/sessions* 只读
+//   3. POST /api/mobile/context/* 只改 mobile 偏好（lastAgentMap / lastSessionMap / current）
+//   4. 不启动 agent；不发送任务；不暴露 pty input / shell / 写文件
+//   5. 不暴露 raw stdout / JSONL / token / cookie / API key / claudeSession / codexSession
+//   6. 不新增 cancel / approval / send_message / WebSocket 端点
+// ============================================================
+async function handleMobileApiV2A(req, res, url) {
+  const pathOnly = url.split('?')[0];
+  const u = new URL(url, 'http://x');
+  const qp = u.searchParams;
+
+  // -------- GET /api/mobile/sessions --------
+  // 支持：?cwd=&agentId=&source=&q=&limit=
+  if (req.method === 'GET' && pathOnly === '/api/mobile/sessions') {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    const limit = qp.get('limit') ? parseInt(qp.get('limit'), 10) : 50;
+    const r = await mobileSessions.listSessions({
+      cwd: qp.get('cwd') || '',
+      agentId: qp.get('agentId') || '',
+      source: qp.get('source') || '',
+      q: qp.get('q') || '',
+      limit: limit
+    });
+    return sendJson(res, 200, r), true;
+  }
+
+  // -------- GET /api/mobile/sessions/by-cwd?cwd=... --------
+  // 等价于 /api/mobile/sessions?cwd=...
+  if (req.method === 'GET' && pathOnly === '/api/mobile/sessions/by-cwd') {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    const cwd = qp.get('cwd') || '';
+    if (!cwd) return badReq(res, 400, 'missing_cwd'), true;
+    const r = await mobileSessions.listSessions({ cwd, limit: 100 });
+    return sendJson(res, 200, r), true;
+  }
+
+  // -------- GET /api/mobile/sessions/:id --------
+  if (req.method === 'GET' && /^\/api\/mobile\/sessions\/[A-Za-z0-9._\-+]{1,128}$/.test(pathOnly)) {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    const id = pathOnly.split('/').pop();
+    const s = await mobileSessions.getSessionById(id);
+    if (!s) return sendJson(res, 404, { ok: false, error: 'not_found' }), true;
+    return sendJson(res, 200, { ok: true, session: s }), true;
+  }
+
+  // -------- GET /api/mobile/context/current --------
+  if (req.method === 'GET' && pathOnly === '/api/mobile/context/current') {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    const r = await mobileSessions.getContext();
+    return sendJson(res, 200, r), true;
+  }
+
+  // -------- POST /api/mobile/context/cwd --------
+  // body: { cwd: "I:\\..." }  —— 只改 prefs.json.current.cwd；不启动 agent
+  if (req.method === 'POST' && pathOnly === '/api/mobile/context/cwd') {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    let body;
+    try { body = await readJsonBody(req); } catch { return badReq(res, 400, 'bad_body'), true; }
+    const cwd = (body && typeof body.cwd === 'string') ? body.cwd : '';
+    if (!cwd) return badReq(res, 400, 'missing_cwd'), true;
+    // 校验 cwd 在 allowed roots 内（不允许任意路径）
+    const norm = path.resolve(cwd);
+    if (isForbiddenPath(norm)) return sendJson(res, 403, { ok: false, error: 'forbidden_path' }), true;
+    if (!pathInAllowed(norm)) return sendJson(res, 403, { ok: false, error: 'path_not_allowed' }), true;
+    const r = await mobileSessions.setContextCwd(norm);
+    if (!r.ok) return badReq(res, 400, r.error || 'bad_cwd'), true;
+    return sendJson(res, 200, { ok: true, cwd: r.cwd }), true;
+  }
+
+  // -------- POST /api/mobile/context/select --------
+  // body: { cwd, agentId, sessionId } —— 只改 prefs.json
+  if (req.method === 'POST' && pathOnly === '/api/mobile/context/select') {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    let body;
+    try { body = await readJsonBody(req); } catch { return badReq(res, 400, 'bad_body'), true; }
+    const cwd = (body && typeof body.cwd === 'string') ? body.cwd : '';
+    if (!cwd) return badReq(res, 400, 'missing_cwd'), true;
+    const norm = path.resolve(cwd);
+    if (isForbiddenPath(norm)) return sendJson(res, 403, { ok: false, error: 'forbidden_path' }), true;
+    if (!pathInAllowed(norm)) return sendJson(res, 403, { ok: false, error: 'path_not_allowed' }), true;
+    const r = await mobileSessions.setContextSelect({
+      cwd: norm,
+      agentId: body.agentId,
+      sessionId: body.sessionId
+    });
+    if (!r.ok) return badReq(res, 400, r.error || 'bad_select'), true;
+    return sendJson(res, 200, { ok: true, cwd: r.cwd, agentId: r.agentId, sessionId: r.sessionId }), true;
+  }
+
+  return false; // 未命中
+}
+
+
 
 function createMobileServer() {
   return http.createServer((req, res) => {
@@ -1431,6 +1531,10 @@ async function handleRequest(req, res) {
     }
     return sendJson(res, 200, { ok: true, path: r.path, items: r.items });
   }
+
+  // -------- Phase 2A-1：sessions + context 路由（先于 V2，因为 V2 强制 GET-only）--------
+  const v2a = await handleMobileApiV2A(req, res, url);
+  if (v2a !== false) return; // 命中（v2a 已写 res）或短路
 
   // -------- Phase 0B：只读 API 路由 --------
   const v2 = await handleMobileApiV2(req, res, url);
@@ -1588,6 +1692,9 @@ module.exports = {
   readScreenshotsMobile,
   serveMobileThumb,
   handleMobileApiV2,
+  // Phase 2A-1
+  handleMobileApiV2A,
+  mobileSessions,
   // server 内提供（测试用）
   handleRequest,
   // 状态描述

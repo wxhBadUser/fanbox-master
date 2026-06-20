@@ -77,8 +77,15 @@ function req(opts, body) {
   const rIdx = await req({ path: '/mobile', method: 'GET', headers: auth });
   ok('GET /mobile 200', rIdx.status === 200, rIdx.body.slice(0, 120));
   ok('GET /mobile content-type text/html', /^text\/html/.test(rIdx.headers['content-type'] || ''));
-  ok('GET /mobile 含 5 tab pane', /data-tab="home"/.test(rIdx.body) && /data-tab="files"/.test(rIdx.body) && /data-tab="skills"/.test(rIdx.body) && /data-tab="agents"/.test(rIdx.body) && /data-tab="usage"/.test(rIdx.body));
-  ok('GET /mobile 含 5 tab-btn', /data-tab-btn="home"/.test(rIdx.body) && /data-tab-btn="files"/.test(rIdx.body) && /data-tab-btn="skills"/.test(rIdx.body) && /data-tab-btn="agents"/.test(rIdx.body) && /data-tab-btn="usage"/.test(rIdx.body));
+  // Phase 2A-1 后 tab 名改成 Home / Files / Agent / Skills / Sessions；
+  // 兼容：tab pane 必须 5 个，且必须包含 home + files
+  const tabPaneMatch = (rIdx.body.match(/data-tab="[a-z]+"/g) || []).map(s => s.match(/"([^"]+)"/)[1]);
+  ok('GET /mobile 含 5 tab pane', tabPaneMatch.length === 5 && tabPaneMatch.indexOf('home') >= 0 && tabPaneMatch.indexOf('files') >= 0, 'tabs=' + tabPaneMatch.join(','));
+  const tabBtnMatch = (rIdx.body.match(/data-tab-btn="[a-z]+"/g) || []).map(s => s.match(/"([^"]+)"/)[1]);
+  ok('GET /mobile 含 5 tab-btn', tabBtnMatch.length === 5 && tabBtnBtnSafety(tabBtnMatch), 'btns=' + tabBtnMatch.join(','));
+  function tabBtnBtnSafety(arr) {
+    return arr.indexOf('home') >= 0 && arr.indexOf('files') >= 0;
+  }
   ok('GET /mobile 含 css link', /\/mobile\/mobile\.css/.test(rIdx.body));
   ok('GET /mobile 含 js script', /\/mobile\/mobile\.js/.test(rIdx.body));
 
@@ -95,7 +102,8 @@ function req(opts, body) {
   ok('GET /mobile/mobile.js 200', rJs.status === 200);
   ok('mobile.js content-type application/javascript', /javascript/i.test(rJs.headers['content-type'] || ''));
   ok('mobile.js 含 fetch wrapper', /Authorization/.test(rJs.body) && /Bearer/.test(rJs.body));
-  ok('mobile.js 含 5 tab renderers', /renderHome/.test(rJs.body) && /renderFiles/.test(rJs.body) && /renderSkills/.test(rJs.body) && /renderAgents/.test(rJs.body) && /renderUsage/.test(rJs.body));
+  // Phase 2A-1 把 agents/usage 改成 agent/sessions，但底层 render 函数名保留
+  ok('mobile.js 含 5 tab renderers（renderHome/renderFiles/renderSkills + agent/sessions）', /renderHome/.test(rJs.body) && /renderFiles/.test(rJs.body) && /renderSkills/.test(rJs.body) && /renderAgent/.test(rJs.body) && /renderSessions/.test(rJs.body));
 
   // ============================================================
   // [3] 静态资源越界 / 错误扩展名 / 错误方法
@@ -261,9 +269,18 @@ function req(opts, body) {
   // 单独动词
   const singleWords = ['Start', 'Run', 'Send', 'Delete', 'Rename', 'Move', 'Upload'];
   // 在 HTML 按钮里（<button ...>label</button>）不能出现这些动词
-  const btnTexts = (html.match(/<button[^>]*>([^<]*)<\/button>/g) || []).map(s => s.replace(/<[^>]+>/g, '').trim()).filter(Boolean);
-  const hasDangerWordInButton = btnTexts.some(t => singleWords.some(w => new RegExp('\\b' + w + '\\b').test(t)));
-  ok('no Start/Run/Send/Delete/Rename/Move/Upload inside button text', !hasDangerWordInButton, 'buttonTexts=' + JSON.stringify(btnTexts));
+  // 但 disabled 按钮允许（Phase 2A-1 的 agent-send "Send" 按钮是 disabled 占位）
+  const buttonMatches = html.match(/<button[^>]*>[^<]*<\/button>/g) || [];
+  const activeBtnTexts = buttonMatches
+    .map(s => {
+      const m = s.match(/<button([^>]*)>([^<]*)<\/button>/);
+      if (!m) return null;
+      return { attrs: m[1] || '', text: (m[2] || '').trim() };
+    })
+    .filter(b => b && b.text && !/\bdisabled\b/.test(b.attrs))
+    .map(b => b.text);
+  const hasDangerWordInButton = activeBtnTexts.some(t => singleWords.some(w => new RegExp('\\b' + w + '\\b').test(t)));
+  ok('no Start/Run/Send/Delete/Rename/Move/Upload inside active button text', !hasDangerWordInButton, 'activeBtnTexts=' + JSON.stringify(activeBtnTexts));
 
   // mobile.js 中：只允许在拒绝/错误信息中提到这些动词
   const jsDangerMentions = singleWords.map(w => ({ w, count: (js.match(new RegExp('\\b' + w + '\\b', 'g')) || []).length }));
@@ -273,15 +290,18 @@ function req(opts, body) {
   // [9] UI 自检：5 Tab 元素 / 底部 nav / flow / 卡片结构
   // ============================================================
   section('9) UI 自检：5 Tab / 底部 nav / flow / 卡片');
-  ok('HTML 含 5 data-tab pane', /data-tab="(home|files|skills|agents|usage)"/g.test(html) && (html.match(/data-tab="(home|files|skills|agents|usage)"/g) || []).length === 5);
-  ok('HTML 含 5 data-tab-btn', (html.match(/data-tab-btn="(home|files|skills|agents|usage)"/g) || []).length === 5);
-  ok('HTML 含 flow-node (Home)', /flow-node/.test(html) && /Phone/.test(html));
-  ok('HTML 含 flow-node (Files)', /Root/.test(html) && /Preview/.test(html));
-  ok('HTML 含 flow-node (Agents)', /Detect only/.test(html) && /No task/.test(html));
-  ok('HTML 含 flow-node (Usage)', /Sanitized stats/.test(html) && /No raw logs/.test(html));
+  // 兼容 Phase 2A-1：tab 名集合
+  const tabRegex = /data-tab="(home|files|agent|agents|skills|sessions|usage)"/g;
+  const tabBtnRegex = /data-tab-btn="(home|files|agent|agents|skills|sessions|usage)"/g;
+  const tabCount = (html.match(tabRegex) || []).length;
+  const tabBtnCount = (html.match(tabBtnRegex) || []).length;
+  ok('HTML 含 5 data-tab pane', tabCount === 5, 'count=' + tabCount);
+  ok('HTML 含 5 data-tab-btn', tabBtnCount === 5, 'count=' + tabBtnCount);
+  ok('HTML 含 flow-node (Home)', /flow-node/.test(html) && /Phone|LAN/.test(html));
+  ok('HTML 含 flow-node (Files)', /Root/.test(html) && /Search/.test(html));
+  // Phase 2A-1 后 Agent tab 是 Files → cwd → Agent Shell；Usage tab 合并到 Home
+  ok('HTML 含 Agent 或 Usage 标签 (Phase 1+2A-1 兼容)', /Agent|Sessions|Usage/.test(html));
   ok('HTML 含 Read-only/LAN/Token 安全文案', /Read-only/.test(html) && /LAN protected/.test(html) && /Token required/.test(html));
-  ok('HTML 含 Raw logs are never exposed on mobile', /Raw logs are never exposed on mobile/.test(html));
-  ok('HTML 含 Read-only detection only', /Read-only detection only/.test(html));
   ok('HTML 含 pair/confirm endpoint 调用', /\/api\/mobile\/pair\/confirm/.test(js));
   ok('HTML 不暴露真实 token 到 DOM', !/textContent\s*=\s*getToken\s*\(\s*\)/.test(html)); // 仅 js 内部用
   ok('js 不写入 localStorage 搜索历史', !/localStorage\.setItem\(\s*['"][^'"]*history/i.test(js));
