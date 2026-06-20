@@ -105,6 +105,21 @@
               <li class="mobile-device-empty">没有已配对设备</li>
             </ul>
           </div>
+
+          <!-- Phase 2A-2.1：Pending Mobile Approvals -->
+          <div class="mobile-access-row" data-testid="mobile-approvals-section">
+            <div class="mobile-access-label">
+              待确认请求
+              <span class="mobile-access-count" id="mobile-approvals-count">0</span>
+            </div>
+            <ul class="mobile-approval-list" id="mobile-approval-list" data-testid="mobile-approval-list">
+              <li class="mobile-device-empty">暂无待确认请求</li>
+            </ul>
+            <div class="mobile-approval-foot">
+              <button class="btn-mini" id="mobile-approvals-refresh" type="button">刷新</button>
+              <span class="mobile-approval-hint">Approve / Reject 仅更新状态；不会启动 Agent</span>
+            </div>
+          </div>
         </div>
       </div>
       <div class="sidebar-foot">本地运行 · 数据不出本机<a id="lang-toggle" class="lang-toggle"></a></div>

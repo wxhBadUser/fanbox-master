@@ -699,6 +699,64 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   white-space: nowrap;
 }
 
+/* ---------- Phase 2A-2.1：Approval status bar ---------- */
+.approval-bar {
+  margin-top: var(--s-3);
+  padding: 10px 12px;
+  background: var(--blue-soft);
+  border: 1px solid var(--blue-line);
+  border-radius: var(--r-control);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  -webkit-tap-highlight-color: transparent;
+}
+.approval-bar.is-pending { background: var(--blue-soft); border-color: var(--blue-line); }
+.approval-bar.is-approved { background: #ECFDF5; border-color: #A7F3D0; }
+.approval-bar.is-rejected { background: #FEF2F2; border-color: #FECACA; }
+.approval-bar.is-timeout  { background: #FFFBEB; border-color: #FCD34D; }
+.approval-bar.is-error    { background: #FEF2F2; border-color: #FECACA; }
+.approval-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.approval-icon {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.approval-icon-pending  { background: var(--blue); animation: pulse 1.4s ease-in-out infinite; }
+.approval-icon-approved { background: #10B981; }
+.approval-icon-rejected { background: #EF4444; }
+.approval-icon-timeout  { background: #F59E0B; }
+.approval-icon-error    { background: #EF4444; }
+.approval-text {
+  font-size: var(--fs-body);
+  color: var(--fg);
+  font-weight: 500;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.approval-meta {
+  font-size: 11px;
+  color: var(--fg-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.85); }
+}
+
 /* ---------- Phase 2A-1：CTA / Sessions 列表 ---------- */
 .card-cta { background: var(--blue-soft); border-color: var(--blue-line); }
 .card-cta .card-h { color: var(--blue); }

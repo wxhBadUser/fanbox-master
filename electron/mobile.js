@@ -1386,9 +1386,120 @@ async function handleMobileApiV2A(req, res, url) {
   if (req.method === 'GET' && /^\/api\/mobile\/sessions\/[A-Za-z0-9._\-+]{1,128}$/.test(pathOnly)) {
     const t = await requireMobileAuth(req, res); if (!t) return true;
     const id = pathOnly.split('/').pop();
+    // 排除 :id 落到 /draft / messages / approvals 的情况
+    if (id === 'draft' || id === 'messages') {
+      return false;
+    }
     const s = await mobileSessions.getSessionById(id);
     if (!s) return sendJson(res, 404, { ok: false, error: 'not_found' }), true;
     return sendJson(res, 200, { ok: true, session: s }), true;
+  }
+
+  // -------- POST /api/mobile/sessions/draft --------
+  // body: { cwd, agentId } —— 只创建 mobile session shell，不启动 agent
+  // 必须在 :id 之前匹配
+  if (req.method === 'POST' && pathOnly === '/api/mobile/sessions/draft') {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    let body;
+    try { body = await readJsonBody(req); } catch { return badReq(res, 400, 'bad_body'), true; }
+    const cwd = (body && typeof body.cwd === 'string') ? body.cwd : '';
+    if (!cwd) return badReq(res, 400, 'missing_cwd'), true;
+    const norm = path.resolve(cwd);
+    if (isForbiddenPath(norm)) return sendJson(res, 403, { ok: false, error: 'forbidden_path' }), true;
+    if (!pathInAllowed(norm)) return sendJson(res, 403, { ok: false, error: 'path_not_allowed' }), true;
+    const r = await mobileSessions.createMobileDraftSession({
+      cwd: norm,
+      agentId: body.agentId,
+      deviceId: t.device && t.device.id
+    });
+    if (!r.ok) return badReq(res, 400, r.error || 'bad_draft'), true;
+    return sendJson(res, 200, { ok: true, sessionId: r.sessionId, internalId: r.internalId }), true;
+  }
+
+  // -------- POST /api/mobile/sessions/:id/messages --------
+  // body: { text, cwd, agentId, contextFiles }
+  // 本轮：只创建 approval request，不启动 agent，不执行 shell
+  if (req.method === 'POST' && /^\/api\/mobile\/sessions\/[A-Za-z0-9._\-+]{1,128}\/messages$/.test(pathOnly)) {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    const m = pathOnly.match(/^\/api\/mobile\/sessions\/([A-Za-z0-9._\-+]{1,128})\/messages$/);
+    const sessionId = m ? m[1] : '';
+    let body;
+    try { body = await readJsonBody(req); } catch { return badReq(res, 400, 'bad_body'), true; }
+    const text = (body && typeof body.text === 'string') ? body.text : '';
+    const cwd = (body && typeof body.cwd === 'string') ? body.cwd : '';
+    const agentId = (body && typeof body.agentId === 'string') ? body.agentId : '';
+    const contextFiles = (body && Array.isArray(body.contextFiles)) ? body.contextFiles : [];
+    if (!text) return badReq(res, 400, 'missing_text'), true;
+    if (!cwd) return badReq(res, 400, 'missing_cwd'), true;
+    if (!agentId) return badReq(res, 400, 'missing_agentId'), true;
+    // 校验 cwd
+    const norm = path.resolve(cwd);
+    if (isForbiddenPath(norm)) return sendJson(res, 403, { ok: false, error: 'forbidden_path' }), true;
+    if (!pathInAllowed(norm)) return sendJson(res, 403, { ok: false, error: 'path_not_allowed' }), true;
+    // 校验 contextFiles
+    if (contextFiles.length > 0) {
+      if (contextFiles.length > 5) return badReq(res, 400, 'too_many_contextFiles'), true;
+      for (const cf of contextFiles) {
+        if (typeof cf !== 'string') return badReq(res, 400, 'invalid_contextFile'), true;
+        if (isForbiddenPath(path.resolve(cf)) || !pathInAllowed(path.resolve(cf))) {
+          return sendJson(res, 403, { ok: false, error: 'contextFile_not_allowed' }), true;
+        }
+      }
+    }
+    // 验证 session 存在（按 sessionId 或 internalId 匹配）
+    const sess = await mobileSessions.getSessionById(sessionId);
+    if (!sess) {
+      // 优先返回 404；前端可改为先调 /draft 再发消息
+      return sendJson(res, 404, { ok: false, error: 'session_not_found' }), true;
+    }
+    const r = await mobileSessions.createApproval({
+      sessionId: sessionId,
+      deviceId: t.device && t.device.id,
+      deviceName: t.device && t.device.deviceName,
+      agentId: agentId,
+      cwd: norm,
+      text: text,
+      contextFiles: contextFiles
+    });
+    if (!r.ok) {
+      const code_ = r.status || 400;
+      return sendJson(res, code_, { ok: false, error: r.error }), true;
+    }
+    return sendJson(res, 200, {
+      ok: true,
+      approvalId: r.approvalId,
+      sessionId: r.sessionId,
+      status: r.status,
+      expiresAt: r.expiresAt
+    }), true;
+  }
+
+  // -------- GET /api/mobile/approvals/:id --------
+  if (req.method === 'GET' && /^\/api\/mobile\/approvals\/[A-Za-z0-9._\-+]{1,128}$/.test(pathOnly)) {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    const id = pathOnly.split('/').pop();
+    const a = await mobileSessions.getApprovalById(id);
+    if (!a) return sendJson(res, 404, { ok: false, error: 'not_found' }), true;
+    // 限制：只返回同 device 的 approval
+    if (a.deviceId && t.device && t.device.id && a.deviceId !== t.device.id) {
+      return sendJson(res, 403, { ok: false, error: 'forbidden' }), true;
+    }
+    return sendJson(res, 200, { ok: true, approval: a }), true;
+  }
+
+  // -------- GET /api/mobile/approvals --------
+  if (req.method === 'GET' && pathOnly === '/api/mobile/approvals') {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    const u = new URL(url, 'http://x');
+    const sessionId = u.searchParams.get('sessionId') || '';
+    const status = u.searchParams.get('status') || '';
+    const r = await mobileSessions.listApprovals({
+      deviceId: t.device && t.device.id,
+      sessionId: sessionId || undefined,
+      status: status || undefined,
+      limit: 50
+    });
+    return sendJson(res, 200, { ok: true, items: r }), true;
   }
 
   // -------- GET /api/mobile/context/current --------
@@ -1433,6 +1544,59 @@ async function handleMobileApiV2A(req, res, url) {
     });
     if (!r.ok) return badReq(res, 400, r.error || 'bad_select'), true;
     return sendJson(res, 200, { ok: true, cwd: r.cwd, agentId: r.agentId, sessionId: r.sessionId }), true;
+  }
+
+  return false; // 未命中
+}
+
+
+// =====================================================================
+// Phase 2A-2.1：handleMobileControlApi
+//   - 仅 loopback 访问（调用方在 handleRequest 中已用 isLoopbackIp 校验）
+//   - 不需要 mobile token（loopback 是 desktop 本机，IPC 桥）
+//   - 不暴露 pty / shell / agent 启动
+//   - approve 后不启动 agent；只更新 status
+// =====================================================================
+async function handleMobileControlApi(req, res, url) {
+  const pathOnly = (url || '/').split('?')[0];
+
+  // -------- GET /api/mobile-control/approvals --------
+  if (req.method === 'GET' && pathOnly === '/api/mobile-control/approvals') {
+    const u = new URL(url, 'http://x');
+    const status = u.searchParams.get('status') || '';
+    const agentId = u.searchParams.get('agentId') || '';
+    const r = await mobileSessions.listApprovals({
+      status: status || undefined,
+      limit: 100
+    });
+    let items = r;
+    if (agentId) items = items.filter(function (x) { return x.agentId === agentId; });
+    return sendJson(res, 200, { ok: true, items: items }), true;
+  }
+
+  // -------- POST /api/mobile-control/approvals/:id/decide --------
+  // body: { decision: "approved" | "rejected" }
+  if (req.method === 'POST' && /^\/api\/mobile-control\/approvals\/[A-Za-z0-9._\-+]{1,128}\/decide$/.test(pathOnly)) {
+    const m = pathOnly.match(/^\/api\/mobile-control\/approvals\/([A-Za-z0-9._\-+]{1,128})\/decide$/);
+    const id = m ? m[1] : '';
+    let body;
+    try { body = await readJsonBody(req); } catch { return badReq(res, 400, 'bad_body'), true; }
+    const decision = (body && typeof body.decision === 'string') ? body.decision : '';
+    if (decision !== 'approved' && decision !== 'rejected') {
+      return badReq(res, 400, 'invalid_decision'), true;
+    }
+    const r = await mobileSessions.decideApproval(id, decision, 'desktop');
+    if (!r.ok) {
+      const code_ = r.status || 400;
+      return sendJson(res, code_, { ok: false, error: r.error }), true;
+    }
+    return sendJson(res, 200, {
+      ok: true,
+      approvalId: r.approvalId,
+      status: r.status,
+      decision: r.decision,
+      note: r.note || ''
+    }), true;
   }
 
   return false; // 未命中
@@ -1535,6 +1699,16 @@ async function handleRequest(req, res) {
   // -------- Phase 2A-1：sessions + context 路由（先于 V2，因为 V2 强制 GET-only）--------
   const v2a = await handleMobileApiV2A(req, res, url);
   if (v2a !== false) return; // 命中（v2a 已写 res）或短路
+
+  // -------- Phase 2A-2.1：mobile-control 路由（loopback-only）--------
+  // 必须在 v2a 之后；必须在 v2 之前；必须过 loopback 校验
+  if (pathOnly.startsWith('/api/mobile-control/')) {
+    if (!isLoopbackIp(ip)) {
+      return sendJson(res, 403, { ok: false, error: 'loopback_only' });
+    }
+    const ctl = await handleMobileControlApi(req, res, url);
+    if (ctl !== false) return;
+  }
 
   // -------- Phase 0B：只读 API 路由 --------
   const v2 = await handleMobileApiV2(req, res, url);
@@ -1695,6 +1869,8 @@ module.exports = {
   // Phase 2A-1
   handleMobileApiV2A,
   mobileSessions,
+  // Phase 2A-2.1
+  handleMobileControlApi,
   // server 内提供（测试用）
   handleRequest,
   // 状态描述

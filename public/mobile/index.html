@@ -219,11 +219,19 @@
           <div id="agent-messages" class="agent-messages">
             <div class="empty">请先选择 cwd + agent</div>
           </div>
-          <div class="agent-input-row">
-            <textarea id="agent-input" class="agent-input" rows="2" maxlength="4000" disabled placeholder="Sending tasks will be enabled after desktop approval is implemented."></textarea>
-            <button id="agent-send" class="btn-primary" type="button" disabled>Send</button>
+          <!-- Phase 2A-2.1：approval status bar -->
+          <div id="agent-approval-bar" class="approval-bar" hidden>
+            <div class="approval-bar-row">
+              <span id="agent-approval-icon" class="approval-icon approval-icon-pending"></span>
+              <span id="agent-approval-text" class="approval-text">Waiting for desktop approval</span>
+            </div>
+            <div id="agent-approval-meta" class="approval-meta"></div>
           </div>
-          <div class="agent-input-note">Desktop approval will be added in Phase 2A-2</div>
+          <div class="agent-input-row">
+            <textarea id="agent-input" class="agent-input" rows="2" maxlength="4000" placeholder="输入要请 desktop 二次确认的任务（最多 4000 字符）"></textarea>
+            <button id="agent-send" class="btn-primary" type="button" data-i="approval">Request approval</button>
+          </div>
+          <div class="agent-input-note">本轮仅创建审批；不会启动 Agent · 不会执行 shell</div>
         </div>
 
         <div class="card-grid card-grid-2">
@@ -245,11 +253,11 @@
 
         <div class="card card-tip">
           <div class="card-h">Desktop approval required</div>
-          <p class="card-p">本轮 Phase 2A-1 仅显示 session 外壳。发送任务需 Phase 2A-2 引入电脑端二次确认。</p>
+          <p class="card-p">本轮 Phase 2A-2.1：手机端提交任务 → 电脑端二次确认 → 手机端看到状态。Approve 之后不会启动 Agent。</p>
           <div class="card-row" style="margin-top: var(--s-2);">
-            <span class="status-dot status-dot-ok"></span><span class="card-p">Read-only</span>
-            <span class="status-dot status-dot-ok" style="margin-left: 12px;"></span><span class="card-p">No raw terminal</span>
+            <span class="status-dot status-dot-ok"></span><span class="card-p">No raw terminal</span>
             <span class="status-dot status-dot-ok" style="margin-left: 12px;"></span><span class="card-p">No shell access</span>
+            <span class="status-dot status-dot-ok" style="margin-left: 12px;"></span><span class="card-p">No agent execution in this phase</span>
           </div>
         </div>
       </section>

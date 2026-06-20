@@ -151,6 +151,8 @@
     files:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>',
     skills: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg>',
     agents: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6v6H9z"/><path d="M3 9h2M3 15h2M19 9h2M19 15h2M9 3v2M15 3v2M9 19v2M15 19v2"/></svg>',
+    approval: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c2.39 0 4.56.93 6.18 2.45"/></svg>',
+    sessions: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
     usage:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg>',
     search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>'
   };
@@ -603,7 +605,21 @@
     sessionId: '',
     sessions: [],
     installedMap: {}, // agentId -> bool
-    usage: null
+    usage: null,
+    // Phase 2A-2.1：approval
+    pendingApprovalId: '',
+    pendingApprovalExpiresAt: 0,
+    pendingApprovalStatus: '',     // pending / approved / rejected / timeout / error
+    approvalIntervalId: null
+  };
+
+  // Phase 2A-2.1：approval status 文案
+  var APPROVAL_STATUS_TEXT = {
+    pending:  'Waiting for desktop approval',
+    approved: 'Approved. Agent execution will be enabled in Phase 2A-2.2.',
+    rejected: 'Rejected by desktop.',
+    timeout:  'Approval timed out.',
+    error:    'Approval request failed.'
   };
 
   // 把"当前 Agent Tab 是否被实际切换过"记下来，避免 user 选完 root 后重复拉
@@ -839,6 +855,182 @@
     showTab('files');
   }
 
+  // ---------------- Phase 2A-2.1：Approval Request ----------------
+
+  // Send button → Request approval
+  async function onRequestApproval() {
+    var input = $('#agent-input');
+    var btn = $('#agent-send');
+    if (!input || !btn) return;
+    var text = (input.value || '').trim();
+    if (!text) {
+      flashInputError(input, '请输入要请 desktop 二次确认的任务');
+      return;
+    }
+    if (text.length > 4000) {
+      flashInputError(input, '输入不能超过 4000 字符');
+      return;
+    }
+    if (!agentState.cwd) {
+      flashInputError(input, '请先在 Files 选择 cwd');
+      return;
+    }
+    if (!agentState.agentId) {
+      flashInputError(input, '请先选择 agent');
+      return;
+    }
+    // 已有 pending approval：阻止重复提交
+    if (agentState.pendingApprovalId && agentState.pendingApprovalStatus === 'pending') {
+      flashInputError(input, '已有 pending 审批，请等待结果');
+      return;
+    }
+    btn.disabled = true;
+    var oldText = btn.textContent;
+    btn.textContent = '请求中…';
+    try {
+      // 1) 找/创建 sessionId
+      var sessionId = agentState.sessionId;
+      if (!sessionId) {
+        var d = await apiPost('/api/mobile/sessions/draft', {
+          cwd: agentState.cwd,
+          agentId: agentState.agentId
+        });
+        if (!d || !d.ok || !d.sessionId) throw new Error('draft_failed');
+        sessionId = d.sessionId;
+        agentState.sessionId = sessionId;
+      }
+      // 2) 创建 approval
+      var r = await apiPost('/api/mobile/sessions/' + encodeURIComponent(sessionId) + '/messages', {
+        text: text,
+        cwd: agentState.cwd,
+        agentId: agentState.agentId,
+        contextFiles: []
+      });
+      if (!r || !r.ok) throw new Error((r && r.error) || 'approval_create_failed');
+      // 3) 进入 pending UI + 启动轮询
+      agentState.pendingApprovalId = r.approvalId;
+      agentState.pendingApprovalExpiresAt = r.expiresAt || 0;
+      agentState.pendingApprovalStatus = 'pending';
+      paintApprovalBar();
+      startApprovalPolling();
+      // 清空 input
+      input.value = '';
+    } catch (e) {
+      agentState.pendingApprovalStatus = 'error';
+      paintApprovalBar('error: ' + (e && e.message || e));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = oldText;
+      updateSendButtonState();
+    }
+  }
+
+  function flashInputError(input, msg) {
+    input.style.borderColor = '#EF4444';
+    if (input.value === '') input.placeholder = msg;
+    setTimeout(function () { input.style.borderColor = ''; }, 1500);
+  }
+
+  function updateSendButtonState() {
+    var btn = $('#agent-send');
+    var input = $('#agent-input');
+    if (!btn || !input) return;
+    var text = (input.value || '').trim();
+    var hasPending = agentState.pendingApprovalId && agentState.pendingApprovalStatus === 'pending';
+    var ok = !!agentState.cwd && !!agentState.agentId && text.length > 0 && text.length <= 4000 && !hasPending;
+    btn.disabled = !ok;
+  }
+
+  function paintApprovalBar(errMsg) {
+    var bar = $('#agent-approval-bar');
+    var text = $('#agent-approval-text');
+    var meta = $('#agent-approval-meta');
+    var icon = $('#agent-approval-icon');
+    if (!bar || !text) return;
+    if (errMsg) {
+      agentState.pendingApprovalStatus = 'error';
+    }
+    var status = agentState.pendingApprovalStatus;
+    if (!status) { bar.hidden = true; return; }
+    bar.hidden = false;
+    // 清除旧 class
+    bar.className = 'approval-bar is-' + status;
+    if (icon) {
+      icon.className = 'approval-icon approval-icon-' + status;
+    }
+    text.textContent = errMsg || APPROVAL_STATUS_TEXT[status] || status;
+    if (meta) {
+      var bits = [];
+      if (agentState.pendingApprovalId) bits.push('id ' + agentState.pendingApprovalId);
+      if (status === 'pending' && agentState.pendingApprovalExpiresAt) {
+        var remain = Math.max(0, agentState.pendingApprovalExpiresAt - Date.now());
+        bits.push('剩 ' + Math.ceil(remain / 1000) + 's');
+      }
+      meta.textContent = bits.join(' · ');
+    }
+  }
+
+  function startApprovalPolling() {
+    stopApprovalPolling();
+    agentState.approvalIntervalId = setInterval(pollApprovalStatus, 2000);
+    // 立刻跑一次
+    setTimeout(pollApprovalStatus, 50);
+  }
+
+  function stopApprovalPolling() {
+    if (agentState.approvalIntervalId) {
+      clearInterval(agentState.approvalIntervalId);
+      agentState.approvalIntervalId = null;
+    }
+  }
+
+  async function pollApprovalStatus() {
+    if (!agentState.pendingApprovalId) { stopApprovalPolling(); return; }
+    try {
+      var r = await api('/api/mobile/approvals/' + encodeURIComponent(agentState.pendingApprovalId));
+      if (!r || !r.ok || !r.approval) {
+        stopApprovalPolling();
+        return;
+      }
+      var a = r.approval;
+      if (a.status && a.status !== agentState.pendingApprovalStatus) {
+        agentState.pendingApprovalStatus = a.status;
+        if (a.expiresAt) agentState.pendingApprovalExpiresAt = a.expiresAt;
+        paintApprovalBar();
+        // 终止态：停止轮询 + 清空 pendingApprovalId
+        if (a.status === 'approved' || a.status === 'rejected' || a.status === 'timeout' || a.status === 'cancelled') {
+          stopApprovalPolling();
+          // approved / rejected 后清掉，让用户可以继续提交
+          // timeout 保留 1.5s 再清掉，让用户看清文案
+          if (a.status === 'timeout') {
+            setTimeout(function () {
+              if (agentState.pendingApprovalStatus === 'timeout') {
+                agentState.pendingApprovalId = '';
+                agentState.pendingApprovalStatus = '';
+                paintApprovalBar();
+                updateSendButtonState();
+              }
+            }, 4000);
+          } else {
+            setTimeout(function () {
+              if (agentState.pendingApprovalStatus === a.status) {
+                agentState.pendingApprovalId = '';
+                agentState.pendingApprovalStatus = '';
+                paintApprovalBar();
+                updateSendButtonState();
+              }
+            }, 2000);
+          }
+        }
+      } else {
+        // pending：只刷新倒计时
+        paintApprovalBar();
+      }
+    } catch (e) {
+      // 401 等：让 api() 自己处理；这里静默
+    }
+  }
+
   // ---------------- Phase 2A-1：Sessions Tab ----------------
   var sessionsState = { items: [], source: '', agent: '', q: '', loaded: false };
 
@@ -1033,6 +1225,15 @@
     // Phase 2A-1：Agent tab
     var agentPickCwd = document.getElementById('agent-pick-cwd');
     if (agentPickCwd) agentPickCwd.addEventListener('click', onAgentPickCwd);
+    // Phase 2A-2.1：Agent → Request approval
+    var agentInput = document.getElementById('agent-input');
+    if (agentInput) {
+      agentInput.addEventListener('input', updateSendButtonState);
+    }
+    var agentSend = document.getElementById('agent-send');
+    if (agentSend) {
+      agentSend.addEventListener('click', onRequestApproval);
+    }
     // Phase 2A-1：Sessions filters
     var sessionsSource = document.getElementById('sessions-source');
     if (sessionsSource) sessionsSource.addEventListener('change', renderSessions);

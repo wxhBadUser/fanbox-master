@@ -1122,6 +1122,68 @@ ipcMain.handle('mobile:tokens-revoke', async (e, { deviceId }) => {
   return { ok: true, ...(await mobile.publicStatus()) };
 });
 
+// ---------- Phase 2A-2.1：Mobile Approval Loop (desktop IPC) ----------
+// 注意：renderer → IPC → main 是安全的（main 是唯一拥有 IPC 通道的进程）。
+// 这里直接调用 mobile.mobileSessions.* 等价于走 loopback HTTP，但省一层 HTTP 开销。
+
+ipcMain.handle('mobile:approvals-list', async (e, { status, agentId, limit } = {}) => {
+  try {
+    const items = await mobile.mobileSessions.listApprovals({
+      status: status || undefined,
+      limit: limit || 100
+    });
+    let filtered = items;
+    if (agentId) {
+      filtered = filtered.filter(function (x) { return x.agentId === agentId; });
+    }
+    return { ok: true, items: filtered };
+  } catch (err) {
+    return { ok: false, error: 'list_failed', message: String(err && err.message || err) };
+  }
+});
+
+ipcMain.handle('mobile:approval-decide', async (e, { approvalId, decision } = {}) => {
+  if (!approvalId || typeof approvalId !== 'string') {
+    return { ok: false, error: 'missing_approvalId' };
+  }
+  if (decision !== 'approved' && decision !== 'rejected') {
+    return { ok: false, error: 'invalid_decision' };
+  }
+  // 二次确认 desktop 状态：mobile access 必须开启
+  const cfg = await mobile.getConfig();
+  if (!cfg.enabled) {
+    return { ok: false, error: 'mobile_disabled' };
+  }
+  try {
+    const r = await mobile.mobileSessions.decideApproval(approvalId, decision, 'desktop');
+    if (!r.ok) {
+      return { ok: false, error: r.error, status: r.status || 400 };
+    }
+    return {
+      ok: true,
+      approvalId: r.approvalId,
+      status: r.status,
+      decision: r.decision,
+      note: r.note || ''
+    };
+  } catch (err) {
+    return { ok: false, error: 'decide_failed', message: String(err && err.message || err) };
+  }
+});
+
+ipcMain.handle('mobile:approval-get', async (e, { approvalId } = {}) => {
+  if (!approvalId || typeof approvalId !== 'string') {
+    return { ok: false, error: 'missing_approvalId' };
+  }
+  try {
+    const a = await mobile.mobileSessions.getApprovalById(approvalId);
+    if (!a) return { ok: false, error: 'not_found' };
+    return { ok: true, approval: a };
+  } catch (err) {
+    return { ok: false, error: 'get_failed', message: String(err && err.message || err) };
+  }
+});
+
 // 应用退出兜底：保证 mobile server 不留悬挂 socket
 function teardownMobile() {
   if (_mobileHttpServer) {

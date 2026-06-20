@@ -4020,6 +4020,114 @@ const usagePanel = {
 // ---------- Mobile Access（Phase 0A）----------
 // 桌面端的控制面板：开/关/生成配对码/撤销已配对设备。
 // 安全：永远不在 UI 上显示 token / tokenHash / pairCode 二次回显；pairCode 仅在生成时一次性显示。
+const mobileApprovals = {
+  intervalId: null,
+  async refresh() {
+    if (!window.fanboxMobileApproval) return;
+    let r = null;
+    try { r = await window.fanboxMobileApproval.list({ status: 'pending' }); } catch (e) { r = null; }
+    const list = $('#mobile-approval-list');
+    const count = $('#mobile-approvals-count');
+    if (!list || !count) return;
+    list.innerHTML = '';
+    if (!r || !r.ok || !Array.isArray(r.items) || r.items.length === 0) {
+      list.innerHTML = '<li class="mobile-device-empty">暂无待确认请求</li>';
+      count.textContent = '0';
+      return;
+    }
+    count.textContent = String(r.items.length);
+    r.items.forEach((a) => {
+      list.appendChild(this._renderItem(a));
+    });
+  },
+  _renderItem(a) {
+    const li = document.createElement('li');
+    li.className = 'mobile-approval-item';
+    li.setAttribute('data-testid', 'mobile-approval-item');
+    li.setAttribute('data-approval-id', a.approvalId);
+    const head = document.createElement('div');
+    head.className = 'mobile-approval-head';
+    const meta = document.createElement('div');
+    meta.className = 'mobile-approval-meta';
+    const name = document.createElement('span');
+    name.className = 'mobile-approval-device';
+    name.textContent = a.deviceName || a.deviceId || 'mobile';
+    const dot = document.createElement('span');
+    dot.className = 'mobile-approval-sep';
+    dot.textContent = '·';
+    const agent = document.createElement('span');
+    agent.className = 'mobile-approval-agent';
+    agent.textContent = a.agentId || 'unknown';
+    const dot2 = document.createElement('span');
+    dot2.className = 'mobile-approval-sep';
+    dot2.textContent = '·';
+    const cwd = document.createElement('span');
+    cwd.className = 'mobile-approval-cwd';
+    cwd.title = a.cwd || '';
+    cwd.textContent = a.cwdLabel || (a.cwd || '').split(/[\\\/]+/).filter(Boolean).pop() || '';
+    meta.appendChild(name);
+    meta.appendChild(dot);
+    meta.appendChild(agent);
+    meta.appendChild(dot2);
+    meta.appendChild(cwd);
+    const exp = document.createElement('span');
+    exp.className = 'mobile-approval-exp';
+    exp.textContent = a.expiresAt ? this._fmtExp(a.expiresAt) : '';
+    head.appendChild(meta);
+    head.appendChild(exp);
+    const preview = document.createElement('div');
+    preview.className = 'mobile-approval-preview';
+    preview.textContent = a.inputPreview || '';
+    const ctx = document.createElement('div');
+    ctx.className = 'mobile-approval-ctx';
+    ctx.textContent = 'session ' + (a.sessionId || '?') + ' · input ' + (a.inputLen || 0) + ' chars';
+    const actions = document.createElement('div');
+    actions.className = 'mobile-approval-actions';
+    const rejectBtn = document.createElement('button');
+    rejectBtn.type = 'button';
+    rejectBtn.className = 'btn-mini btn-mini-reject';
+    rejectBtn.textContent = 'Reject';
+    rejectBtn.onclick = (e) => { e.stopPropagation(); this._decide(a.approvalId, 'rejected'); };
+    const approveBtn = document.createElement('button');
+    approveBtn.type = 'button';
+    approveBtn.className = 'btn-mini btn-mini-approve';
+    approveBtn.textContent = 'Approve';
+    approveBtn.onclick = (e) => { e.stopPropagation(); this._decide(a.approvalId, 'approved'); };
+    actions.appendChild(rejectBtn);
+    actions.appendChild(approveBtn);
+    li.appendChild(head);
+    li.appendChild(preview);
+    li.appendChild(ctx);
+    li.appendChild(actions);
+    return li;
+  },
+  _fmtExp(expiresAt) {
+    const remain = Math.max(0, expiresAt - Date.now());
+    const sec = Math.ceil(remain / 1000);
+    return sec > 0 ? ('剩 ' + sec + 's') : '已超时';
+  },
+  async _decide(approvalId, decision) {
+    if (!window.fanboxMobileApproval) return;
+    if (!confirm('确认 ' + (decision === 'approved' ? 'Approve' : 'Reject') + '？仅更新状态；不会启动 Agent。')) return;
+    try {
+      const r = await window.fanboxMobileApproval.decide(approvalId, decision);
+      if (!r || !r.ok) {
+        alert('操作失败：' + (r && r.error || 'unknown'));
+      }
+    } catch (e) {
+      alert('操作失败：' + (e && e.message || e));
+    }
+    await this.refresh();
+  },
+  startPolling() {
+    if (this.intervalId) return;
+    this.intervalId = setInterval(() => this.refresh(), 5000);
+  },
+  stopPolling() {
+    if (this.intervalId) { clearInterval(this.intervalId); this.intervalId = null; }
+  }
+};
+
 const mobileAccess = {
   open() { return localStorage.getItem('fb_mobile_access_open') === '1'; },
   apply() {
@@ -4229,6 +4337,13 @@ const mobileAccess = {
     this.refresh();
     // 设备列表 30s 刷新一次（保持活跃度显示新鲜）
     setInterval(() => { if (this.open()) this.refresh(); }, 30000);
+    // Phase 2A-2.1：pending approvals 5s 轮询
+    if (window.fanboxMobileApproval) {
+      mobileApprovals.refresh();
+      mobileApprovals.startPolling();
+      const rBtn = $('#mobile-approvals-refresh');
+      if (rBtn) rBtn.onclick = (e) => { e.stopPropagation(); mobileApprovals.refresh(); };
+    }
   },
 };
 

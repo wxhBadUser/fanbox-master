@@ -1,5 +1,5 @@
 /* eslint-disable */
-// Phase 2A-1 smoke · Mobile Sessions + Agent Workspace Shell
+// Phase 2A smoke · Mobile Sessions + Agent Workspace Shell + Desktop Approval Loop
 //
 // 验证：
 //   1) auth 边界：no token / bad token / 非 LAN 全部拒绝
@@ -14,9 +14,14 @@
 //      Delete File / Rename File / Move File / Upload File
 //  10) UI 行为：Files 顶部 "在此文件夹打开 Agent" / "查看此文件夹 Sessions"
 //  11) 关闭 Mobile Access 后 sessions API 一律 401
-//  12) 没有 /api/mobile/sessions/:id/messages POST 端点
-//  13) 没有 /api/mobile/pty/input 端点
-//  14) Phase 0A / Phase 1 smoke 仍能独立运行（不在本脚本内跑）
+//  12) Phase 2A-2.1 Mobile Approval Request Loop 验证
+//        - /api/mobile/sessions/draft 仅创建 shell，不启动 agent
+//        - /api/mobile/sessions/:id/messages 仅创建 approval，不启动 agent / pty / shell
+//        - /api/mobile/approvals/:id 状态查询
+//        - /api/mobile-control/approvals (loopback-only)
+//        - /api/mobile-control/approvals/:id/decide (loopback-only)
+//        - audit append-only，不含 input 原文 / token
+//  13) Phase 0A / Phase 1 smoke 仍能独立运行（不在本脚本内跑）
 //
 // 注意：agent 安装探测可能要 spawn 子进程，本测试通过 mock 数据绕开。
 
@@ -80,6 +85,7 @@ function req(opts, body) {
     JSON.stringify({ pairCode: pc.pairCode, deviceName: 'Smoke-Phase2A' }));
   const jPC = JSON.parse(rPC.body);
   const token = jPC.token;
+  const deviceId = jPC.deviceId;
   const auth = { Authorization: 'Bearer ' + token };
   ok('pair/confirm 200', rPC.status === 200);
   ok('token 取得', !!token && token.length > 30);
@@ -394,8 +400,8 @@ function req(opts, body) {
   ok('Agent tab 含 cwd 显示 (agent-cwd)', /id="agent-cwd"/.test(html));
   ok('Agent tab 含 agent-switcher', /id="agent-switcher"/.test(html));
   ok('Agent tab 含 4 个 agent chip 数据 (claude/codex/opencode/qoder)', ['claude', 'codex', 'opencode', 'qoder'].every(a => html.includes('data-agent-id="' + a + '"') || html.includes("'" + a + "'") || html.includes(a)));
-  ok('Agent tab 含 disabled input', /id="agent-input"/.test(html) && /disabled/.test(html.split('id="agent-input"')[1].split('>')[0]));
-  ok('Agent tab 含 disabled send 按钮', /id="agent-send"/.test(html));
+  ok('Agent tab 含 input (textarea)', /id="agent-input"/.test(html));
+  ok('Agent tab 含 send 按钮（Request approval）', /id="agent-send"/.test(html) && /Request approval/i.test(html));
   ok('Agent tab 含 approval 提示', /Desktop approval/i.test(html));
   ok('Agent tab 含 "No raw terminal"', /No raw terminal/i.test(html));
   ok('Agent tab 含 "No shell access"', /No shell access/i.test(html));
@@ -491,9 +497,9 @@ function req(opts, body) {
   ok('HTML 含 #files-cwd-label', /id="files-cwd-label"/.test(html));
   ok('HTML 含 #files-open-agent', /id="files-open-agent"/.test(html));
   ok('HTML 含 #files-view-sessions', /id="files-view-sessions"/.test(html));
-  // 13) Agent input disabled（防止 Phase 2A-1 误开）
-  ok('HTML #agent-input disabled', /id="agent-input"[^>]*\bdisabled\b/.test(html) || /\bdisabled\b[^>]*id="agent-input"/.test(html));
-  ok('HTML #agent-send disabled', /id="agent-send"[^>]*\bdisabled\b/.test(html) || /\bdisabled\b[^>]*id="agent-send"/.test(html));
+  // 13) Agent input 仍存在（Phase 2A-2.1 启用 textarea，但受 button 状态控制）
+  ok('HTML 含 #agent-input', /id="agent-input"/.test(html));
+  ok('HTML 含 #agent-send', /id="agent-send"/.test(html));
   // 14) 5 Tab 顺序：home / files / agent / skills / sessions
   const orderMatch = html.match(/data-tab-btn="(home|files|agent|skills|sessions)"/g) || [];
   const order = orderMatch.map(s => s.match(/"([^"]+)"/)[1]);
@@ -508,10 +514,289 @@ function req(opts, body) {
   // 17) electron/mobile.js handleApi 内部对 POST context 用 pathInAllowed 校验
   const mobileJsCode = fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile.js'), 'utf8');
   ok('electron/mobile.js POST context 走 pathInAllowed 校验', /pathInAllowed/.test(mobileJsCode) && /isForbiddenPath/.test(mobileJsCode));
-  // 没有 /api/mobile/pty/input 端点
+  // 没有 /api/mobile/pty/input 端点（永远禁止）
   ok('mobile.js 不暴露 /api/mobile/pty/input 字符串', !/api\/mobile\/pty\/input/.test(js) && !/api\/mobile\/pty\/input/.test(html));
-  // 没有 /api/mobile/sessions/:id/messages 执行端点
-  ok('mobile.js 不暴露 /api/mobile/sessions/*/messages POST 端点', !/api\/mobile\/sessions\/.*messages/.test(js) && !/api\/mobile\/sessions\/.*messages/.test(html));
+  // Phase 2A-2.1：messages POST 端点允许存在，但 mobile.js 前端 POST_ALLOWLIST 必须仍只放行 context
+  ok('mobile.js 暴露 /api/mobile/sessions/*/messages POST 端点', /api\/mobile\/sessions\/.*?\/messages/.test(mobileJsCode));
+  // POST_ALLOWLIST 仍只允许 context/(cwd|select)
+  const allowMatch = (js.match(/POST_ALLOWLIST\s*=\s*([^\n;]+)/) || ['', ''])[1];
+  ok('POST_ALLOWLIST 仍仅放行 context/(cwd|select)', /context\\\/\(cwd\|select\)/.test(allowMatch) && !/messages/.test(allowMatch));
+
+  // ============================================================
+  // [11.7] Phase 2A-2.1：Mobile Approval Request Loop
+  // ============================================================
+  section('11.7) Phase 2A-2.1: Mobile Approval Loop');
+
+  // ---- 1) Auth / LAN 边界 ----
+  // POST messages no token → 401
+  const rMsgsNoTok = await req({ path: '/api/mobile/sessions/whatever/messages', method: 'POST', headers: { 'Content-Type': 'application/json' } },
+    JSON.stringify({ text: 't', cwd: cwdMock, agentId: 'claude' }));
+  ok('POST messages no token → 401', rMsgsNoTok.status === 401, rMsgsNoTok.status);
+  // POST messages bad token → 401
+  const rMsgsBadTok = await req({ path: '/api/mobile/sessions/whatever/messages', method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer wrong' } },
+    JSON.stringify({ text: 't', cwd: cwdMock, agentId: 'claude' }));
+  ok('POST messages bad token → 401', rMsgsBadTok.status === 401, rMsgsBadTok.status);
+  // GET approval no token → 401
+  const rGetApvNoTok = await req({ path: '/api/mobile/approvals/apr_xxx', method: 'GET' });
+  ok('GET /api/mobile/approvals/:id no token → 401', rGetApvNoTok.status === 401, rGetApvNoTok.status);
+  // GET approvals list no token → 401
+  const rApvListNoTok = await req({ path: '/api/mobile/approvals', method: 'GET' });
+  ok('GET /api/mobile/approvals no token → 401', rApvListNoTok.status === 401, rApvListNoTok.status);
+  // Note: 127.0.0.1 is loopback, so it passes isLoopback test for control API.
+  // Control API loopback-only: simulate non-loopback via X-Forwarded-For or just test that it works on 127.0.0.1.
+  // The control API endpoint check is: if non-loopback → 403. We hit on 127.0.0.1 (loopback), so 200.
+  const rCtrlOk = await req({ path: '/api/mobile-control/approvals', method: 'GET' });
+  ok('control approvals 127.0.0.1 (loopback) 200', rCtrlOk.status === 200, rCtrlOk.status);
+
+  // ---- 2) Draft session ----
+  // POST /draft creates shell session
+  const rDraft = await req({ path: '/api/mobile/sessions/draft', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ cwd: cwdMock, agentId: 'claude' }));
+  const jDraft = JSON.parse(rDraft.body);
+  ok('POST /draft 200', rDraft.status === 200, rDraft.status);
+  ok('POST /draft ok=true', jDraft.ok === true);
+  ok('POST /draft 返回 sessionId', typeof jDraft.sessionId === 'string' && jDraft.sessionId.length > 4);
+  ok('POST /draft 返回 internalId', typeof jDraft.internalId === 'string' && jDraft.internalId.startsWith('mobile-'));
+  const draftSessionId = jDraft.sessionId;
+  // /draft 不写 agent 启动
+  ok('POST /draft 不启动 agent (sessions.json 中 status=idle)', (() => {
+    try {
+      const sessRaw = fs.readFileSync(mobileSessPath, 'utf8');
+      const sessObj = JSON.parse(sessRaw);
+      // file 实际以 scrubbed sessionId 为 key
+      const sess = sessObj.sessions && (sessObj.sessions[jDraft.sessionId] || sessObj.sessions[jDraft.internalId]);
+      return !!sess && sess.status === 'idle' && sess.cwd === cwdMock;
+    } catch (e) { return false; }
+  })());
+  // /draft agentId 必须是 whitelist；invalid → 400
+  const rDraftBad = await req({ path: '/api/mobile/sessions/draft', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ cwd: cwdMock, agentId: 'evil' }));
+  ok('POST /draft invalid agentId → 400', rDraftBad.status === 400, rDraftBad.status);
+  // /draft cwd 越界 → 403
+  const rDraftOOB = await req({ path: '/api/mobile/sessions/draft', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ cwd: 'C:\\Windows\\System32', agentId: 'claude' }));
+  ok('POST /draft OOB cwd → 403', rDraftOOB.status === 403, rDraftOOB.status);
+  // /draft 缺 cwd → 400
+  const rDraftNoCwd = await req({ path: '/api/mobile/sessions/draft', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ agentId: 'claude' }));
+  ok('POST /draft missing cwd → 400', rDraftNoCwd.status === 400, rDraftNoCwd.status);
+  // /draft 不同 agentId
+  for (const a of ['codex', 'opencode', 'qoder']) {
+    const rDA = await req({ path: '/api/mobile/sessions/draft', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+      JSON.stringify({ cwd: cwdMock, agentId: a }));
+    ok('POST /draft agentId=' + a + ' → 200', rDA.status === 200, rDA.status);
+  }
+  // mobile-sessions.js createMobileDraftSession 不能 spawn / exec
+  ok('mobile-sessions.js draft 流程无 spawn 调用', !/function\s+createMobileDraftSession[\s\S]{0,2000}?spawn\s*\(/.test(fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8')));
+
+  // ---- 3) Approval create ----
+  // valid message
+  const rApv1 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ text: '帮我检查这个文件夹的 mobile 页面问题', cwd: cwdMock, agentId: 'claude', contextFiles: [] }));
+  const jApv1 = JSON.parse(rApv1.body);
+  ok('valid message creates approval 200', rApv1.status === 200, rApv1.status);
+  ok('approvalId 返回', typeof jApv1.approvalId === 'string' && jApv1.approvalId.startsWith('apr_'));
+  ok('status === waiting_approval', jApv1.status === 'waiting_approval', jApv1.status);
+  ok('expiresAt 存在且为未来', typeof jApv1.expiresAt === 'number' && jApv1.expiresAt > Date.now());
+  const approval1 = jApv1.approvalId;
+  // 不启动 agent (mobile-sessions.js createApproval 无 spawn/exec)
+  ok('createApproval 无 spawn 调用', !/function\s+createApproval[\s\S]{0,3000}?spawn\s*\(|function\s+createApproval[\s\S]{0,3000}?execFile\s*\(/.test(fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8')));
+  // 不调用 pty
+  ok('mobile.js 不暴露 pty:spawn / pty:input', !/pty:spawn|pty:input/.test(mobileJsCode));
+  // 不执行 shell
+  ok('mobile-sessions.js createApproval 不调用 child_process.exec', !/createApproval[\s\S]{0,3000}?child_process/.test(fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8')));
+
+  // session 状态变为 waiting_approval
+  const rSess = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId), method: 'GET', headers: auth });
+  const jSess = JSON.parse(rSess.body);
+  ok('session status === waiting_approval', jSess.session && jSess.session.status === 'waiting_approval', 'status=' + (jSess.session && jSess.session.status));
+  // message status === pending_approval
+  ok('message status === pending_approval', jSess.session && jSess.session.messages && jSess.session.messages.some(m => m.status === 'pending_approval'));
+
+  // text > 4000 → 400
+  const longText = 'a'.repeat(4001);
+  const rApvLong = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ text: longText, cwd: cwdMock, agentId: 'claude' }));
+  ok('text > 4000 → 400', rApvLong.status === 400, rApvLong.status);
+  // empty text → 400
+  const rApvEmpty = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ text: '   ', cwd: cwdMock, agentId: 'claude' }));
+  ok('empty text → 400', rApvEmpty.status === 400, rApvEmpty.status);
+  // contextFiles > 5 → 400
+  const rApvCf6 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ text: 't', cwd: cwdMock, agentId: 'claude', contextFiles: ['a', 'b', 'c', 'd', 'e', 'f'] }));
+  ok('contextFiles > 5 → 400', rApvCf6.status === 400, rApvCf6.status);
+  // contextFiles OOB → 403
+  const rApvCfOOB = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ text: 't', cwd: cwdMock, agentId: 'claude', contextFiles: ['C:\\Windows\\System32\\evil.exe'] }));
+  ok('contextFiles OOB → 403', rApvCfOOB.status === 403, rApvCfOOB.status);
+  // 同一 session 已有 pending → 409
+  const rApvDup = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ text: 't2', cwd: cwdMock, agentId: 'claude' }));
+  ok('同 session 已 pending → 409', rApvDup.status === 409, rApvDup.status);
+  // sessionId 不存在 → 404
+  const rApv404 = await req({ path: '/api/mobile/sessions/no-such-session-9999/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ text: 't', cwd: cwdMock, agentId: 'claude' }));
+  ok('session 不存在 → 404', rApv404.status === 404, rApv404.status);
+
+  // ---- 4) Approval decide (loopback control API) ----
+  // unknown approvalId → 404
+  const rDec404 = await req({ path: '/api/mobile-control/approvals/apr_nope/decide', method: 'POST', headers: { 'Content-Type': 'application/json' } },
+    JSON.stringify({ decision: 'approved' }));
+  ok('decide unknown id → 404', rDec404.status === 404, rDec404.status);
+  // invalid decision → 400
+  const rDecBad = await req({ path: '/api/mobile-control/approvals/' + approval1 + '/decide', method: 'POST', headers: { 'Content-Type': 'application/json' } },
+    JSON.stringify({ decision: 'maybe' }));
+  ok('decide invalid decision → 400', rDecBad.status === 400, rDecBad.status);
+  // approve
+  const rDecOk = await req({ path: '/api/mobile-control/approvals/' + approval1 + '/decide', method: 'POST', headers: { 'Content-Type': 'application/json' } },
+    JSON.stringify({ decision: 'approved' }));
+  const jDecOk = JSON.parse(rDecOk.body);
+  ok('approve 200', rDecOk.status === 200, rDecOk.status);
+  ok('approve status === approved', jDecOk.status === 'approved', jDecOk.status);
+  ok('approve 返回 note (Agent execution is not enabled)', /Agent execution is not enabled/.test(jDecOk.note || ''));
+  // approve 后不启动 agent (mobile-sessions.js decideApproval 无 spawn)
+  ok('decideApproval 无 spawn 调用', !/function\s+decideApproval[\s\S]{0,3000}?spawn\s*\(/.test(fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8')));
+  // GET approval 状态为 approved
+  const rGet1 = await req({ path: '/api/mobile/approvals/' + approval1, method: 'GET', headers: auth });
+  const jGet1 = JSON.parse(rGet1.body);
+  ok('GET approval → status === approved', jGet1.approval && jGet1.approval.status === 'approved', 'status=' + (jGet1.approval && jGet1.approval.status));
+  // session 状态变为 approved
+  const rSess2 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId), method: 'GET', headers: auth });
+  const jSess2 = JSON.parse(rSess2.body);
+  ok('session status === approved', jSess2.session && jSess2.session.status === 'approved');
+
+  // 再发一次 → reject
+  const rApv2 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ text: 't3', cwd: cwdMock, agentId: 'claude' }));
+  const jApv2 = JSON.parse(rApv2.body);
+  const approval2 = jApv2.approvalId;
+  const rDecRej = await req({ path: '/api/mobile-control/approvals/' + approval2 + '/decide', method: 'POST', headers: { 'Content-Type': 'application/json' } },
+    JSON.stringify({ decision: 'rejected' }));
+  const jDecRej = JSON.parse(rDecRej.body);
+  ok('reject 200', rDecRej.status === 200, rDecRej.status);
+  ok('reject status === rejected', jDecRej.status === 'rejected', jDecRej.status);
+
+  // ---- 5) Timeout ----
+  // 创建一个 approval，然后手动改 expiresAt 让其过期
+  const rApv3 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ text: 't4 for timeout', cwd: cwdMock, agentId: 'claude' }));
+  const jApv3 = JSON.parse(rApv3.body);
+  const approval3 = jApv3.approvalId;
+  // 手动修改 approvals.json 让 approval3 过期
+  const approvalsPath = path.join(process.env.FANBOX_MOBILE_DIR, 'approvals.json');
+  const aRaw = JSON.parse(fs.readFileSync(approvalsPath, 'utf8'));
+  if (aRaw.approvals[approval3]) {
+    aRaw.approvals[approval3].expiresAt = Date.now() - 5000;
+    fs.writeFileSync(approvalsPath, JSON.stringify(aRaw, null, 2), 'utf8');
+  }
+  // 触发 expireApprovals（通过 GET /api/mobile/approvals/:id）
+  const rGet3 = await req({ path: '/api/mobile/approvals/' + approval3, method: 'GET', headers: auth });
+  const jGet3 = JSON.parse(rGet3.body);
+  ok('expired approval → status === timeout', jGet3.approval && jGet3.approval.status === 'timeout', 'status=' + (jGet3.approval && jGet3.approval.status));
+  // audit 包含 timeout
+  const auditPath = path.join(process.env.FANBOX_MOBILE_DIR, 'audit.jsonl');
+  let auditTxt = '';
+  try { auditTxt = fs.readFileSync(auditPath, 'utf8'); } catch (e) { auditTxt = ''; }
+  ok('audit.jsonl 存在', auditTxt.length > 0);
+  ok('audit 包含 approval_created', /"action":"approval_created"/.test(auditTxt));
+  ok('audit 包含 approval_decided', /"action":"approval_decided"/.test(auditTxt));
+  ok('audit 包含 approval_timeout', /"action":"approval_timeout"/.test(auditTxt));
+  // timeout 不启动 agent
+  ok('expireApprovals 无 spawn 调用', !/function\s+expireApprovals[\s\S]{0,2000}?spawn\s*\(/.test(fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8')));
+
+  // ---- 6) Sensitive data ----
+  // 创建一些带敏感字段的 approval 并 list
+  // 先在 approvals.json 注入一个带敏感字段的
+  const aRaw2 = JSON.parse(fs.readFileSync(approvalsPath, 'utf8'));
+  aRaw2.approvals['apr_dirty'] = {
+    approvalId: 'apr_dirty',
+    sessionId: draftSessionId,
+    deviceId: deviceId,
+    deviceName: 'Android Phone',
+    agentId: 'claude',
+    cwd: cwdMock,
+    cwdLabel: 'fanbox-master',
+    inputPreview: '帮我检查 mobile 页面',
+    inputHash: 'fnv64:0123456789abcdef',
+    inputLen: 12,
+    contextFiles: [],
+    status: 'pending',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    expiresAt: Date.now() + 60000,
+    decidedAt: 0,
+    decision: '',
+    // 故意包含敏感字段
+    token: 'should-not-leak-token-1234',
+    cookie: 'session-cookie-LEAK',
+    apiKey: 'AKIA-LIVE-LEAK',
+    api_key: 'AKIA-SECOND',
+    secret: 'super-secret',
+    password: 'p4ssw0rd',
+    claudeSession: 'cs-uuid-LEAK',
+    codexSession: 'cx-uuid-LEAK'
+  };
+  fs.writeFileSync(approvalsPath, JSON.stringify(aRaw2, null, 2), 'utf8');
+  // GET 列表
+  const rListApv = await req({ path: '/api/mobile/approvals', method: 'GET', headers: auth });
+  const jListApv = JSON.parse(rListApv.body);
+  const listApvStr = JSON.stringify(jListApv);
+  ok('approval list 不含 token', !/should-not-leak-token-1234/.test(listApvStr));
+  ok('approval list 不含 cookie', !/session-cookie-LEAK/.test(listApvStr));
+  ok('approval list 不含 apiKey', !/AKIA-LIVE-LEAK/.test(listApvStr));
+  ok('approval list 不含 api_key', !/AKIA-SECOND/.test(listApvStr));
+  ok('approval list 不含 secret', !/super-secret/.test(listApvStr));
+  ok('approval list 不含 password', !/p4ssw0rd/.test(listApvStr));
+  ok('approval list 不含 claudeSession', !/cs-uuid-LEAK/.test(listApvStr));
+  ok('approval list 不含 codexSession', !/cx-uuid-LEAK/.test(listApvStr));
+  // GET 单个
+  const rGetDirty = await req({ path: '/api/mobile/approvals/apr_dirty', method: 'GET', headers: auth });
+  const jGetDirty = JSON.parse(rGetDirty.body);
+  const dirtyStr = JSON.stringify(jGetDirty);
+  ok('approval detail 不含 token', !/should-not-leak-token-1234/.test(dirtyStr));
+  ok('approval detail 不含 cookie', !/session-cookie-LEAK/.test(dirtyStr));
+  ok('approval detail 不含 apiKey', !/AKIA-LIVE-LEAK/.test(dirtyStr));
+  ok('approval detail 不含 secret/password', !/super-secret|p4ssw0rd/.test(dirtyStr));
+  ok('approval detail 不含 claudeSession/codexSession', !/cs-uuid-LEAK|cx-uuid-LEAK/.test(dirtyStr));
+  ok('approval detail 不含完整 input（仅 preview）', !/帮我检查 mobile 页面完整原文（假设很长）/.test(dirtyStr));
+  ok('approval detail 含 inputPreview 截断', jGetDirty.approval && typeof jGetDirty.approval.inputPreview === 'string' && jGetDirty.approval.inputPreview.length <= 80);
+  // control list
+  const rCtrlList = await req({ path: '/api/mobile-control/approvals', method: 'GET' });
+  const jCtrlList = JSON.parse(rCtrlList.body);
+  const ctrlStr = JSON.stringify(jCtrlList);
+  ok('control approvals 不含 token/cookie/apiKey', !/should-not-leak-token-1234|session-cookie-LEAK|AKIA-LIVE-LEAK/.test(ctrlStr));
+  ok('control approvals 不含完整 input 原文', !/帮我检查 mobile 页面完整原文（假设很长）/.test(ctrlStr));
+  // audit
+  ok('audit 不含完整 input 原文', !/帮我检查这个文件夹的 mobile 页面问题/.test(auditTxt));
+  ok('audit 不含 token/cookie/apiKey', !/should-not-leak-token-1234|session-cookie-LEAK|AKIA-LIVE-LEAK|p4ssw0rd/.test(auditTxt));
+  // 清理 dirty
+  delete aRaw2.approvals['apr_dirty'];
+  fs.writeFileSync(approvalsPath, JSON.stringify(aRaw2, null, 2), 'utf8');
+
+  // ---- 7) UI ----
+  ok('Mobile UI 包含 Request approval', /Request approval/i.test(html));
+  ok('Mobile UI 不包含 Start Agent', !/Start Agent/.test(all));
+  ok('Mobile UI 不包含 Run Agent', !/Run Agent/.test(all));
+  ok('Mobile UI 不包含 Send Task', !/Send Task/.test(all));
+  ok('Mobile UI 不包含 Terminal Input', !/Terminal Input/.test(all));
+  ok('Mobile UI 不包含 YOLO', !/\bYOLO\b/.test(all));
+  ok('Mobile UI 不包含 Full-auto', !/Full-?auto/i.test(all));
+  // Desktop UI
+  const desktopHtml = fs.readFileSync(path.join(ROOT_DIR, 'public', 'index.html'), 'utf8');
+  const desktopJs = fs.readFileSync(path.join(ROOT_DIR, 'public', 'app.js'), 'utf8');
+  const desktopAll = desktopHtml + '\n' + desktopJs;
+  ok('Desktop UI 包含 Pending Mobile Approvals', /mobile-approval-list|待确认请求|Pending Mobile Approvals/i.test(desktopAll));
+  ok('Desktop UI 不暴露 /api/mobile/pty/input', !/api\/mobile\/pty\/input/.test(desktopAll));
+  // approval polling text
+  ok('Mobile UI 含 polling 提示', /approval|polling|wait/i.test(js));
+  ok('Mobile UI 含 approval-bar 元素', /id="agent-approval-bar"/.test(html));
+  ok('Mobile UI 含 desktop approve 文案分支', /Approved\. Agent execution will be enabled in Phase 2A-2\.2/i.test(js));
+  ok('Mobile UI 含 rejected by desktop 文案分支', /Rejected by desktop\./i.test(js));
+  ok('Mobile UI 含 approval timed out 文案分支', /Approval timed out\./i.test(js));
+  // agent-send button is interactive, not disabled by default
+  const sendBtnMatch = html.match(/<button[^>]*\bid="agent-send"[^>]*>/);
+  ok('agent-send 按钮存在且可点击（非 disabled）', sendBtnMatch && !/\bdisabled\b/.test(sendBtnMatch[0]));
 
   // ============================================================
   // [12] 关闭 Mobile Access 后 sessions API 一律 401
