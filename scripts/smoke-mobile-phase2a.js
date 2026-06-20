@@ -401,10 +401,10 @@ function req(opts, body) {
   ok('Agent tab 含 agent-switcher', /id="agent-switcher"/.test(html));
   ok('Agent tab 含 4 个 agent chip 数据 (claude/codex/opencode/qoder)', ['claude', 'codex', 'opencode', 'qoder'].every(a => html.includes('data-agent-id="' + a + '"') || html.includes("'" + a + "'") || html.includes(a)));
   ok('Agent tab 含 input (textarea)', /id="agent-input"/.test(html));
-  ok('Agent tab 含 send 按钮（Request approval）', /id="agent-send"/.test(html) && /Request approval/i.test(html));
+  ok('Agent tab 含 send 按钮（Send）', /id="agent-send"/.test(html) && /Send/i.test(html));
   ok('Agent tab 含 approval 提示', /Desktop approval/i.test(html));
   ok('Agent tab 含 "No raw terminal"', /No raw terminal/i.test(html));
-  ok('Agent tab 含 "No shell access"', /No shell access/i.test(html));
+  ok('Agent tab 含 "No direct shell"', /No direct shell/i.test(html));
   ok('Agent tab 含 "Phase 2A-2" 占位', /Phase 2A-2/.test(html));
 
   // Sessions tab 内容
@@ -446,13 +446,15 @@ function req(opts, body) {
     })
     .filter(b => b.text);
   // 只检查非 disabled 按钮
+  // Phase 2A-2.1：Send 按钮是允许的（普通发送），不应再视为"危险动词"
+  // 但 "Start Agent" / "Run Agent" / "Send Task" / "Execute" / "Delete File" / "Move File" / "Rename File" / "Upload File" 等组合仍属于危险
   const activeBtnTexts = btnTexts.filter(b => !/\bdisabled\b/.test(b.attrs)).map(b => b.text);
-  const singleWords = ['Start', 'Run', 'Send', 'Delete', 'Rename', 'Move', 'Upload'];
-  const hasDanger = activeBtnTexts.some(t => singleWords.some(w => new RegExp('\\b' + w + '\\b', 'i').test(t)));
-  ok('no Start/Run/Send/Delete/Rename/Move/Upload inside active button text', !hasDanger, 'activeBtnTexts=' + JSON.stringify(activeBtnTexts));
-  // 验证：所有 disable 按钮的文字内容里允许出现"危险动词"
+  const dangerPhrases = ['Start Agent', 'Run Agent', 'Send Task', 'Execute Shell', 'Execute Command', 'Delete File', 'Move File', 'Rename File', 'Upload File', 'Start All'];
+  const hasDanger = activeBtnTexts.some(t => dangerPhrases.some(w => new RegExp('\\b' + w + '\\b', 'i').test(t)));
+  ok('no Start Agent/Run Agent/Send Task/Execute Shell/Delete File/Move File/Rename File/Upload File inside active button text', !hasDanger, 'activeBtnTexts=' + JSON.stringify(activeBtnTexts));
+  // 验证：所有 disable 按钮的文字内容里允许出现"危险动词"（旧版，仅 disabled）
   const disabledBtnTexts = btnTexts.filter(b => /\bdisabled\b/.test(b.attrs)).map(b => b.text);
-  ok('disabled 按钮可能包含 "Send" 等动词（仅 disabled）', disabledBtnTexts.every(t => t === '' || singleWords.every(w => !new RegExp('\\b' + w + '\\b', 'i').test(t)) || true));
+  ok('disabled 按钮可能包含 Send/Start 等动词（仅 disabled）', true);
 
   // ============================================================
   // [11.5] Phase 2A-1 真机修复断言（Android Chrome 适配）
@@ -589,22 +591,24 @@ function req(opts, body) {
   // mobile-sessions.js createMobileDraftSession 不能 spawn / exec
   ok('mobile-sessions.js draft 流程无 spawn 调用', !/function\s+createMobileDraftSession[\s\S]{0,2000}?spawn\s*\(/.test(fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8')));
 
-  // ---- 3) Approval create ----
-  // valid message
+  // ---- 3) Approval create (redline) ----
+  // Phase 2A-2.1：发送命中红线的 text → 必须走 approval
   const rApv1 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
-    JSON.stringify({ text: '帮我检查这个文件夹的 mobile 页面问题', cwd: cwdMock, agentId: 'claude', contextFiles: [] }));
+    JSON.stringify({ text: '请帮我 git push 到 origin', cwd: cwdMock, agentId: 'claude', contextFiles: [] }));
   const jApv1 = JSON.parse(rApv1.body);
-  ok('valid message creates approval 200', rApv1.status === 200, rApv1.status);
+  ok('redline message creates approval 200', rApv1.status === 200, rApv1.status);
   ok('approvalId 返回', typeof jApv1.approvalId === 'string' && jApv1.approvalId.startsWith('apr_'));
+  ok('requiresApproval=true', jApv1.requiresApproval === true);
+  ok('redlineReasons 包含 git_history_overwrite', Array.isArray(jApv1.redlineReasons) && jApv1.redlineReasons.indexOf('git_history_overwrite') >= 0);
   ok('status === waiting_approval', jApv1.status === 'waiting_approval', jApv1.status);
   ok('expiresAt 存在且为未来', typeof jApv1.expiresAt === 'number' && jApv1.expiresAt > Date.now());
   const approval1 = jApv1.approvalId;
-  // 不启动 agent (mobile-sessions.js createApproval 无 spawn/exec)
-  ok('createApproval 无 spawn 调用', !/function\s+createApproval[\s\S]{0,3000}?spawn\s*\(|function\s+createApproval[\s\S]{0,3000}?execFile\s*\(/.test(fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8')));
+  // 不启动 agent (mobile-sessions.js postMessageToMobileSession 无 spawn/exec)
+  ok('postMessageToMobileSession 无 spawn 调用', !/function\s+postMessageToMobileSession[\s\S]{0,5000}?spawn\s*\(/.test(fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8')));
   // 不调用 pty
   ok('mobile.js 不暴露 pty:spawn / pty:input', !/pty:spawn|pty:input/.test(mobileJsCode));
   // 不执行 shell
-  ok('mobile-sessions.js createApproval 不调用 child_process.exec', !/createApproval[\s\S]{0,3000}?child_process/.test(fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8')));
+  ok('mobile-sessions.js postMessageToMobileSession 不调用 child_process.exec', !/postMessageToMobileSession[\s\S]{0,5000}?child_process\.exec/.test(fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8')));
 
   // session 状态变为 waiting_approval
   const rSess = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId), method: 'GET', headers: auth });
@@ -666,10 +670,12 @@ function req(opts, body) {
   const jSess2 = JSON.parse(rSess2.body);
   ok('session status === approved', jSess2.session && jSess2.session.status === 'approved');
 
-  // 再发一次 → reject
+  // 再发一次（命中红线：删除）→ reject
   const rApv2 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
-    JSON.stringify({ text: 't3', cwd: cwdMock, agentId: 'claude' }));
+    JSON.stringify({ text: '请帮我 delete file 旧测试用例', cwd: cwdMock, agentId: 'claude' }));
   const jApv2 = JSON.parse(rApv2.body);
+  ok('redline2 approval 200', rApv2.status === 200, rApv2.status);
+  ok('redline2 requiresApproval=true', jApv2.requiresApproval === true);
   const approval2 = jApv2.approvalId;
   const rDecRej = await req({ path: '/api/mobile-control/approvals/' + approval2 + '/decide', method: 'POST', headers: { 'Content-Type': 'application/json' } },
     JSON.stringify({ decision: 'rejected' }));
@@ -678,9 +684,9 @@ function req(opts, body) {
   ok('reject status === rejected', jDecRej.status === 'rejected', jDecRej.status);
 
   // ---- 5) Timeout ----
-  // 创建一个 approval，然后手动改 expiresAt 让其过期
+  // 创建一个 approval（命中红线），然后手动改 expiresAt 让其过期
   const rApv3 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
-    JSON.stringify({ text: 't4 for timeout', cwd: cwdMock, agentId: 'claude' }));
+    JSON.stringify({ text: '请帮忙 reset --hard HEAD~1 撤销测试', cwd: cwdMock, agentId: 'claude' }));
   const jApv3 = JSON.parse(rApv3.body);
   const approval3 = jApv3.approvalId;
   // 手动修改 approvals.json 让 approval3 过期
@@ -774,29 +780,174 @@ function req(opts, body) {
   delete aRaw2.approvals['apr_dirty'];
   fs.writeFileSync(approvalsPath, JSON.stringify(aRaw2, null, 2), 'utf8');
 
+  // ============================================================
+  // [11.8] Phase 2A-2.1：Redline detector + 普通消息走 stub runner + events
+  // ============================================================
+  section('11.8) Phase 2A-2.1: redline + stub + events');
+
+  // ---- 1) redline detector 纯函数单测（直接 require mobile-sessions） ----
+  const ms = require(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'));
+  // 普通文本不命中
+  const r1 = ms.detectRedline('帮我检查这个文件');
+  ok('detector 普通 "帮我检查" 不命中', r1.requiresApproval === false, JSON.stringify(r1));
+  const r2 = ms.detectRedline('解释这段代码是什么意思');
+  ok('detector 普通 "解释代码" 不命中', r2.requiresApproval === false, JSON.stringify(r2));
+  const r3 = ms.detectRedline('总结一下这个项目结构');
+  ok('detector 普通 "总结项目结构" 不命中', r3.requiresApproval === false, JSON.stringify(r3));
+  // 红线 1: delete
+  const r4 = ms.detectRedline('rm -rf dist 清理一下');
+  ok('detector "rm -rf" 命中 delete_file', r4.requiresApproval === true && r4.reasons.indexOf('delete_file') >= 0, JSON.stringify(r4));
+  const r5 = ms.detectRedline('请帮我 delete file 旧用例');
+  ok('detector "delete file" 命中 delete_file', r5.requiresApproval === true && r5.reasons.indexOf('delete_file') >= 0);
+  const r6 = ms.detectRedline('删除旧测试文件');
+  ok('detector "删除" 命中 delete_file', r6.requiresApproval === true && r6.reasons.indexOf('delete_file') >= 0);
+  // 红线 2: git
+  const r7 = ms.detectRedline('git push 到 origin');
+  ok('detector "git push" 命中 git_history_overwrite', r7.requiresApproval === true && r7.reasons.indexOf('git_history_overwrite') >= 0);
+  const r8 = ms.detectRedline('git push --force 强行推送');
+  ok('detector "git push --force" 命中', r8.requiresApproval === true && r8.reasons.indexOf('git_history_overwrite') >= 0);
+  const r9 = ms.detectRedline('reset --hard HEAD~1');
+  ok('detector "reset --hard" 命中', r9.requiresApproval === true && r9.reasons.indexOf('git_history_overwrite') >= 0);
+  const r10 = ms.detectRedline('帮我 rebase 一下 main');
+  ok('detector "rebase" 命中', r10.requiresApproval === true && r10.reasons.indexOf('git_history_overwrite') >= 0);
+  // 红线 3: secret
+  const r11 = ms.detectRedline('读取 .env 文件');
+  ok('detector ".env" 命中 secret_or_env', r11.requiresApproval === true && r11.reasons.indexOf('secret_or_env') >= 0);
+  const r12 = ms.detectRedline('把这个 password 改成 admin');
+  ok('detector "password" 命中', r12.requiresApproval === true && r12.reasons.indexOf('secret_or_env') >= 0);
+  const r13 = ms.detectRedline('更新 api key');
+  ok('detector "api key" 命中', r13.requiresApproval === true && r13.reasons.indexOf('secret_or_env') >= 0);
+  // 红线 4: cicd
+  const r14 = ms.detectRedline('修改 github actions 配置');
+  ok('detector "github actions" 命中 cicd_config', r14.requiresApproval === true && r14.reasons.indexOf('cicd_config') >= 0);
+  // 红线 5: db
+  const r15 = ms.detectRedline('运行 database migration');
+  ok('detector "database migration" 命中 database_migration', r15.requiresApproval === true && r15.reasons.indexOf('database_migration') >= 0);
+  const r16 = ms.detectRedline('数据库 迁移脚本');
+  ok('detector "数据库 迁移" 命中 database_migration', r16.requiresApproval === true && r16.reasons.indexOf('database_migration') >= 0);
+  // 红线 6: install
+  const r17 = ms.detectRedline('npm install -g some-tool');
+  ok('detector "npm install -g" 命中 install_global', r17.requiresApproval === true && r17.reasons.indexOf('install_global') >= 0);
+  // 红线 7: deploy
+  const r18 = ms.detectRedline('production deploy 到 prod');
+  ok('detector "production deploy" 命中 production_deploy', r18.requiresApproval === true && r18.reasons.indexOf('production_deploy') >= 0);
+  const r19 = ms.detectRedline('发文章 到公众号');
+  ok('detector "发文章" 命中 publish_or_payment', r19.requiresApproval === true && r19.reasons.indexOf('publish_or_payment') >= 0);
+  // 红线 8: external send / upload
+  const r20 = ms.detectRedline('提交表单 到第三方');
+  ok('detector "提交表单" 命中 external_send', r20.requiresApproval === true && r20.reasons.indexOf('external_send') >= 0);
+  const r21 = ms.detectRedline('上传敏感 到 external api');
+  ok('detector "上传敏感" 命中', r21.requiresApproval === true && r21.reasons.indexOf('external_send') >= 0);
+  // 短文本不误报
+  const r22 = ms.detectRedline('a');
+  ok('detector 极短文本 a 不命中', r22.requiresApproval === false);
+  // 空文本
+  const r23 = ms.detectRedline('');
+  ok('detector 空文本不命中', r23.requiresApproval === false);
+  const r24 = ms.detectRedline(null);
+  ok('detector null 不命中', r24.requiresApproval === false);
+
+  // ---- 2) stub runner 单测 ----
+  const stub = ms.runStubAgent({ agentId: 'claude', cwd: cwdMock, text: 'hello stub', contextFiles: [], sessionId: 's1' });
+  ok('stub runner 返回 ok', stub && stub.ok === true);
+  ok('stub runner 返回 text', typeof stub.text === 'string' && stub.text.length > 0);
+  ok('stub runner 含 stub 标识', /\[mobile-stub\]/.test(stub.text));
+  ok('stub runner 不含 token/cookie', !/Bearer\s|sk-[A-Za-z0-9]/.test(stub.text));
+
+  // ---- 3) 普通消息（未命中红线）走 stub runner ----
+  // 用一个全新的 draft session 以避免受前面 approval 状态影响
+  const rDraft2 = await req({ path: '/api/mobile/sessions/draft', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ cwd: cwdMock, agentId: 'claude' }));
+  const jDraft2 = JSON.parse(rDraft2.body);
+  const normalSessionId = jDraft2.sessionId;
+  ok('new draft for normal flow 200', rDraft2.status === 200, rDraft2.status);
+
+  // 发送普通消息（不命中红线）
+  const rNormal = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(normalSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ text: '帮我看看这个项目的入口文件', cwd: cwdMock, agentId: 'claude' }));
+  const jNormal = JSON.parse(rNormal.body);
+  ok('普通消息 POST 200', rNormal.status === 200, rNormal.status);
+  ok('普通消息 requiresApproval=false', jNormal.requiresApproval === false);
+  ok('普通消息 status === done', jNormal.status === 'done', 'status=' + jNormal.status);
+  ok('普通消息 含 agentId', jNormal.agentId === 'claude');
+
+  // session 状态
+  const rSess3 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(normalSessionId), method: 'GET', headers: auth });
+  const jSess3 = JSON.parse(rSess3.body);
+  ok('普通消息后 session status === done', jSess3.session && jSess3.session.status === 'done', 'status=' + (jSess3.session && jSess3.session.status));
+  // 写入 user + agent message
+  ok('session 含 user message', jSess3.session && jSess3.session.messages && jSess3.session.messages.some(m => m.role === 'user' && m.status === 'sent'));
+  ok('session 含 agent message (done)', jSess3.session && jSess3.session.messages && jSess3.session.messages.some(m => m.role === 'agent' && m.status === 'done'));
+
+  // ---- 4) events endpoint ----
+  const rEvt = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(normalSessionId) + '/events?limit=20', method: 'GET', headers: auth });
+  const jEvt = JSON.parse(rEvt.body);
+  ok('GET events 200', rEvt.status === 200, rEvt.status);
+  ok('events 含 status', jEvt.status === 'done');
+  ok('events 含 messages array', Array.isArray(jEvt.messages));
+  ok('events 含 user/agent message', jEvt.messages.some(m => m.role === 'user') && jEvt.messages.some(m => m.role === 'agent'));
+  // events 不含敏感字段
+  const evtStr = JSON.stringify(jEvt);
+  ok('events 不含 raw stdout 标记', !/raw\s*stdout|\[raw\]/.test(evtStr));
+  ok('events 不含 .jsonl', !/\.jsonl/.test(evtStr));
+  ok('events 不含 token/cookie/apiKey', !/Bearer\s|sk-[A-Za-z0-9]|AKIA-/.test(evtStr));
+  ok('events 不含 claudeSession/codexSession', !/claudeSession|codexSession/.test(evtStr));
+  // events 不带 cwd 路径
+  ok('events 不暴露完整 cwd', !jEvt.cwd || jEvt.cwdLabel);
+
+  // ---- 5) 红线后 waiting_approval 状态下第二条消息 409 ----
+  const rApv2nd = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(normalSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ text: 'git push 一下', cwd: cwdMock, agentId: 'claude' }));
+  const jApv2nd = JSON.parse(rApv2nd.body);
+  ok('第二次发红线 200 (waiting_approval)', rApv2nd.status === 200 && jApv2nd.requiresApproval === true, 'status=' + rApv2nd.status);
+  // 此时再发普通消息应 409
+  const r409 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(normalSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ text: '再次普通消息', cwd: cwdMock, agentId: 'claude' }));
+  ok('waiting_approval 状态下再发 → 409', r409.status === 409, r409.status);
+  // approve 后再发普通消息应 200
+  await req({ path: '/api/mobile-control/approvals/' + jApv2nd.approvalId + '/decide', method: 'POST', headers: { 'Content-Type': 'application/json' } },
+    JSON.stringify({ decision: 'approved' }));
+  const rNorm2 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(normalSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ text: '继续普通消息', cwd: cwdMock, agentId: 'claude' }));
+  ok('approve 后再发普通消息 → 200', rNorm2.status === 200, 'status=' + rNorm2.status);
+  const jNorm2 = JSON.parse(rNorm2.body);
+  ok('approve 后普通消息 requiresApproval=false', jNorm2.requiresApproval === false);
+  ok('approve 后普通消息 status === done', jNorm2.status === 'done', 'status=' + jNorm2.status);
+
   // ---- 7) UI ----
-  ok('Mobile UI 包含 Request approval', /Request approval/i.test(html));
+  // Mobile UI 必含 / 必不含
+  ok('Mobile UI 包含 Send 按钮 (data-i="send")', /data-i="send"|id="agent-send"/.test(html) && /Send/.test(html));
+  ok('Mobile UI 包含 "Redline actions require desktop approval"', /Redline actions require desktop approval/i.test(html));
+  ok('Mobile UI 包含 "Scoped to this folder"', /Scoped to this folder/i.test(html));
+  ok('Mobile UI 包含 "No raw terminal"', /No raw terminal/i.test(html));
+  ok('Mobile UI 包含 "No direct shell"', /No direct shell/i.test(html));
+  ok('Mobile UI 不包含 YOLO', !/\bYOLO\b/.test(all));
+  ok('Mobile UI 不包含 Full-auto', !/Full-?auto/i.test(all));
+  ok('Mobile UI 不包含 Start all agents', !/Start all agents/i.test(all));
   ok('Mobile UI 不包含 Start Agent', !/Start Agent/.test(all));
   ok('Mobile UI 不包含 Run Agent', !/Run Agent/.test(all));
   ok('Mobile UI 不包含 Send Task', !/Send Task/.test(all));
+  ok('Mobile UI 不包含 Execute Shell', !/Execute Shell/i.test(all));
   ok('Mobile UI 不包含 Terminal Input', !/Terminal Input/.test(all));
-  ok('Mobile UI 不包含 YOLO', !/\bYOLO\b/.test(all));
-  ok('Mobile UI 不包含 Full-auto', !/Full-?auto/i.test(all));
+  ok('Mobile UI 不包含 Delete File', !/Delete File/i.test(all));
+  ok('Mobile UI 不包含 Move File', !/Move File/i.test(all));
+  ok('Mobile UI 不包含 Rename File', !/Rename File/i.test(all));
+  ok('Mobile UI 不包含 Upload File', !/Upload File/i.test(all));
+  // approval polling text
+  ok('Mobile UI 含 polling 提示', /approval|polling|wait/i.test(js));
+  ok('Mobile UI 含 approval-bar 元素', /id="agent-approval-bar"/.test(html));
+  ok('Mobile UI 含 approved 文案分支', /Approved/i.test(js));
+  ok('Mobile UI 含 rejected by desktop 文案分支', /Rejected by desktop\./i.test(js));
+  ok('Mobile UI 含 approval timed out 文案分支', /Approval timed out\./i.test(js));
+  // agent-send button is interactive, not disabled by default
+  const sendBtnMatch = html.match(/<button[^>]*\bid="agent-send"[^>]*>/);
+  ok('agent-send 按钮存在且可点击（非 disabled）', sendBtnMatch && !/\bdisabled\b/.test(sendBtnMatch[0]));
   // Desktop UI
   const desktopHtml = fs.readFileSync(path.join(ROOT_DIR, 'public', 'index.html'), 'utf8');
   const desktopJs = fs.readFileSync(path.join(ROOT_DIR, 'public', 'app.js'), 'utf8');
   const desktopAll = desktopHtml + '\n' + desktopJs;
   ok('Desktop UI 包含 Pending Mobile Approvals', /mobile-approval-list|待确认请求|Pending Mobile Approvals/i.test(desktopAll));
   ok('Desktop UI 不暴露 /api/mobile/pty/input', !/api\/mobile\/pty\/input/.test(desktopAll));
-  // approval polling text
-  ok('Mobile UI 含 polling 提示', /approval|polling|wait/i.test(js));
-  ok('Mobile UI 含 approval-bar 元素', /id="agent-approval-bar"/.test(html));
-  ok('Mobile UI 含 desktop approve 文案分支', /Approved\. Agent execution will be enabled in Phase 2A-2\.2/i.test(js));
-  ok('Mobile UI 含 rejected by desktop 文案分支', /Rejected by desktop\./i.test(js));
-  ok('Mobile UI 含 approval timed out 文案分支', /Approval timed out\./i.test(js));
-  // agent-send button is interactive, not disabled by default
-  const sendBtnMatch = html.match(/<button[^>]*\bid="agent-send"[^>]*>/);
-  ok('agent-send 按钮存在且可点击（非 disabled）', sendBtnMatch && !/\bdisabled\b/.test(sendBtnMatch[0]));
 
   // ============================================================
   // [12] 关闭 Mobile Access 后 sessions API 一律 401

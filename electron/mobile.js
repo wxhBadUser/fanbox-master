@@ -1386,8 +1386,8 @@ async function handleMobileApiV2A(req, res, url) {
   if (req.method === 'GET' && /^\/api\/mobile\/sessions\/[A-Za-z0-9._\-+]{1,128}$/.test(pathOnly)) {
     const t = await requireMobileAuth(req, res); if (!t) return true;
     const id = pathOnly.split('/').pop();
-    // 排除 :id 落到 /draft / messages / approvals 的情况
-    if (id === 'draft' || id === 'messages') {
+    // 排除 :id 落到 /draft / messages / approvals / events 的情况
+    if (id === 'draft' || id === 'messages' || id === 'events') {
       return false;
     }
     const s = await mobileSessions.getSessionById(id);
@@ -1418,7 +1418,9 @@ async function handleMobileApiV2A(req, res, url) {
 
   // -------- POST /api/mobile/sessions/:id/messages --------
   // body: { text, cwd, agentId, contextFiles }
-  // 本轮：只创建 approval request，不启动 agent，不执行 shell
+  // Phase 2A-2.1：先 redline detector
+  //   - 命中红线 → 创建 approval，session 进入 waiting_approval，不执行 agent
+  //   - 未命中红线 → 写入 user message，session running → 跑 stub runner → done/failed
   if (req.method === 'POST' && /^\/api\/mobile\/sessions\/[A-Za-z0-9._\-+]{1,128}\/messages$/.test(pathOnly)) {
     const t = await requireMobileAuth(req, res); if (!t) return true;
     const m = pathOnly.match(/^\/api\/mobile\/sessions\/([A-Za-z0-9._\-+]{1,128})\/messages$/);
@@ -1446,13 +1448,13 @@ async function handleMobileApiV2A(req, res, url) {
         }
       }
     }
-    // 验证 session 存在（按 sessionId 或 internalId 匹配）
+    // 验证 session 存在
     const sess = await mobileSessions.getSessionById(sessionId);
     if (!sess) {
-      // 优先返回 404；前端可改为先调 /draft 再发消息
       return sendJson(res, 404, { ok: false, error: 'session_not_found' }), true;
     }
-    const r = await mobileSessions.createApproval({
+    // Phase 2A-2.1：分发（redline vs 普通）
+    const r = await mobileSessions.postMessageToMobileSession({
       sessionId: sessionId,
       deviceId: t.device && t.device.id,
       deviceName: t.device && t.device.deviceName,
@@ -1465,12 +1467,38 @@ async function handleMobileApiV2A(req, res, url) {
       const code_ = r.status || 400;
       return sendJson(res, code_, { ok: false, error: r.error }), true;
     }
+    return sendJson(res, 200, r), true;
+  }
+
+  // -------- GET /api/mobile/sessions/:id/events --------
+  // Phase 2A-2.1：scrubbed messages + session status（无 raw stdout / jsonl / token）
+  if (req.method === 'GET' && /^\/api\/mobile\/sessions\/[A-Za-z0-9._\-+]{1,128}\/events$/.test(pathOnly)) {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    const m = pathOnly.match(/^\/api\/mobile\/sessions\/([A-Za-z0-9._\-+]{1,128})\/events$/);
+    const sessionId = m ? m[1] : '';
+    const u = new URL(url, 'http://x');
+    const limit = Math.max(1, Math.min(50, parseInt(u.searchParams.get('limit') || '20', 10) || 20));
+    const sess = await mobileSessions.getSessionById(sessionId);
+    if (!sess) return sendJson(res, 404, { ok: false, error: 'session_not_found' }), true;
+    const msgs = await mobileSessions.getSessionMessages(sessionId, limit);
+    // 二次 scrub：防止泄漏敏感字段
+    const cleanMsgs = (msgs && Array.isArray(msgs.messages) ? msgs.messages : []).map(function (m) {
+      return {
+        role: m.role,
+        text: mobileSessions.safeStr(m.text || '', 2000),
+        status: m.status,
+        ts: m.ts,
+        approvalId: m.approvalId || '',
+        agentId: m.agentId || ''
+      };
+    });
     return sendJson(res, 200, {
       ok: true,
-      approvalId: r.approvalId,
-      sessionId: r.sessionId,
-      status: r.status,
-      expiresAt: r.expiresAt
+      sessionId: sess.sessionId,
+      status: sess.status,
+      agentId: sess.agentId,
+      cwdLabel: sess.cwdLabel,
+      messages: cleanMsgs
     }), true;
   }
 

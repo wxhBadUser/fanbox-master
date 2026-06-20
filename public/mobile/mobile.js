@@ -606,20 +606,29 @@
     sessions: [],
     installedMap: {}, // agentId -> bool
     usage: null,
-    // Phase 2A-2.1：approval
+    // Phase 2A-2.1：approval + scoped chat
     pendingApprovalId: '',
     pendingApprovalExpiresAt: 0,
     pendingApprovalStatus: '',     // pending / approved / rejected / timeout / error
-    approvalIntervalId: null
+    approvalIntervalId: null,
+    runStatus: '',                 // running / done / failed / waiting_approval / '' (idle)
+    runText: '',
+    redlineReasons: []
   };
 
-  // Phase 2A-2.1：approval status 文案
+  // Phase 2A-2.1：状态文案
   var APPROVAL_STATUS_TEXT = {
-    pending:  'Waiting for desktop approval',
-    approved: 'Approved. Agent execution will be enabled in Phase 2A-2.2.',
+    pending:  'Waiting for desktop approval. Redline detected.',
+    approved: 'Approved. Agent execution is not enabled in Phase 2A-2.1.',
     rejected: 'Rejected by desktop.',
     timeout:  'Approval timed out.',
-    error:    'Approval request failed.'
+    error:    'Send failed.'
+  };
+  var RUN_STATUS_TEXT = {
+    running:           'Agent is running...',
+    done:              'Done.',
+    failed:            'Failed.',
+    waiting_approval:  'This request requires desktop approval.'
   };
 
   // 把"当前 Agent Tab 是否被实际切换过"记下来，避免 user 选完 root 后重复拉
@@ -855,16 +864,17 @@
     showTab('files');
   }
 
-  // ---------------- Phase 2A-2.1：Approval Request ----------------
+  // ---------------- Phase 2A-2.1：Send (redline-aware) ----------------
+  // 普通消息 → stub runner → done
+  // 红线消息 → approval → waiting_approval → 轮询 approved / rejected / timeout
 
-  // Send button → Request approval
-  async function onRequestApproval() {
+  async function onSendMessage() {
     var input = $('#agent-input');
     var btn = $('#agent-send');
     if (!input || !btn) return;
     var text = (input.value || '').trim();
     if (!text) {
-      flashInputError(input, '请输入要请 desktop 二次确认的任务');
+      flashInputError(input, '请输入任务内容');
       return;
     }
     if (text.length > 4000) {
@@ -879,14 +889,17 @@
       flashInputError(input, '请先选择 agent');
       return;
     }
-    // 已有 pending approval：阻止重复提交
     if (agentState.pendingApprovalId && agentState.pendingApprovalStatus === 'pending') {
       flashInputError(input, '已有 pending 审批，请等待结果');
       return;
     }
+    if (agentState.runStatus === 'running') {
+      flashInputError(input, 'Agent 正在运行，请等待完成');
+      return;
+    }
     btn.disabled = true;
     var oldText = btn.textContent;
-    btn.textContent = '请求中…';
+    btn.textContent = '发送中…';
     try {
       // 1) 找/创建 sessionId
       var sessionId = agentState.sessionId;
@@ -899,29 +912,80 @@
         sessionId = d.sessionId;
         agentState.sessionId = sessionId;
       }
-      // 2) 创建 approval
+      // 2) POST /messages（后端自动 redline 检测）
       var r = await apiPost('/api/mobile/sessions/' + encodeURIComponent(sessionId) + '/messages', {
         text: text,
         cwd: agentState.cwd,
         agentId: agentState.agentId,
         contextFiles: []
       });
-      if (!r || !r.ok) throw new Error((r && r.error) || 'approval_create_failed');
-      // 3) 进入 pending UI + 启动轮询
-      agentState.pendingApprovalId = r.approvalId;
-      agentState.pendingApprovalExpiresAt = r.expiresAt || 0;
-      agentState.pendingApprovalStatus = 'pending';
-      paintApprovalBar();
-      startApprovalPolling();
+      if (!r || !r.ok) throw new Error((r && r.error) || 'send_failed');
       // 清空 input
       input.value = '';
+      // 3) 根据后端响应分支
+      if (r.requiresApproval === true) {
+        // 红线 → waiting_approval
+        agentState.pendingApprovalId = r.approvalId;
+        agentState.pendingApprovalExpiresAt = r.expiresAt || 0;
+        agentState.pendingApprovalStatus = 'pending';
+        agentState.runStatus = 'waiting_approval';
+        agentState.redlineReasons = Array.isArray(r.redlineReasons) ? r.redlineReasons : [];
+        paintApprovalBar();
+        startApprovalPolling();
+      } else {
+        // 普通消息 → 立即 done / failed（stub 是同步）
+        agentState.pendingApprovalId = '';
+        agentState.pendingApprovalStatus = '';
+        agentState.runStatus = (r.status === 'failed') ? 'failed' : 'done';
+        agentState.runText = '';
+        paintApprovalBar();
+        // 普通消息成功后立即拉一次 events 拿到 agent bubble
+        try { await refreshEvents(); } catch (_) {}
+      }
     } catch (e) {
       agentState.pendingApprovalStatus = 'error';
+      agentState.runStatus = 'failed';
       paintApprovalBar('error: ' + (e && e.message || e));
     } finally {
       btn.disabled = false;
       btn.textContent = oldText;
       updateSendButtonState();
+    }
+  }
+
+  async function refreshEvents() {
+    if (!agentState.sessionId) return;
+    try {
+      var r = await apiGet('/api/mobile/sessions/' + encodeURIComponent(agentState.sessionId) + '/events?limit=20');
+      if (!r || !r.ok) return;
+      // 把 agent message 渲染到 messages 列表
+      paintEvents(r);
+    } catch (_) {}
+  }
+
+  function paintEvents(payload) {
+    if (!payload || !Array.isArray(payload.messages)) return;
+    // 简单做法：把 messages 渲染到 #agent-messages 容器
+    var box = $('#agent-messages');
+    if (!box) return;
+    box.innerHTML = '';
+    for (var i = 0; i < payload.messages.length; i++) {
+      var m = payload.messages[i];
+      var div = document.createElement('div');
+      div.className = 'bubble bubble-' + (m.role || 'system');
+      var role = document.createElement('div');
+      role.className = 'bubble-role';
+      role.textContent = m.role === 'user' ? 'You' : (m.role === 'agent' ? 'Agent' : 'System');
+      var body = document.createElement('div');
+      body.className = 'bubble-text';
+      body.textContent = m.text || '';
+      var meta = document.createElement('div');
+      meta.className = 'bubble-meta';
+      meta.textContent = m.status || '';
+      div.appendChild(role);
+      div.appendChild(body);
+      div.appendChild(meta);
+      box.appendChild(div);
     }
   }
 
@@ -1232,7 +1296,7 @@
     }
     var agentSend = document.getElementById('agent-send');
     if (agentSend) {
-      agentSend.addEventListener('click', onRequestApproval);
+      agentSend.addEventListener('click', onSendMessage);
     }
     // Phase 2A-1：Sessions filters
     var sessionsSource = document.getElementById('sessions-source');

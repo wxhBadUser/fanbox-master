@@ -62,6 +62,78 @@ const RATE_LIMIT_PER_DEVICE = 10;              // 每 device 最多 10 次 / 10 
 const APPROVAL_STATUSES = ['pending', 'approved', 'rejected', 'timeout', 'cancelled'];
 const ALLOWED_AGENT_IDS = new Set(['claude', 'codex', 'opencode', 'qoder']);
 
+// ========== Phase 2A-2.1：redline detector（纯函数）==========
+// 命中红线的请求必须先在 desktop 端 Approve 才能继续。
+// 规则：宁可保守（误报无害），但不要把"解释/检查/总结"误判。
+// 注意：中文关键词不要求前后是空白/标点（中文文本里很少见这种边界）
+const REDLINE_RULES = [
+  { id: 'delete_file', re: /(?:rm\s+-rf|rm\s+-r|rmdir|del\s+\/f|del\s+\/s|删除|删掉|remove\s+file|delete\s+file|delete\s+dir|rm\s+--force|unlink)/i, weight: 1 },
+  { id: 'git_history_overwrite', re: /\b(?:git\s+push(?:\s+--force(?:d)?)?|push\s+--force|push\s+-f|force[\s-]*push|rebase(?:\s|-[if])?|reset\s+--hard|reset\s+--hard\s+HEAD|push\s+origin\s+--force|filter-branch|reflog\s+expire)\b/i, weight: 1 },
+  { id: 'secret_or_env', re: /(?:\.env(?:\.[\w\-]+)?|\bsecrets?\b|\bpassword\b|\bapi[\s_-]?key\b|\btoken\b|密钥|密鈅|口令|凭据|凭據)/i, weight: 1 },
+  { id: 'cicd_config', re: /(?:\.github\/workflows?|\bci\/cd\b|\bcicd\b|\bci\s+config\b|github\s+actions?|workflow\s+dispatch)/i, weight: 1 },
+  { id: 'database_migration', re: /(?:\bdatabase\s+migration\b|\bschema\s+migration\b|\bRLS\s+policy\b|\brow[\s-]*level\s+security\b|\bmigration\s+script\b|\bALTER\s+TABLE\b|\bDROP\s+TABLE\b|\bTRUNCATE\b|数据库\s*迁移|数据库\s*改|表结构|线上数据)/i, weight: 1 },
+  { id: 'install_global', re: /\b(?:npm\s+install\s+-g|pnpm\s+add\s+-g|yarn\s+global\s+add|yarn\s+global\s+install|brew\s+install|apt[\s-]get\s+install|sudo\s+|chown|chmod\s+777)\b/i, weight: 1 },
+  { id: 'production_deploy', re: /(?:\bproduction\s+deploy\b|\bprod\s+deploy\b|\bdeploy\s+to\s+prod\b|\bgo\s+live\b|发布\s*到|生产\s*环境|线上\s*发布|生产\s*部署)/i, weight: 1 },
+  { id: 'publish_or_payment', re: /(?:\bpublish\s+(?:post|article|message)\b|\breal\s+payment\b|\bcharge\s+\$|\bpayment\s+intent\b|发文章|发贴|支付\s*\d|扣款|真实\s*付款)/i, weight: 1 },
+  { id: 'external_send', re: /(?:\bsend\s+message\s+to\s+user\b|\bthird[\s-]*party\s+(?:api|service|message|upload)\b|\bexternal\s+upload\b|\bsubmit\s+form\s+to\b|发送\s*消息\s*给|向\s*第三方|提交\s*表单|上传\s*敏感|公开\s*发送)/i, weight: 1 },
+  { id: 'system_config', re: /(?:\bmodify\s+system\s+config\b|\bchange\s+system\s+settings\b|修改\s*系统\s*配置|改\s*注册表|注册表\s*编辑)/i, weight: 1 }
+];
+
+function detectRedline(text) {
+  if (typeof text !== 'string' || !text.trim()) {
+    return { requiresApproval: false, reasons: [], matched: [] };
+  }
+  const reasons = [];
+  const matched = [];
+  for (const rule of REDLINE_RULES) {
+    if (rule.re.test(text)) {
+      reasons.push(rule.id);
+      matched.push({ id: rule.id, weight: rule.weight });
+    }
+    // 必须重置 lastIndex（g flag 之外一般用 test 也行；这里统一显式）
+    if (rule.re.global) rule.re.lastIndex = 0;
+  }
+  // 故意做二次过滤：短文本（< 12 chars）且无强匹配时不报警（避免误报"删"字等单字）
+  if (text.length < 12 && reasons.length === 0) {
+    return { requiresApproval: false, reasons: [], matched: [] };
+  }
+  return { requiresApproval: reasons.length > 0, reasons: reasons, matched: matched };
+}
+
+// ========== Phase 2A-2.1：mobile stub runner（不接 pty / shell）==========
+// 真实 runner 接入计划在 Phase 2A-2.2；本轮只输出可控、安全、可截断的 stub 回复。
+const STUB_RUNNER_NOTE = '[mobile-stub] This is a safe scoped mobile agent stub. Real runner integration will be added later.';
+const MAX_STUB_OUTPUT_CHARS = 800;
+
+function runStubAgent({ agentId, cwd, text, contextFiles, sessionId }) {
+  const id = (agentId || 'unknown');
+  const cwdLbl = (cwd || '').split(/[\\/]/).filter(Boolean).slice(-1)[0] || cwd || 'unknown';
+  const ctx = Array.isArray(contextFiles) && contextFiles.length
+    ? '\n\nContext files:\n' + contextFiles.map(function (f) { return '  - ' + safeStr(f, 200); }).join('\n')
+    : '';
+  const truncated = text.length > 240 ? text.slice(0, 240) + '…' : text;
+  const out = [
+    STUB_RUNNER_NOTE,
+    '',
+    'Agent: ' + safeStr(id, 32),
+    'Folder: ' + safeStr(cwdLbl, 80),
+    'Session: ' + safeStr(sessionId || '', 80),
+    '',
+    'You asked:',
+    '  ' + truncated.split('\n').join('\n  '),
+    ctx,
+    '',
+    'In Phase 2A-2.1 this is a placeholder. The actual agent driver is intentionally NOT wired to mobile chat yet.',
+    'If your request hits a redline (delete, git push --force, .env, deploy, payment, etc.), it is queued for desktop approval and will NOT run.'
+  ].join('\n');
+  return {
+    ok: true,
+    text: safeStr(out, MAX_STUB_OUTPUT_CHARS),
+    agentId: id,
+    truncated: out.length > MAX_STUB_OUTPUT_CHARS
+  };
+}
+
 // 敏感字符串（命中后 redact；优先级高于截断）
 const SENSITIVE_PATTERNS = [
   // Bearer / Authorization
@@ -449,6 +521,8 @@ async function writeMobileSessions(sessionsObj) {
   // sessionsObj 可以是 { [sessionId]: sessionObj } 或 { schemaVersion, updatedAt, sessions: { [sessionId]: sessionObj } }
   const inner = (sessionsObj && sessionsObj.sessions && typeof sessionsObj.sessions === 'object') ? sessionsObj.sessions : sessionsObj;
   const clean = { schemaVersion: SCHEMA_VERSION, updatedAt: nowMs(), sessions: {} };
+  // Phase 2A-2.1：保留已有 messages 字段（来自 appendMessageToMobileSession 的本地 s.messages）
+  // 注意：scrub 后的 session 不会再含 messages，真正持久化由 MOBILE_MESSAGES_FILE 承担
   for (const sid of Object.keys(inner || {})) {
     const s = inner[sid];
     if (!s || typeof s !== 'object') continue;
@@ -653,7 +727,9 @@ function _scrubApprovalSummary(a) {
     updatedAt: a.updatedAt,
     expiresAt: a.expiresAt,
     decidedAt: a.decidedAt || 0,
-    decision: a.decision || ''
+    decision: a.decision || '',
+    // Phase 2A-2.1：redline reasons（不包含 input 原文）
+    redlineReasons: Array.isArray(a.redlineReasons) ? a.redlineReasons.slice(0, 10).map(function (r) { return safeStr(String(r), 40); }) : []
   };
 }
 
@@ -728,11 +804,14 @@ async function appendMessageToMobileSession(sessionId, msg) {
               || entries.find(([k, v]) => k === sessionId);
   if (!entry) return { ok: false, error: 'not_found' };
   const [internalId, s] = entry;
-  if (!Array.isArray(s.messages)) s.messages = [];
-  s.messages.push(msg);
-  if (s.messages.length > MAX_MESSAGES_PER_SESSION) {
-    s.messages = s.messages.slice(s.messages.length - MAX_MESSAGES_PER_SESSION);
+  // Phase 2A-2.1：直接从 messages store 拉取最新 messages（避免被 writeMobileSessions 抹掉）
+  const store = await readMobileMessagesStore();
+  let allMsgs = Array.isArray(store.messages[sessionId]) ? store.messages[sessionId].slice() : [];
+  allMsgs.push(msg);
+  if (allMsgs.length > MAX_MESSAGES_PER_SESSION) {
+    allMsgs = allMsgs.slice(allMsgs.length - MAX_MESSAGES_PER_SESSION);
   }
+  // 更新 session 元数据
   s.messageCount = (s.messageCount || 0) + 1;
   s.updatedAt = Date.now();
   s.lastActiveAt = s.updatedAt;
@@ -741,18 +820,19 @@ async function appendMessageToMobileSession(sessionId, msg) {
     s.summary.lastMessagePreview = safeStr(String(msg.text).slice(0, MAX_LIST_PREVIEW_CHARS), MAX_LIST_PREVIEW_CHARS);
     s.summary.lastRole = msg.role || 'user';
   }
-  // Phase 2A-2.1：把 messages 单独存盘（避免被 writeMobileSessions 的 scrub 抹掉）
-  const store = await readMobileMessagesStore();
-  store.messages[sessionId] = s.messages.slice(-MAX_MESSAGES_PER_SESSION).map(function (m) {
+  // 写 messages store
+  store.messages[sessionId] = allMsgs.map(function (m) {
     return {
       role: m.role || 'system',
       text: String(m.text || ''),
       status: m.status || 'sent',
       ts: typeof m.ts === 'number' ? m.ts : 0,
-      approvalId: m.approvalId || ''
+      approvalId: m.approvalId || '',
+      agentId: m.agentId || ''
     };
   });
   await writeMobileMessagesStore(store);
+  // 写 sessions 摘要（不带 messages；scrub 会剥掉）
   await writeMobileSessions(data);
   return { ok: true, internalId };
 }
@@ -865,7 +945,9 @@ async function createApproval(opts) {
     updatedAt: now,
     expiresAt: expiresAt,
     decidedAt: 0,
-    decision: ''
+    decision: '',
+    // Phase 2A-2.1：redline 命中原因（仅 reason 字符串，不含 input 原文）
+    redlineReasons: Array.isArray(opts.redlineReasons) ? opts.redlineReasons.slice(0, 10).map(function (r) { return safeStr(String(r), 40); }) : []
   };
   obj.approvals[approvalId] = approval;
   await _trimApprovals(obj);
@@ -898,6 +980,121 @@ async function createApproval(opts) {
     sessionId: sessionId,
     status: 'waiting_approval',
     expiresAt: expiresAt
+  };
+}
+
+// ========== Phase 2A-2.1：普通消息（非红线）走 stub runner；红线走 createApproval ==========
+async function postMessageToMobileSession(opts) {
+  opts = opts || {};
+  const sessionId = _safeKey(opts.sessionId);
+  const deviceId = _safeKey(opts.deviceId || 'unknown');
+  const deviceName = safeStr(opts.deviceName || 'Mobile Device', 80);
+  const agentId = normalizeAgentId(opts.agentId);
+  const cwd = String(opts.cwd || '');
+  const text = String(opts.text || '');
+  const contextFiles = Array.isArray(opts.contextFiles) ? opts.contextFiles : [];
+
+  // ---- 1) 基础校验 ----
+  if (!sessionId) return { ok: false, status: 400, error: 'missing_sessionId' };
+  if (!ALLOWED_AGENT_IDS.has(agentId)) return { ok: false, status: 400, error: 'invalid_agent' };
+  if (!cwd) return { ok: false, status: 400, error: 'missing_cwd' };
+  if (typeof text !== 'string') return { ok: false, status: 400, error: 'invalid_text' };
+  const trimmed = text.trim();
+  if (!trimmed) return { ok: false, status: 400, error: 'empty_text' };
+  if (trimmed.length > MAX_INPUT_CHARS) return { ok: false, status: 400, error: 'text_too_long' };
+  if (!_isContextFilesShape(contextFiles)) return { ok: false, status: 400, error: 'invalid_contextFiles' };
+
+  // ---- 2) session 必须存在且未 running ----
+  const data = await readMobileSessionsObj();
+  const entries = Object.entries(data.sessions);
+  const entry = entries.find(([k, v]) => v && v.sessionId === sessionId)
+              || entries.find(([k, v]) => k === sessionId);
+  if (!entry) return { ok: false, status: 404, error: 'session_not_found' };
+  const [, sess] = entry;
+  if (sess.status === 'running') {
+    return { ok: false, status: 409, error: 'session_busy' };
+  }
+  if (sess.status === 'waiting_approval') {
+    return { ok: false, status: 409, error: 'session_waiting_approval' };
+  }
+
+  // ---- 3) redline 检测 ----
+  const red = detectRedline(trimmed);
+
+  // ---- 4) 红线 → 走 createApproval（保持与上一轮一致） ----
+  if (red.requiresApproval) {
+    const r = await createApproval({
+      sessionId: sessionId, deviceId: deviceId, deviceName: deviceName,
+      agentId: agentId, cwd: cwd, text: trimmed, contextFiles: contextFiles,
+      redlineReasons: red.reasons
+    });
+    if (!r.ok) return r;
+    return {
+      ok: true,
+      requiresApproval: true,
+      approvalId: r.approvalId,
+      sessionId: r.sessionId,
+      status: r.status,
+      expiresAt: r.expiresAt,
+      redlineReasons: red.reasons
+    };
+  }
+
+  // ---- 5) 普通消息 → running → stub runner → done ----
+  const now = Date.now();
+  // 写入 user message（status: sent）
+  await appendMessageToMobileSession(sessionId, {
+    role: 'user',
+    text: trimmed,
+    status: 'sent',
+    ts: now,
+    approvalId: ''
+  });
+  // 标记 running
+  await setSessionStatus(sessionId, 'running', { lastRunStartedAt: now });
+
+  // 跑 stub runner（同步；不接 pty / shell）
+  const t0 = Date.now();
+  const runResult = runStubAgent({
+    agentId: agentId, cwd: cwd, text: trimmed, contextFiles: contextFiles, sessionId: sessionId
+  });
+  const t1 = Date.now();
+
+  // 写 agent message
+  await appendMessageToMobileSession(sessionId, {
+    role: 'agent',
+    text: runResult && runResult.text ? runResult.text : STUB_RUNNER_NOTE,
+    status: runResult && runResult.ok ? 'done' : 'failed',
+    ts: t1,
+    approvalId: '',
+    agentId: agentId
+  });
+
+  // 更新 session summary（截断）
+  const finalStatus = runResult && runResult.ok ? 'done' : 'failed';
+  await setSessionStatus(sessionId, finalStatus, {
+    lastRunDurationMs: t1 - t0,
+    lastRunAgent: agentId
+  });
+
+  await appendAudit({
+    action: 'mobile_message_sent',
+    sessionId: sessionId,
+    deviceId: deviceId,
+    agentId: agentId,
+    cwd: cwd,
+    inputHash: _hashInput(trimmed),
+    inputLen: trimmed.length,
+    status: finalStatus
+  });
+
+  return {
+    ok: true,
+    requiresApproval: false,
+    sessionId: sessionId,
+    status: finalStatus,
+    agentId: agentId,
+    durationMs: t1 - t0
   };
 }
 
@@ -1060,6 +1257,13 @@ module.exports = {
   listApprovals,
   listPendingApprovals,
   decideApproval,
+  postMessageToMobileSession,
+  // Phase 2A-2.1 redline + stub runner
+  detectRedline,
+  runStubAgent,
+  REDLINE_RULES,
+  STUB_RUNNER_NOTE,
+  MAX_STUB_OUTPUT_CHARS,
   cancelApproval,
   expireApprovals,
   readApprovals,

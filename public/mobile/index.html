@@ -216,10 +216,10 @@
             </div>
             <span id="agent-status-pill"></span>
           </div>
+          <!-- Phase 2A-2.1：messages bubble + approval status bar -->
           <div id="agent-messages" class="agent-messages">
             <div class="empty">请先选择 cwd + agent</div>
           </div>
-          <!-- Phase 2A-2.1：approval status bar -->
           <div id="agent-approval-bar" class="approval-bar" hidden>
             <div class="approval-bar-row">
               <span id="agent-approval-icon" class="approval-icon approval-icon-pending"></span>
@@ -228,10 +228,10 @@
             <div id="agent-approval-meta" class="approval-meta"></div>
           </div>
           <div class="agent-input-row">
-            <textarea id="agent-input" class="agent-input" rows="2" maxlength="4000" placeholder="输入要请 desktop 二次确认的任务（最多 4000 字符）"></textarea>
-            <button id="agent-send" class="btn-primary" type="button" data-i="approval">Request approval</button>
+            <textarea id="agent-input" class="agent-input" rows="2" maxlength="4000" placeholder="输入任务（最多 4000 字符）"></textarea>
+            <button id="agent-send" class="btn-primary" type="button" data-i="send">Send</button>
           </div>
-          <div class="agent-input-note">本轮仅创建审批；不会启动 Agent · 不会执行 shell</div>
+          <div class="agent-input-note">普通消息立即发送；红线操作会要求 desktop 二次确认</div>
         </div>
 
         <div class="card-grid card-grid-2">
@@ -253,11 +253,12 @@
 
         <div class="card card-tip">
           <div class="card-h">Desktop approval required</div>
-          <p class="card-p">本轮 Phase 2A-2.1：手机端提交任务 → 电脑端二次确认 → 手机端看到状态。Approve 之后不会启动 Agent。</p>
+          <p class="card-p">本轮 Phase 2A-2.1：普通消息立即发送；命中红线时要求 desktop 二次确认。Approve 之后不会启动 Agent。</p>
           <div class="card-row" style="margin-top: var(--s-2);">
-            <span class="status-dot status-dot-ok"></span><span class="card-p">No raw terminal</span>
-            <span class="status-dot status-dot-ok" style="margin-left: 12px;"></span><span class="card-p">No shell access</span>
-            <span class="status-dot status-dot-ok" style="margin-left: 12px;"></span><span class="card-p">No agent execution in this phase</span>
+            <span class="status-dot status-dot-ok"></span><span class="card-p">Scoped to this folder</span>
+            <span class="status-dot status-dot-ok" style="margin-left: 12px;"></span><span class="card-p">No raw terminal</span>
+            <span class="status-dot status-dot-ok" style="margin-left: 12px;"></span><span class="card-p">No direct shell</span>
+            <span class="status-dot status-dot-ok" style="margin-left: 12px;"></span><span class="card-p">Redline actions require desktop approval</span>
           </div>
         </div>
       </section>

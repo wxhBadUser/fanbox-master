@@ -353,6 +353,20 @@ kbd {
   margin-top: 6px; font-size: 10px; color: var(--text-faint);
 }
 .mobile-approval-hint { font-style: italic; }
+
+/* Phase 2A-2.1: redline reason chips */
+.mobile-approval-reasons { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.mobile-approval-reason-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #FEF3C7;
+  color: #92400E;
+  border: 1px solid #FCD34D;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
 .mobile-access-count {
   display: inline-block; min-width: 18px; padding: 0 5px;
   font-size: 10px; font-weight: 600; color: #fff;

@@ -4081,6 +4081,18 @@ const mobileApprovals = {
     const ctx = document.createElement('div');
     ctx.className = 'mobile-approval-ctx';
     ctx.textContent = 'session ' + (a.sessionId || '?') + ' · input ' + (a.inputLen || 0) + ' chars';
+    // Phase 2A-2.1：redline reasons chips
+    let reasonsEl = null;
+    if (Array.isArray(a.redlineReasons) && a.redlineReasons.length > 0) {
+      reasonsEl = document.createElement('div');
+      reasonsEl.className = 'mobile-approval-reasons';
+      for (const r of a.redlineReasons) {
+        const chip = document.createElement('span');
+        chip.className = 'mobile-approval-reason-chip';
+        chip.textContent = String(r);
+        reasonsEl.appendChild(chip);
+      }
+    }
     const actions = document.createElement('div');
     actions.className = 'mobile-approval-actions';
     const rejectBtn = document.createElement('button');
@@ -4097,6 +4109,7 @@ const mobileApprovals = {
     actions.appendChild(approveBtn);
     li.appendChild(head);
     li.appendChild(preview);
+    if (reasonsEl) li.appendChild(reasonsEl);
     li.appendChild(ctx);
     li.appendChild(actions);
     return li;

@@ -266,8 +266,10 @@ function req(opts, body) {
   // JS 中只在拒绝 wrapper 中提到 "Execute" 是允许的
   ok('mobile.js 含 execute 拒绝逻辑（api 包装）', /method\s*!==\s*['"]GET['"][\s\S]*method/i.test(js) || /method !== 'GET'/.test(js));
 
-  // 单独动词
-  const singleWords = ['Start', 'Run', 'Send', 'Delete', 'Rename', 'Move', 'Upload'];
+  // Phase 2A-1：active 按钮不能出现 "Start/Run/Send/Delete/Rename/Move/Upload"。
+  // Phase 2A-2.1：mobile agent chat 已经引入合法的 "Send" 按钮（scoped，普通消息走 stub runner，红线走 approval）。
+  // 所以现在允许 "Send"（普通消息按钮），继续禁止 "Start/Run/Delete/Rename/Move/Upload/Execute" 这类危险词。
+  const singleWords = ['Start', 'Run', 'Delete', 'Rename', 'Move', 'Upload', 'Execute', 'YOLO', 'Full-auto', 'Terminal'];
   // 在 HTML 按钮里（<button ...>label</button>）不能出现这些动词
   // 但 disabled 按钮允许（Phase 2A-1 的 agent-send "Send" 按钮是 disabled 占位）
   const buttonMatches = html.match(/<button[^>]*>[^<]*<\/button>/g) || [];

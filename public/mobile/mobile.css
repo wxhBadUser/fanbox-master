@@ -699,6 +699,59 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   white-space: nowrap;
 }
 
+/* ---------- Phase 2A-2.1：agent messages bubble ---------- */
+.agent-messages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+  max-height: 360px;
+  overflow-y: auto;
+}
+.agent-messages .empty {
+  font-size: 13px;
+  color: #6B7280;
+  text-align: center;
+  padding: var(--s-3) 0;
+}
+.bubble {
+  border-radius: 12px;
+  padding: var(--s-2) var(--s-3);
+  max-width: 85%;
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.bubble-user {
+  background: var(--c-primary);
+  color: #fff;
+  align-self: flex-end;
+}
+.bubble-agent {
+  background: #F3F4F6;
+  color: #111827;
+  align-self: flex-start;
+  border: 1px solid #E5E7EB;
+}
+.bubble-system {
+  background: #FEF3C7;
+  color: #92400E;
+  align-self: center;
+  font-size: 12px;
+}
+.bubble-role {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.7;
+  margin-bottom: 4px;
+}
+.bubble-meta {
+  font-size: 11px;
+  opacity: 0.6;
+  margin-top: 4px;
+}
+
 /* ---------- Phase 2A-2.1：Approval status bar ---------- */
 .approval-bar {
   margin-top: var(--s-3);
