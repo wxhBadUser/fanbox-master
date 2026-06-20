@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#F9FAFB">
+  <title>FanBox Mobile · Mobile Console</title>
+  <link rel="stylesheet" href="/mobile/mobile.css">
+</head>
+<body>
+  <!-- 配对卡（未配对时显示；配对成功后隐藏） -->
+  <section id="pair-screen" class="pair-screen" hidden>
+    <div class="pair-card card">
+      <h1 class="pair-title">Mobile Console</h1>
+      <p class="pair-sub">安全配对 · 仅局域网 · 一次一码</p>
+      <label class="field-label">设备名</label>
+      <input id="pair-device" class="field" type="text" placeholder="例如 My Phone" maxlength="60">
+      <label class="field-label">配对码</label>
+      <input id="pair-code" class="field" type="text" inputmode="numeric" pattern="[0-9]{6}" placeholder="6 位数字" maxlength="6">
+      <button id="pair-btn" class="btn-primary" type="button">配对</button>
+      <div id="pair-msg" class="msg" role="status"></div>
+    </div>
+    <p class="pair-foot">当前移动端只提供只读访问。所有请求都需要 LAN + Token。</p>
+  </section>
+
+  <!-- 主应用（配对成功后显示） -->
+  <div id="app" class="app" hidden>
+    <header class="app-topbar">
+      <div class="app-topbar-left">
+        <div class="app-title">Mobile Console</div>
+        <div id="app-sub" class="app-sub">FanBox · 只读</div>
+      </div>
+      <button id="app-refresh" class="btn-icon" type="button" aria-label="刷新">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><polyline points="21 4 21 9 16 9"/></svg>
+      </button>
+    </header>
+
+    <main class="app-main">
+      <!-- Home Tab -->
+      <section class="tab-pane" data-tab="home" hidden>
+        <div class="card flow-card">
+          <div class="flow">
+            <div class="flow-node">手机</div>
+            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
+            <div class="flow-node flow-node-active">LAN + Token</div>
+            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
+            <div class="flow-node">Desktop API</div>
+          </div>
+        </div>
+
+        <div class="card-grid card-grid-2">
+          <div class="card card-stat">
+            <div class="card-row">
+              <span class="status-dot status-dot-ok"></span>
+              <div class="card-h">Read-only</div>
+            </div>
+            <p class="card-p">移动端仅返回只读数据</p>
+          </div>
+          <div class="card card-stat">
+            <div class="card-row">
+              <span class="status-dot status-dot-ok"></span>
+              <div class="card-h">LAN protected</div>
+            </div>
+            <p class="card-p">仅局域网 IP 接受请求</p>
+          </div>
+          <div class="card card-stat card-stat-wide">
+            <div class="card-row">
+              <span class="status-dot status-dot-ok"></span>
+              <div class="card-h">Token required</div>
+            </div>
+            <p class="card-p">所有请求需要 Bearer Token</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h">Available Roots</div>
+          <div id="home-roots" class="roots-list">
+            <div class="skeleton" style="height: 14px; width: 60%;"></div>
+            <div class="skeleton" style="height: 14px; width: 45%;"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h">Quick Access</div>
+          <div class="qa-grid">
+            <button class="qa-tile" data-go="files" type="button">
+              <span class="qa-icon" data-i="files"></span>
+              <span class="qa-label">Files</span>
+            </button>
+            <button class="qa-tile" data-go="skills" type="button">
+              <span class="qa-icon" data-i="skills"></span>
+              <span class="qa-label">Skills</span>
+            </button>
+            <button class="qa-tile" data-go="agents" type="button">
+              <span class="qa-icon" data-i="agents"></span>
+              <span class="qa-label">Agents</span>
+            </button>
+            <button class="qa-tile" data-go="usage" type="button">
+              <span class="qa-icon" data-i="usage"></span>
+              <span class="qa-label">Usage</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="card card-tip">
+          <div class="card-h">No raw logs · No uploads · No writes</div>
+          <p class="card-p">移动端始终只读，绝不写入电脑端任何文件。</p>
+        </div>
+      </section>
+
+      <!-- Files Tab -->
+      <section class="tab-pane" data-tab="files" hidden>
+        <div class="card flow-card">
+          <div class="flow">
+            <div class="flow-node">Root</div>
+            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
+            <div class="flow-node flow-node-active">Search</div>
+            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
+            <div class="flow-node">Preview</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="field-row">
+            <select id="files-root" class="field field-select"></select>
+            <input id="files-q" class="field field-input" type="search" placeholder="搜索文件名…" maxlength="80" autocomplete="off">
+            <button id="files-go" class="btn-ghost" type="button">搜索</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-row card-row-between">
+            <div class="card-h">Results</div>
+            <div id="files-meta" class="card-meta"></div>
+          </div>
+          <div id="files-list" class="file-list">
+            <div class="empty">输入关键字开始搜索</div>
+          </div>
+        </div>
+
+        <div id="files-preview" class="card card-preview" hidden>
+          <div class="card-row card-row-between">
+            <div class="card-h" id="files-preview-name"></div>
+            <button id="files-preview-close" class="btn-icon" type="button" aria-label="关闭">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+            </button>
+          </div>
+          <div id="files-preview-meta" class="card-meta"></div>
+          <div id="files-preview-body" class="preview-body"></div>
+        </div>
+      </section>
+
+      <!-- Skills Tab -->
+      <section class="tab-pane" data-tab="skills" hidden>
+        <div class="card">
+          <div class="field-row">
+            <input id="skills-q" class="field field-input" type="search" placeholder="过滤 skill 名称…" maxlength="60" autocomplete="off">
+          </div>
+        </div>
+        <div id="skills-list" class="skills-list">
+          <div class="skeleton" style="height: 64px; margin-bottom: 10px;"></div>
+          <div class="skeleton" style="height: 64px; margin-bottom: 10px;"></div>
+        </div>
+      </section>
+
+      <!-- Agents Tab -->
+      <section class="tab-pane" data-tab="agents" hidden>
+        <div class="card flow-card">
+          <div class="flow">
+            <div class="flow-node">Detect only</div>
+            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
+            <div class="flow-node flow-node-active">No launch</div>
+            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
+            <div class="flow-node">No task</div>
+          </div>
+        </div>
+
+        <div class="card card-tip">
+          <div class="card-h">Read-only detection only</div>
+          <p class="card-p">No Start · No Run · No Send · No Terminal · No Execute</p>
+        </div>
+
+        <div id="agents-list" class="agent-grid">
+          <div class="skeleton" style="height: 84px;"></div>
+          <div class="skeleton" style="height: 84px;"></div>
+          <div class="skeleton" style="height: 84px;"></div>
+          <div class="skeleton" style="height: 84px;"></div>
+        </div>
+      </section>
+
+      <!-- Usage Tab -->
+      <section class="tab-pane" data-tab="usage" hidden>
+        <div class="card flow-card">
+          <div class="flow">
+            <div class="flow-node">Sanitized stats</div>
+            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
+            <div class="flow-node flow-node-active">No raw logs</div>
+          </div>
+        </div>
+
+        <div class="card-grid card-grid-2">
+          <div class="card card-stat">
+            <div class="card-h">Today</div>
+            <div id="usage-today" class="card-big">—</div>
+            <div class="card-meta">tokens</div>
+          </div>
+          <div class="card card-stat">
+            <div class="card-h">This week</div>
+            <div id="usage-week" class="card-big">—</div>
+            <div class="card-meta">tokens</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h">Per Agent</div>
+          <div id="usage-list" class="usage-list"></div>
+        </div>
+
+        <div class="card card-tip">
+          <div class="card-h">Raw logs are never exposed on mobile.</div>
+          <p class="card-p">移动端不返回 JSONL 路径、token、cookie、API key、secret、password。</p>
+        </div>
+      </section>
+    </main>
+
+    <nav class="app-bottom-nav" role="tablist">
+      <button class="tab-btn is-active" data-tab-btn="home" type="button" role="tab">
+        <span class="tab-icon" data-i="home"></span>
+        <span class="tab-label">Home</span>
+      </button>
+      <button class="tab-btn" data-tab-btn="files" type="button" role="tab">
+        <span class="tab-icon" data-i="files"></span>
+        <span class="tab-label">Files</span>
+      </button>
+      <button class="tab-btn" data-tab-btn="skills" type="button" role="tab">
+        <span class="tab-icon" data-i="skills"></span>
+        <span class="tab-label">Skills</span>
+      </button>
+      <button class="tab-btn" data-tab-btn="agents" type="button" role="tab">
+        <span class="tab-icon" data-i="agents"></span>
+        <span class="tab-label">Agents</span>
+      </button>
+      <button class="tab-btn" data-tab-btn="usage" type="button" role="tab">
+        <span class="tab-icon" data-i="usage"></span>
+        <span class="tab-label">Usage</span>
+      </button>
+    </nav>
+  </div>
+
+  <script src="/mobile/mobile.js" defer></script>
+</body>
+</html>

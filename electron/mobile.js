@@ -44,6 +44,21 @@ const SKILL_DESC_CUT_MOBILE = 300;               // 手机端 description 截断
 const SEARCH_WALK_TIMEOUT_MS = 3000;             // 单次搜索总时间预算
 const SEARCH_WALK_FILE_LIMIT = 5000;             // 单次搜索文件数上限
 
+// Phase 1：Mobile Web UI 静态资源（公开访问，文件落盘，不进 token 校验）
+const MOBILE_PUBLIC_DIR = path.join(__dirname, '..', 'public', 'mobile');
+const MOBILE_STATIC_MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.css':  'text/css; charset=utf-8',
+  '.js':   'application/javascript; charset=utf-8',
+  '.svg':  'image/svg+xml',
+  '.ico':  'image/x-icon',
+  '.png':  'image/png',
+  '.jpg':  'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.json': 'application/json; charset=utf-8',
+};
+const MOBILE_STATIC_MAX = 256 * 1024; // 256KB 上限（防误把大文件当静态资源）
+
 // ---------- LAN IP 判断 ----------
 
 function isLanIp(rawIp) {
@@ -1345,9 +1360,14 @@ async function handleRequest(req, res) {
 
   const pathOnly = url.split('?')[0];
 
-  // -------- 公开端点：/mobile 静态页 --------
+  // -------- 公开端点：/mobile 静态资源（不需 token）--------
+  // 1) 主页：/mobile 或 /mobile/
   if (req.method === 'GET' && (pathOnly === '/mobile' || pathOnly === '/mobile/')) {
-    return serveMobilePage(req, res);
+    return serveMobileStatic(req, res, '/mobile');
+  }
+  // 2) 子资源：/mobile/mobile.css / /mobile/mobile.js 等
+  if (req.method === 'GET' && pathOnly.startsWith('/mobile/')) {
+    return serveMobileStatic(req, res, pathOnly);
   }
 
   // -------- 配对：pair/status --------
@@ -1419,132 +1439,72 @@ async function handleRequest(req, res) {
   return sendJson(res, 404, { ok: false, error: 'not_found' });
 }
 
-function serveMobilePage(req, res) {
-  // Phase 0A：极简 HTML，自己带 inline JS（不引新依赖）
-  const html = `<!doctype html>
-<html lang="zh"><head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>FanBox Mobile</title>
-<style>
-  body { font: 14px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif; margin: 0; background: #f4f4f4; color: #222; }
-  main { max-width: 480px; margin: 0 auto; padding: 24px 16px; }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  p.note { color: #666; margin: 0 0 16px; font-size: 13px; }
-  .card { background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.05); margin-bottom: 12px; }
-  label { display: block; font-size: 12px; color: #555; margin: 12px 0 4px; }
-  input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 15px; border: 1px solid #ccc; border-radius: 6px; }
-  button { margin-top: 16px; width: 100%; padding: 12px; font-size: 15px; background: #2c2c2c; color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
-  button[disabled] { background: #999; cursor: not-allowed; }
-  .ok { color: #1b7a3a; font-weight: 600; }
-  .err { color: #b21e1e; }
-  code { background: #eee; padding: 1px 6px; border-radius: 3px; font-size: 12px; word-break: break-all; }
-  .pairing { background: #fff8e1; border: 1px solid #f0d577; }
-</style></head><body>
-<main>
-  <h1>FanBox Mobile</h1>
-  <p class="note">Phase 0A · 安全配对 · 仅局域网</p>
+// ---------- Phase 1：Mobile Web UI 静态资源分发 ----------
+//
+// 设计：
+//   - 公开资源：/mobile 与 /mobile/{*.html,*.css,*.js,*.svg,*.ico,*.png,*.jpg} 都不需 token
+//   - 文件根：MOBILE_PUBLIC_DIR = public/mobile/，强制在根目录内
+//   - 拒绝 .. 与 \ 与越界路径；白名单扩展名
+//   - 任何 /api/mobile/* 仍走 token + LAN + 路由分发
+//
+// Phase 0A 旧版 inline HTML（serveMobilePage 内的硬编码长串）已废弃，
+// 改读 public/mobile/index.html 静态文件。
 
-  <div class="card" id="statusCard">
-    <div>当前状态：<span id="statusText">检查中…</span></div>
-  </div>
-
-  <div class="card" id="pairCard">
-    <label>设备名</label>
-    <input id="deviceName" placeholder="例如 John Phone" maxlength="60">
-    <label>6 位配对码</label>
-    <input id="pairCode" placeholder="6 位数字" inputmode="numeric" maxlength="6">
-    <button id="pairBtn">配对</button>
-    <div id="pairMsg" style="margin-top:12px;"></div>
-  </div>
-
-  <div class="card" id="tokenCard" style="display:none;">
-    <div class="ok">配对成功</div>
-    <p>以下 token 已保存到本机 localStorage，仅显示一次。请妥善保存。</p>
-    <code id="tokenShow" style="display:block; padding:8px; margin:8px 0;"></code>
-    <button id="testStatusBtn">测试 /api/mobile/status</button>
-    <button id="testFilesBtn">测试 /api/mobile/files</button>
-    <pre id="apiOut" style="background:#f4f4f4; padding:8px; font-size:12px; overflow:auto; max-height:240px;"></pre>
-  </div>
-</main>
-<script>
-(function () {
-  var tokenKey = 'fanbox.mobile.token';
-  var deviceIdKey = 'fanbox.mobile.deviceId';
-  function getToken() { return localStorage.getItem(tokenKey) || ''; }
-  function setToken(t, id) {
-    localStorage.setItem(tokenKey, t);
-    if (id) localStorage.setItem(deviceIdKey, id);
+function serveMobileStatic(req, res, urlPath) {
+  // urlPath 形如 "/mobile" 或 "/mobile/mobile.css"
+  // 1) 限 GET/HEAD
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
+    return;
   }
-  function clearToken() { localStorage.removeItem(tokenKey); localStorage.removeItem(deviceIdKey); }
-
-  function $(id) { return document.getElementById(id); }
-
-  function refreshStatus() {
-    fetch('/api/mobile/pair/status').then(function (r) { return r.json(); }).then(function (j) {
-      if (j && j.ok && j.pairing) {
-        $('statusText').innerHTML = '<span class="ok">可配对</span> · 过期 ' + new Date(j.expiresAt).toLocaleTimeString();
-      } else {
-        $('statusText').innerHTML = '<span class="err">未在配对中</span> · 请回到电脑端生成配对码';
-      }
-    }).catch(function () { $('statusText').textContent = '无法连接'; });
+  // 2) 计算相对路径
+  let rel = urlPath.replace(/^\/mobile\/?/, '');
+  if (rel === '' || rel === '/') rel = 'index.html';
+  // 3) 拒绝 .. 与 \ 与 NULL byte
+  if (rel.includes('..') || rel.includes('\\') || rel.indexOf('\0') >= 0) {
+    sendJson(res, 400, { ok: false, error: 'bad_path' });
+    return;
   }
-
-  function callApi(path) {
-    var t = getToken();
-    if (!t) return Promise.resolve({ ok: false, error: 'no_token' });
-    return fetch(path, { headers: { 'Authorization': 'Bearer ' + t } }).then(function (r) { return r.json(); });
+  // 4) 拼绝对路径并校验仍在 MOBILE_PUBLIC_DIR 内
+  const rootAbs = path.resolve(MOBILE_PUBLIC_DIR);
+  const fp = path.resolve(rootAbs, rel);
+  if (!(fp === rootAbs || fp.startsWith(rootAbs + path.sep))) {
+    sendJson(res, 403, { ok: false, error: 'forbidden_path' });
+    return;
   }
-
-  $('pairBtn').addEventListener('click', function () {
-    var code = $('pairCode').value.trim();
-    var name = $('deviceName').value.trim() || 'Phone';
-    $('pairMsg').textContent = '提交中…';
-    $('pairMsg').className = '';
-    fetch('/api/mobile/pair/confirm', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pairCode: code, deviceName: name })
-    }).then(function (r) { return r.json(); }).then(function (j) {
-      if (j && j.ok) {
-        setToken(j.token, j.deviceId);
-        $('pairMsg').innerHTML = '<span class="ok">配对成功</span>';
-        $('tokenCard').style.display = '';
-        $('tokenShow').textContent = j.token;
-        $('pairCode').value = '';
-      } else {
-        $('pairMsg').innerHTML = '<span class="err">失败：' + (j && j.error || 'unknown') + '</span>';
-        $('pairMsg').className = 'err';
-      }
-    }).catch(function (e) {
-      $('pairMsg').innerHTML = '<span class="err">网络错误</span>';
-      $('pairMsg').className = 'err';
+  // 5) 扩展名白名单（先于 stat，避免泄漏文件是否存在）
+  const ext = path.extname(fp).toLowerCase();
+  const type = MOBILE_STATIC_MIME[ext];
+  if (!type) { sendJson(res, 415, { ok: false, error: 'mime_not_allowed' }); return; }
+  // 6) 检查文件存在
+  let st;
+  try { st = fs.statSync(fp); } catch { sendJson(res, 404, { ok: false, error: 'not_found' }); return; }
+  if (!st.isFile()) { sendJson(res, 404, { ok: false, error: 'not_found' }); return; }
+  // 7) 大小限
+  if (st.size > MOBILE_STATIC_MAX) {
+    sendJson(res, 413, { ok: false, error: 'file_too_large' });
+    return;
+  }
+  // 8) 读盘发送
+  try {
+    const buf = fs.readFileSync(fp);
+    res.writeHead(200, {
+      'Content-Type': type,
+      'Content-Length': buf.length,
+      'Cache-Control': 'no-store',
     });
-  });
-
-  $('testStatusBtn') && $('testStatusBtn').addEventListener('click', function () {
-    callApi('/api/mobile/status').then(function (j) {
-      $('apiOut').textContent = JSON.stringify(j, null, 2);
-    });
-  });
-  $('testFilesBtn') && $('testFilesBtn').addEventListener('click', function () {
-    callApi('/api/mobile/files').then(function (j) {
-      $('apiOut').textContent = JSON.stringify(j, null, 2);
-    });
-  });
-
-  refreshStatus();
-  setInterval(refreshStatus, 10000);
-  if (getToken()) {
-    $('tokenCard').style.display = '';
-    $('tokenShow').textContent = getToken();
+    if (req.method === 'HEAD') { res.end(); return; }
+    res.end(buf);
+  } catch {
+    sendJson(res, 500, { ok: false, error: 'read_failed' });
   }
-})();
-</script>
-</body></html>`;
-  sendText(res, 200, html, 'text/html; charset=utf-8');
 }
 
+function serveMobilePage(req, res, urlPath) {
+  // 兼容：原有 handleRequest 中 if (pathOnly === '/mobile' || pathOnly === '/mobile/') 直接调它。
+  // 这里直接走静态资源分发，'/' 落到 index.html。
+  return serveMobileStatic(req, res, urlPath);
+}
 // ---------- Server lifecycle ----------
 
 function startMobileServer({ port, onListening, onError }) {
@@ -1665,3 +1625,4 @@ async function publicStatus() {
     })),
   };
 }
+
