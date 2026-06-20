@@ -196,6 +196,92 @@ kbd {
 .theme-seg button.active { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .sidebar-foot { padding: 10px 8px 0; font-size: 11px; color: var(--text-faint); }
 
+/* ---------- Mobile Access（Phase 0A）---------- */
+.mobile-access { padding: 12px 8px 6px; border-top: 1px solid var(--border); }
+.mobile-access-head {
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; user-select: none; padding: 2px 0;
+  font-size: 12px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1.2px;
+}
+.mobile-access-head:hover { color: var(--text-dim); }
+.mobile-access-title { font-weight: 600; }
+.mobile-access-state {
+  font-size: 10px; padding: 2px 8px; border-radius: 10px;
+  background: var(--bg-3); color: var(--text-dim); text-transform: none; letter-spacing: 0;
+}
+.mobile-access-state.on { background: rgba(80, 160, 100, 0.18); color: #2c8a4a; }
+.mobile-access-body { padding-top: 8px; }
+.mobile-access-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
+.mobile-access-row .btn {
+  padding: 5px 12px; font-size: 12px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg-3); color: var(--text-dim);
+  cursor: pointer; font-family: var(--font-ui);
+}
+.mobile-access-row .btn:hover { color: var(--text); border-color: var(--accent); }
+.mobile-access-row .btn.danger { color: #b21e1e; border-color: #d8a0a0; }
+.mobile-access-row .btn.danger:hover { background: rgba(178, 30, 30, 0.08); }
+.mobile-access-hint { font-size: 11px; color: var(--text-faint); }
+.mobile-access-pair {
+  flex-direction: column; align-items: stretch; gap: 4px;
+  background: var(--bg-3); padding: 8px; border-radius: 6px; margin-top: 6px;
+}
+.mobile-access-row-line { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.mobile-access-label { color: var(--text-faint); min-width: 60px; }
+.mobile-access-code {
+  font-size: 16px; font-weight: 600; letter-spacing: 2px;
+  color: var(--accent); background: var(--bg-2); padding: 2px 8px; border-radius: 4px;
+  font-family: var(--font-mono);
+}
+.mobile-access-url-block {
+  background: var(--bg-3); padding: 8px 10px; border-radius: 6px;
+  margin: 6px 0 4px; border: 1px solid var(--border);
+}
+.mobile-access-url {
+  flex: 1; font-size: 11px; color: var(--text-dim); background: var(--bg-2);
+  padding: 2px 6px; border-radius: 4px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-family: var(--font-mono);
+}
+.mobile-access-url.primary {
+  font-size: 13px; font-weight: 600; color: var(--accent);
+  background: var(--bg-1); padding: 4px 8px;
+}
+.mobile-access-iface { padding-top: 2px; }
+.mobile-access-iface-name {
+  font-size: 11px; color: var(--text-faint); font-family: var(--font-mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mobile-access-others ul { list-style: none; margin: 4px 0 0; padding: 0; }
+.mobile-access-others li {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 2px 0; font-size: 11px;
+}
+.mobile-access-others .other-url {
+  flex: 1; font-family: var(--font-mono); color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mobile-access-others .other-iface {
+  color: var(--text-faint); font-size: 10px; margin-left: 4px;
+  font-family: var(--font-mono);
+}
+.mobile-access-tip.warn { color: #b21e1e; }
+.mobile-access-exp { font-size: 10px; color: var(--text-faint); }
+.mobile-access-tip { font-size: 11px; color: var(--text-faint); margin: 4px 0 0; line-height: 1.4; }
+.btn-mini {
+  padding: 2px 8px; font-size: 11px; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--bg-2); color: var(--text-dim);
+  cursor: pointer; font-family: var(--font-ui);
+}
+.btn-mini:hover { color: var(--text); border-color: var(--accent); }
+.mobile-device-list { list-style: none; margin: 4px 0 0; padding: 0; width: 100%; }
+.mobile-device-list li {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 6px; font-size: 12px; border-radius: 4px;
+}
+.mobile-device-list li:hover { background: var(--bg-3); }
+.mobile-device-list .device-name { color: var(--text); }
+.mobile-device-list .device-meta { color: var(--text-faint); font-size: 10px; }
+.mobile-device-empty { color: var(--text-faint); font-size: 11px; padding: 2px 0; }
+
 /* ---------- 主区 ---------- */
 #main { display: flex; flex-direction: column; overflow: hidden; }
 #topbar {

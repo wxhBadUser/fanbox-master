@@ -2631,6 +2631,7 @@ function bindEvents() {
     const qd = $('#term-qoder'); if (qd) { qd.classList.add('agent-missing'); qd.title = AGENT_REGISTRY.qoder.installHint; }
   }
   usagePanel.bind();
+  mobileAccess.bind();
   shotTray.init();
   $('#skills-entry').onclick = () => skillsView.show();
   $('#term-newtab').onclick = () => { wechatView.close(); term.newTab(); };
@@ -4013,6 +4014,221 @@ const usagePanel = {
       this.apply();
     };
     this.apply();
+  },
+};
+
+// ---------- Mobile Access（Phase 0A）----------
+// 桌面端的控制面板：开/关/生成配对码/撤销已配对设备。
+// 安全：永远不在 UI 上显示 token / tokenHash / pairCode 二次回显；pairCode 仅在生成时一次性显示。
+const mobileAccess = {
+  open() { return localStorage.getItem('fb_mobile_access_open') === '1'; },
+  apply() {
+    const on = this.open();
+    $('#mobile-access-body').classList.toggle('hidden', !on);
+  },
+  async refresh() {
+    if (!window.fanboxMobile) {
+      // 非桌面 app（纯浏览器访问）—— 隐藏整个面板
+      const el = $('#mobile-access');
+      if (el) el.style.display = 'none';
+      return;
+    }
+    let s = null;
+    try { s = await window.fanboxMobile.status(); } catch (e) { s = null; }
+    if (!s) return;
+    const stateEl = $('#mobile-access-state');
+    const toggleBtn = $('#mobile-toggle-btn');
+    const pairRow = $('#mobile-pair-row');
+    const pairInfo = $('#mobile-pair-info');
+    const hint = $('#mobile-access-hint');
+    const list = $('#mobile-device-list');
+    const urlBlock = $('#mobile-url-block');
+    const primaryUrl = $('#mobile-primary-url');
+    const primaryIface = $('#mobile-primary-iface');
+    const primaryIfaceRow = $('#mobile-primary-iface-row');
+    const othersBlock = $('#mobile-others-block');
+    const othersUl = $('#mobile-others-ul');
+    const fallbackWarn = $('#mobile-fallback-warn');
+
+    if (s.enabled && s.running) {
+      stateEl.textContent = '已开启';
+      stateEl.classList.add('on');
+      toggleBtn.textContent = '关闭';
+      toggleBtn.classList.add('danger');
+      pairRow.style.display = '';
+      hint.textContent = 'Mobile Access 已开启，端口 ' + s.port;
+
+      // 推荐地址：永远不显示 0.0.0.0
+      if (s.primaryLanUrl) {
+        urlBlock.style.display = '';
+        primaryUrl.textContent = s.primaryLanUrl;
+        primaryUrl.title = s.primaryLanUrl;
+        if (s.primaryIface) {
+          primaryIface.textContent = s.primaryIface;
+          primaryIface.title = s.primaryIface;
+          primaryIfaceRow.style.display = '';
+        } else {
+          primaryIfaceRow.style.display = 'none';
+        }
+      } else {
+        urlBlock.style.display = 'none';
+      }
+
+      // 其他地址：把 primary 之外的列出来
+      const ranked = Array.isArray(s.lanUrlsRanked) ? s.lanUrlsRanked : [];
+      const others = ranked.filter(r => r.url !== s.primaryLanUrl);
+      if (others.length > 0) {
+        othersBlock.style.display = '';
+        othersUl.innerHTML = others.map(o =>
+          `<li>
+            <span class="other-url" title="${escapeHtml(o.url)}">${escapeHtml(o.url)}</span>
+            ${o.iface ? `<span class="other-iface">${escapeHtml(o.iface)}</span>` : ''}
+            <button class="btn-mini" data-copy="${escapeHtml(o.url)}">复制</button>
+          </li>`
+        ).join('');
+        othersUl.querySelectorAll('button[data-copy]').forEach(btn => {
+          btn.onclick = (e) => {
+            e.stopPropagation();
+            mobileAccess.copyText(btn.dataset.copy, btn);
+          };
+        });
+      } else {
+        othersBlock.style.display = 'none';
+      }
+
+      // Fallback 警告
+      fallbackWarn.style.display = s.lanUrlsFallback ? '' : 'none';
+
+      // 配对码区由用户点「生成配对码」才显示
+      pairInfo.style.display = 'none';
+    } else {
+      stateEl.textContent = '关闭';
+      stateEl.classList.remove('on');
+      toggleBtn.textContent = '开启';
+      toggleBtn.classList.remove('danger');
+      pairRow.style.display = 'none';
+      pairInfo.style.display = 'none';
+      urlBlock.style.display = 'none';
+      othersBlock.style.display = 'none';
+      primaryIfaceRow.style.display = 'none';
+      fallbackWarn.style.display = 'none';
+      hint.textContent = 'Mobile Access 未开启';
+    }
+
+    // 设备列表
+    const devices = s.pairedDevices || [];
+    if (devices.length === 0) {
+      list.innerHTML = '<li class="mobile-device-empty">没有已配对设备</li>';
+    } else {
+      list.innerHTML = devices.map(d => {
+        const ago = mobileAccess.ago(d.lastSeenAt || d.pairedAt);
+        return `<li data-id="${escapeHtml(d.id)}">
+          <div>
+            <div class="device-name">${escapeHtml(d.deviceName)}</div>
+            <div class="device-meta">最近活跃 ${ago}</div>
+          </div>
+          <button class="btn-mini" data-action="revoke" data-id="${escapeHtml(d.id)}">撤销</button>
+        </li>`;
+      }).join('');
+      list.querySelectorAll('button[data-action="revoke"]').forEach(btn => {
+        btn.onclick = () => mobileAccess.revoke(btn.dataset.id);
+      });
+    }
+  },
+  ago(t) {
+    if (!t) return '—';
+    const m = Math.round((Date.now() - t) / 60000);
+    if (m < 1) return '刚刚';
+    if (m < 60) return m + ' 分钟前';
+    if (m < 1440) return Math.round(m / 60) + ' 小时前';
+    return Math.round(m / 1440) + ' 天前';
+  },
+  async enable() {
+    try {
+      await window.fanboxMobile.enable();
+      await this.refresh();
+    } catch (e) {
+      toast('启用失败：' + (e && e.message || e), 'err');
+    }
+  },
+  async disable() {
+    if (!confirm('确定关闭 Mobile Access？所有已配对设备将立即断开。')) return;
+    try { await window.fanboxMobile.disable(); } catch {}
+    await this.refresh();
+  },
+  async startPair() {
+    try {
+      const r = await window.fanboxMobile.startPair();
+      if (!r || !r.ok) {
+        toast('生成配对码失败：' + (r && r.error || 'unknown'), 'err');
+        return;
+      }
+      const pairInfo = $('#mobile-pair-info');
+      const pairCode = $('#mobile-pair-code');
+      const pairExp = $('#mobile-pair-exp');
+      pairInfo.style.display = '';
+      pairCode.textContent = r.pairCode;
+      pairExp.textContent = '60 秒后失效';
+      // 启动倒计时
+      clearTimeout(this._pairTimer);
+      const expiresAt = r.expiresAt || (Date.now() + 60000);
+      const tick = () => {
+        const left = Math.max(0, expiresAt - Date.now());
+        if (left <= 0) { pairInfo.style.display = 'none'; return; }
+        pairExp.textContent = Math.ceil(left / 1000) + ' 秒后失效';
+        this._pairTimer = setTimeout(tick, 500);
+      };
+      tick();
+    } catch (e) {
+      toast('生成配对码失败：' + (e && e.message || e), 'err');
+    }
+  },
+  async revoke(deviceId) {
+    if (!confirm('确定撤销这台设备的配对？')) return;
+    try { await window.fanboxMobile.revokeToken(deviceId); } catch {}
+    await this.refresh();
+  },
+  async copyUrl() {
+    const url = $('#mobile-primary-url').textContent;
+    if (!url || url === 'http://') return;
+    const btn = $('#mobile-copy-url');
+    await mobileAccess.copyText(url, btn);
+  },
+  async copyText(text, btn) {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      if (btn) {
+        const orig = btn.textContent;
+        btn.textContent = '已复制';
+        setTimeout(() => { btn.textContent = orig; }, 1200);
+      }
+    } catch (e) { /* ignore */ }
+  },
+  bind() {
+    if (!window.fanboxMobile) return; // 非桌面 app：不挂事件
+    const head = $('#mobile-access-head');
+    if (head) head.onclick = () => {
+      localStorage.setItem('fb_mobile_access_open', this.open() ? '0' : '1');
+      this.apply();
+      if (this.open()) this.refresh();
+    };
+    const tBtn = $('#mobile-toggle-btn');
+    if (tBtn) tBtn.onclick = (e) => {
+      e.stopPropagation();
+      // 根据当前状态决定 enable/disable
+      const isOn = $('#mobile-access-state').classList.contains('on');
+      if (isOn) this.disable(); else this.enable();
+    };
+    const pBtn = $('#mobile-pair-btn');
+    if (pBtn) pBtn.onclick = (e) => { e.stopPropagation(); this.startPair(); };
+    const cBtn = $('#mobile-copy-url');
+    if (cBtn) cBtn.onclick = (e) => { e.stopPropagation(); this.copyUrl(); };
+    this.apply();
+    // 后台静默 refresh —— 拿到 status 但不强制打开面板
+    this.refresh();
+    // 设备列表 30s 刷新一次（保持活跃度显示新鲜）
+    setInterval(() => { if (this.open()) this.refresh(); }, 30000);
   },
 };
 

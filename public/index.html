@@ -59,6 +59,54 @@
           <button data-skin="editorial" title="编辑式 · 索引日报">索引</button>
         </div>
       </div>
+      <div class="mobile-access" id="mobile-access">
+        <div class="mobile-access-head" id="mobile-access-head" data-testid="mobile-access-head" title="局域网手机配对（仅本机可见）">
+          <span class="mobile-access-title">Mobile Access</span>
+          <span class="mobile-access-state" id="mobile-access-state" data-testid="mobile-access-state">关闭</span>
+        </div>
+        <div id="mobile-access-body" data-testid="mobile-access-body" class="hidden">
+          <div class="mobile-access-row">
+            <button class="btn" id="mobile-toggle-btn" data-testid="mobile-toggle-btn">开启</button>
+            <span class="mobile-access-hint" id="mobile-access-hint">Mobile Access 未开启</span>
+          </div>
+          <div class="mobile-access-url-block" id="mobile-url-block" style="display:none;" data-testid="mobile-url-block">
+            <div class="mobile-access-row-line">
+              <span class="mobile-access-label">推荐地址</span>
+              <code class="mobile-access-url primary" id="mobile-primary-url" data-testid="mobile-primary-url">http://</code>
+              <button class="btn-mini" id="mobile-copy-url" data-testid="mobile-copy-url">复制地址</button>
+            </div>
+            <div class="mobile-access-row-line mobile-access-iface" id="mobile-primary-iface-row" style="display:none;">
+              <span class="mobile-access-label">网卡</span>
+              <span class="mobile-access-iface-name" id="mobile-primary-iface" data-testid="mobile-primary-iface"></span>
+            </div>
+            <div id="mobile-others-block" style="display:none;" data-testid="mobile-others-block">
+              <div class="mobile-access-label">其他地址</div>
+              <ul id="mobile-others-ul" data-testid="mobile-others-ul"></ul>
+              <p class="mobile-access-tip" id="mobile-others-tip">如推荐地址无法访问，请逐个尝试</p>
+            </div>
+            <div id="mobile-fallback-warn" style="display:none;" data-testid="mobile-fallback-warn">
+              <p class="mobile-access-tip warn">未检测到默认网卡；上述地址可能部分不可访问</p>
+            </div>
+          </div>
+          <div class="mobile-access-row" id="mobile-pair-row" style="display:none;">
+            <button class="btn" id="mobile-pair-btn" data-testid="mobile-pair-btn">生成配对码</button>
+          </div>
+          <div class="mobile-access-row mobile-access-pair" id="mobile-pair-info" style="display:none;">
+            <div class="mobile-access-row-line">
+              <span class="mobile-access-label">配对码</span>
+              <code class="mobile-access-code" id="mobile-pair-code" data-testid="mobile-pair-code">------</code>
+              <span class="mobile-access-exp" id="mobile-pair-exp">60 秒后失效</span>
+            </div>
+            <p class="mobile-access-tip">点击「生成配对码」后，在手机浏览器输入 6 位数字完成配对</p>
+          </div>
+          <div class="mobile-access-row">
+            <div class="mobile-access-label">已配对设备</div>
+            <ul class="mobile-device-list" id="mobile-device-list" data-testid="mobile-device-list">
+              <li class="mobile-device-empty">没有已配对设备</li>
+            </ul>
+          </div>
+        </div>
+      </div>
       <div class="sidebar-foot">本地运行 · 数据不出本机<a id="lang-toggle" class="lang-toggle"></a></div>
       <div id="sidebar-resizer" title="拖动调整侧栏宽度"></div>
     </aside>

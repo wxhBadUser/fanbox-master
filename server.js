@@ -13,6 +13,15 @@ const fsp = require('fs/promises');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+// Mobile Access（Phase 0A）—— 独立模块，提供配对码 / token / 独立 HTTP 服务
+// 这里 require 是惰性的：load 失败不会影响主 server
+let _mobileMod = null;
+function mobileMod() {
+  if (!_mobileMod) {
+    try { _mobileMod = require('./electron/mobile.js'); } catch (e) { _mobileMod = { __loadError: e }; }
+  }
+  return _mobileMod && !_mobileMod.__loadError ? _mobileMod : null;
+}
 const { exec, spawn, execFile, execFileSync } = require('child_process');
 const { URL } = require('url');
 
@@ -2286,6 +2295,11 @@ function originAllowed(req) {
   try { return ALLOWED_HOSTS.has(new URL(o).hostname); } catch { return false; }
 }
 
+// Mobile Access（Phase 0A）—— 一个独立的 HTTP server 实例，
+// 默认关闭，仅在用户主动调用 /api/mobile-control/enable 时启动。
+// 端口不与主服务复用，关闭后立即释放 socket。
+let _mobileServer = null;
+
 const server = http.createServer(async (req, res) => {
   if (!hostAllowed(req)) { res.writeHead(403); res.end('forbidden host'); return; }
   if (req.method === 'POST' && !originAllowed(req)) { res.writeHead(403); res.end('forbidden origin'); return; }
@@ -2448,6 +2462,75 @@ const server = http.createServer(async (req, res) => {
       }
       const cfg = await readConfig();
       return sendJSON(res, 200, { favorites: cfg.favorites || [], recentOpened: cfg.recentOpened || [] });
+    }
+
+    // -------- Mobile Access 控制端点（Phase 0A，仅本机回环可调） --------
+    // 这些端点绝不能从局域网访问，校验 socket.remoteAddress
+    if (p.startsWith('/api/mobile-control/')) {
+      const sock = req.socket || req.connection;
+      const lip = (sock && sock.remoteAddress) || '';
+      if (lip !== '127.0.0.1' && lip !== '::1' && lip !== '::ffff:127.0.0.1') {
+        return sendJSON(res, 403, { ok: false, error: 'loopback_only' });
+      }
+      const m = mobileMod();
+      if (!m) return sendJSON(res, 503, { ok: false, error: 'mobile_module_unavailable' });
+
+      // status
+      if (req.method === 'GET' && p === '/api/mobile-control/status') {
+        return sendJSON(res, 200, { ok: true, ...(await m.publicStatus()) });
+      }
+      // enable
+      if (req.method === 'POST' && p === '/api/mobile-control/enable') {
+        const cfg = await m.getConfig();
+        if (!cfg.enabled) {
+          await m.saveConfig({ enabled: true });
+        }
+        // 启动或重启 mobile server
+        if (!_mobileServer) {
+          _mobileServer = m.startMobileServer({
+            port: cfg.port || m.DEFAULT_PORT,
+            onError: (e) => { console.error('  ⚠️  Mobile server 错误：', e.message); _mobileServer = null; },
+          });
+        }
+        return sendJSON(res, 200, { ok: true, ...(await m.publicStatus()) });
+      }
+      // disable
+      if (req.method === 'POST' && p === '/api/mobile-control/disable') {
+        if (_mobileServer) {
+          try { _mobileServer.close(); } catch {}
+          _mobileServer = null;
+        }
+        await m.revokeAllTokens();
+        await m.saveConfig({ enabled: false, pairCodeHash: null, pairCodeExpiresAt: 0 });
+        return sendJSON(res, 200, { ok: true, ...(await m.publicStatus()) });
+      }
+      // pair/start
+      if (req.method === 'POST' && p === '/api/mobile-control/pair/start') {
+        const cfg = await m.getConfig();
+        if (!cfg.enabled) return sendJSON(res, 409, { ok: false, error: 'mobile_disabled' });
+        const r = await m.startPairCode();
+        const urls = m.listLanUrls(cfg.port || m.DEFAULT_PORT);
+        const pick = m.pickBestLanUrls(cfg.port || m.DEFAULT_PORT);
+        return sendJSON(res, 200, {
+          ok: true,
+          pairCode: r.pairCode,
+          expiresIn: r.expiresIn,
+          expiresAt: r.expiresAt,
+          lanUrls: urls,
+          primaryLanUrl: pick.primary ? pick.primary.url : null,
+          primaryIface: pick.primary ? pick.primary.iface : null,
+        });
+      }
+      // tokens/revoke
+      if (req.method === 'POST' && p === '/api/mobile-control/tokens/revoke') {
+        let body = {};
+        try { body = await readBody(req); } catch {}
+        const id = String(body.deviceId || '').trim();
+        if (!id) return sendJSON(res, 400, { ok: false, error: 'missing_deviceId' });
+        await m.revokeToken(id);
+        return sendJSON(res, 200, { ok: true, ...(await m.publicStatus()) });
+      }
+      return sendJSON(res, 404, { ok: false, error: 'mobile_control_not_found' });
     }
 
     // 静态资源
