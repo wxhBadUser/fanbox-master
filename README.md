@@ -1,8 +1,8 @@
 <div align="center">
 
-# 📦 FanBox for Windows
+# 📦 FanBox
 
-> **FanBox — the cockpit for coding agents. Command Claude Code, Codex, OpenCode or Qoder, watch every file and line they change, and take over anytime.**
+> **FanBox — the cockpit for coding agents. Command Claude, Codex, OpenCode or Qoder, watch every file and line they change, and take over anytime.**
 
 </div>
 
@@ -40,154 +40,88 @@
 ## 这是什么
 
 本项目基于 [alchaincyf/fanbox](https://github.com/alchaincyf/fanbox) 修改而来，重点进行 **Windows 适配**：
-Windows 打包、node-pty 构建、Claude Code / Codex / OpenCode / Qoder 链路验证、微信 ClawBot Windows 运行验证。
+Windows 打包、node-pty 构建、Claude Code / Codex / OpenCode / Qoder CLI 链路验证、微信 ClawBot Windows 运行验证。
 原项目遵循 MIT License，本仓库保留原项目版权声明和许可条款。
 
-> **macOS 用户请访问上游项目** [alchaincyf/fanbox](https://github.com/alchaincyf/fanbox)。**本仓库主要面向 Windows 平台。**
+> **macOS 用户请访问上游项目** [alchaincyf/fanbox](https://github.com/alchaincyf/fanbox)。
+> **本仓库主要面向 Windows 平台。**
 
 ---
 
-## ✨ 全部功能（Windows Edition 已验证）
+## Why FanBox · 为什么做这个
 
-### 📁 文件管理
+GitHub 上写代码的工具有两路极端：一路是 IDE，沉、插件多、要配置；另一路是终端 CLI，灵活、快、但上下文全靠你自己记。写代码本身的工作量越来越不是瓶颈，瓶颈变成了**在它们之间搬运注意力**——「我刚才在哪个 tab、哪个文件、哪条命令、哪段对话里有这段上下文」。你打开一个文件树，里面只有路径；你打开终端，里面只有日志；你打开 Chat，里面只有 reply。三个东西之间没有任何关联。
 
-| 功能 | 说明 |
-|---|---|
-| 文件浏览 | 左侧文件树，breadcrumbs 导航，back/forward 历史 |
-| **此电脑 / 盘符导航** | 双击盘符卡片直接进入 C: / D: / E: … |
-| **Windows 搜索** | `Ctrl+K` 打开命令面板，系统级 fast-find |
-| **图片缩略图** | PowerShell COM 探测，缩略图缓存自动裁剪 |
-| 收藏夹 | 右键 → 收藏，sidebar 快捷入口（最多 50 项） |
-| 最近打开 | 记录 30 条最近访问 |
-| 文件操作 | 移动 / 重命名 / 创建（右键 / 工具栏） |
-| **删除到回收站** | 调用 Windows Recycle API，**不是永久删除** |
-| **拖放导入** | 从外部拖入文件 / 文本 / 二进制到 FanBox |
-| 预览隔离 | HTML 预览独立端口 + sandbox + 路径白名单（防读 `~/.ssh` 等点目录） |
+FanBox 想做的就是把这条路打通：
 
-### 🖼 截图 & 图片
+- 同一个窗口里看见文件、终端、agent 跑出来的 diff 和用量进度条；
+- 选一个文件点右键就能丢给本机 agent 接着干；
+- 看完哪段不满意能立刻 fork 那条命令、即时改参数再跑；
+- 切到手机微信，发条消息，回到 Windows 桌面前 Claude 已经动完文件了。
 
-| 功能 | 说明 |
-|---|---|
-| **最近截图面板** | 自动扫描本机最近图片 |
-| **微信 Alt+A 剪贴板截图导入** | 一键导入微信截屏到 FanBox |
-| **复制图片到剪贴板** | file 右键 + 截图面板都有按钮 |
-| **图片直通车** | 拖图片到 Chat 直接发图给 agent（由各 CLI 自己处理粘贴） |
-| 长文本自动保存 | 粘贴 ≥ 8000 字符自动落 `.fanbox-paste/clipboard-*.md` |
+你不再被任何一件工具绑架。**文件管理器、终端、agent、Web —— 它们都是 FanBox 里的一个面板**。哪个 panel 顺手用哪个，需要新工具就加一个 panel，不要重新学一个 App。
 
-### ⌨️ 内嵌终端
-
-| 功能 | 说明 |
-|---|---|
-| **xterm.js + WebGL + unicode11** | 中文宽字符不糊，硬件加速 |
-| **node-pty + ConPTY** | 原生 Windows 伪终端 |
-| **多 tab** | 新 tab / 切换 / 关闭 |
-| **空闲 shell 就地启动** | 终端在跑其它命令？新开 tab 而不是抢 |
-| 终端录制 | `.cast` 录制 + 回放 + 导出 / 删除 |
-| 终端右键 | 复制 / 粘贴 / 全选 |
-
-### 🤖 AI Agent 入口
-
-| 入口 | 命令 | 状态 |
-|---|---|---|
-| **Claude Code** | `claude --dangerously-skip-permissions` | 内置，原路径 |
-| **Codex** | `codex` | 内置，原路径 |
-| **OpenCode** | `opencode` | 轻量探测，未装时友好提示 |
-| **Qoder CLI** | `qoder` / `qodercli` / `qoder-cli` | 三候选探测，未装时友好提示 |
-
-**严格约束**：
-- ❌ 不自动安装任何 CLI
-- ❌ 不读取任何 token / cookie / API key
-- ❌ 不修改 Claude / Codex 原启动命令
-- ❌ 图片粘贴由各 CLI 自己处理（Claude Alt+V / Codex Ctrl+V / OpenCode & Qoder 由各自 CLI 决定）
-- ❌ 不做 IDE Composer / `/` 技能菜单 / `+` 上下文
-
-### 📊 Claude / Codex 本地用量统计
-
-| 功能 | 说明 |
-|---|---|
-| 用量面板 | `data-testid="usage-toggle"` 打开/折叠 |
-| 本地记录 | 读 `~/.claude/projects/` 与 `~/.codex/sessions/`，不联网 |
-| 限额查询 | Claude 限额只发往 `api.anthropic.com` 用于 `/usage` 同源数据 |
-| Agent 关联项目 | 列出当前目录下 Claude / Codex 改过的文件 + 历史会话 |
-
-### 📲 微信 ClawBot（手机控制本机 Claude / Codex）
-
-| 功能 | 说明 |
-|---|---|
-| bridge → driver → Claude 真实链路 | 验证通过 |
-| 登录态持久化 | `%APPDATA%/FanBox/wechat/` |
-| 选 target | Claude / Codex（可切换） |
-| 会话上下文管理 | 自动整理（compact）+ 新对话 + 用量进度条 |
-| 记忆系统 | memory-flush：让 agent 把要点用 `<memory>` ops 落盘，吐 ≤150 字摘要续场 |
-| 多 persona 切换 | 不同对话风格 |
-| **防休眠 / 笔记本盖检测** | 笔记本合盖时按需唤醒，避免消息丢失 |
-| 探活 | 主动检测连接状态 |
-
-### 🌐 Git 集成
-
-| 功能 | 说明 |
-|---|---|
-| 仓库状态 | 改过的文件 / untracked / 冲突 |
-| 文件 diff | Monaco 渲染 Git diff |
-| 项目记忆 | 显示该目录下 AI 干过的事 + 历史会话 + 一键续上 |
-
-### 🛠 集成能力
-
-| 功能 | 说明 |
-|---|---|
-| **路径定位** | `/api/locate` 多根搜索（最多 3 个额外根） |
-| **归档列表** | 读 zip / tar / tar.gz 内部文件清单 |
-| **项目发版一条龙** | `发版` 链接：版本号→CHANGELOG→打包→push→Release |
-| **多语言** | 中英切换（`/api/lang`） |
-| **自动更新检测** | 检测到 GitHub 新 Release 时右下角提示，不强更 |
-| **HEIC / 视频缩略图** | 非核心，能显示就显示 |
-
-### ⌨️ 快捷键
-
-| 操作 | 键 |
-|---|---|
-| 全局搜索 | `Ctrl+K` |
-| 用编辑器打开 | `Ctrl+Enter` |
-| 折叠侧栏 | `Ctrl+B` |
-| 后退 / 前进 | `Ctrl+[` / `Ctrl+]` |
-| 当前目录筛选 | `/` |
-| 打开 / 预览 | `Enter` |
-| 上下选择 | `↑` `↓` |
-| 关闭 | `Esc` |
-
-> Windows 快捷键已适配 Ctrl 代替 ⌘。
+这是设计 FanBox 的出发点，也是所有 feature / skin / shortcut 的取舍基准。
 
 ---
 
-## 📥 下载 & 安装
+## Windows 版已验证能力
 
-### 桌面版（推荐）
+- ✅ Windows exe 可启动（portable 免安装）
+- ✅ Electron GUI 可正常打开
+- ✅ node-pty Windows 构建和打包可用（ConPTY）
+- ✅ 内嵌终端可用（xterm.js + WebGL + unicode11，中文宽字符正确）
+- ✅ **Claude Code** CLI 可识别和调用（`claude --dangerously-skip-permissions`）
+- ✅ **Codex** CLI 可识别和调用（`codex`）+ 本地用量统计
+- ✅ **OpenCode** 启动入口（PATH 探测 `opencode`，未装时友好提示）
+- ✅ **Qoder CLI** 启动入口（探测 `qoder` / `qodercli` / `qoder-cli`，未装时友好提示）
+- ✅ **Windows 搜索**：`Ctrl+K` 打开命令面板，系统级 fast-find
+- ✅ **图片缩略图**：PowerShell COM 探测，缩略图缓存自动裁剪
+- ✅ **此电脑 / 盘符导航**：双击盘符卡片直接进入 C: / D: / E: …
+- ✅ **最近截图面板**：自动扫描本机最近图片
+- ✅ **微信 Alt+A 剪贴板截图导入**
+- ✅ **复制文件到剪贴板**（访达可粘贴）
+- ✅ **复制图片到剪贴板**（file 右键 + 截图面板）
+- ✅ **删除到回收站**（调用 Windows Recycle API，不是永久删除）
+- ✅ **磁盘占用透视**（`/api/du`）
+- ✅ **拖放导入**（`/api/drop`）
+- ✅ **拖图片直接发图给 agent**（由各 CLI 自己处理粘贴）
+- ✅ **长文本自动保存**：粘贴 ≥ 8000 字符自动落 `.fanbox-paste/clipboard-*.md`
+- ✅ **HTML 预览隔离**：独立端口 + sandbox + 主目录白名单 + 点目录黑名单
+- ✅ **收藏夹**（最多 50 项）+ **最近打开**（30 条）
+- ✅ **文件移动 / 重命名 / 创建**（右键 / 工具栏）
+- ✅ **Git 集成**：仓库状态 + Monaco 渲染 diff
+- ✅ **归档列表**：读 zip / tar / tar.gz 内部清单
+- ✅ **路径定位**（`/api/locate` 多根搜索）
+- ✅ **项目发版一条龙**：版本号→CHANGELOG→打包→push→Release
+- ✅ **中英双语**（`/api/lang`）
+- ✅ **终端录制（.cast）** + 回放 + 导出 / 删除
+- ✅ **防休眠 / 笔记本盖检测**：笔记本合盖时按需唤醒，避免消息丢失
+- ✅ **自动更新检测**：检测到 GitHub 新 Release 时右下角提示，不强更
+- ✅ bridge → driver → Claude 链路通过
+- ✅ 微信 ClawBot 真实链路验证通过
+- ✅ 手机微信消息可驱动 Windows 本机 Claude / Codex 回复
+- ✅ **微信 ClawBot 记忆系统**（memory-flush：要点落盘，吐 ≤150 字摘要续场）
+- ✅ **微信 ClawBot 多 persona 切换**
+- ✅ 登录态持久化通过（`%APPDATA%/FanBox/wechat/`）
+- ✅ 打包版 exe 通过（`FanBox 2.4.0.exe` 95.43 MB）
+- ✅ Claude / Codex 本地用量统计（不联网，仅读本地文件）
+- ✅ Playwright 回归（**35/35 通过**）
 
-从 [GitHub Releases](https://github.com/wxhBadUser/fanbox-master/releases/latest) 下载 `FanBox 2.4.0.exe`，双击运行。
+## 使用前提
 
-> ⚠️ 当前 Windows 构建**未签名**。首次运行可能出现 Windows SmartScreen 提示。
-> 解决方法：点击「更多信息 (More info)」→「仍要运行 (Run anyway)」。
-> 内置更新提醒：检测到 GitHub 上有新 Release 时，右下角会弹提示，不强更、可对单个版本「不再提醒」。
+> ⚠️ **重要说明**
 
-### 源码运行
+- **FanBox 不内置 Claude**。使用 Claude 功能需要用户本机自行安装并登录 [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview)。
+- 使用 Codex 功能需要用户本机自行安装 [Codex CLI](https://github.com/openai/codex)。
+- 使用 OpenCode 功能需要用户本机自行安装 [OpenCode](https://opencode.ai)（启动命令 `opencode`）。
+- 使用 Qoder CLI 功能需要用户本机自行安装 [Qoder CLI](https://www.qoder.com)（`npm install -g @qoder-ai/qodercli`）。
+- 使用微信 ClawBot 需要用户**自己扫码登录**自己的微信账号。
+- **FanBox 不上传、不托管、不分发用户微信/Claude/Codex 凭据**。所有数据存储在用户本机。
+- **FanBox 不内置任何账号、token、API key**。
+- **OpenCode / Qoder CLI 不自动安装**。未装时点击入口会弹 toast 提示，不会偷偷帮你装。
 
-```bash
-npm install
-npm run rebuild      # 构建 node-pty 原生模块
-npm run verify:build # 验证构建
-npm run verify:paths # 验证路径
-npm run app          # 启动 FanBox
-```
-
-### 打包
-
-```bash
-npm run dist:win     # 打包为 Windows portable exe（产物在 dist/）
-```
-
----
-
-## 🛠 Windows 构建环境
+## Windows 构建环境
 
 - Windows 10 或 Windows 11
 - [Node.js](https://nodejs.org/) 22 LTS 或更新版本
@@ -199,19 +133,15 @@ npm run dist:win     # 打包为 Windows portable exe（产物在 dist/）
 
 > `npm run rebuild` 会调用 `node scripts/rebuild-win.js`，自动配置 node-pty 的 Windows 构建环境。
 
----
+### 打包
 
-## 📲 微信 ClawBot 使用说明
+```bash
+npm run dist:win   # 产物在 dist/（FanBox 2.4.0.exe + win-unpacked/）
+```
 
-1. 启动 FanBox
-2. 打开 ClawBot 面板
-3. 点击「二维码登录」
-4. 用自己的微信扫码
-5. 选择 Claude target
-6. 从手机发送消息即可驱动本机 Claude
-7. 登录态保存在用户本机数据目录（`%APPDATA%/FanBox/wechat/` 或 `%APPDATA%/Electron/wechat/`）
-
-> 首次连接需要扫码授权。后续启动自动恢复连接（只要 token 未过期）。
+> ⚠️ 当前 Windows 构建**未签名**。首次运行可能出现 Windows SmartScreen 提示。
+> 解决方法：点击「更多信息 (More info)」→「仍要运行 (Run anyway)」。
+> 内置更新提醒：检测到 GitHub 上有新 Release 时，右下角会弹提示，不强更、可对单个版本「不再提醒」。
 
 ---
 
@@ -236,9 +166,12 @@ npm run dist:win     # 打包为 Windows portable exe（产物在 dist/）
 - **agent 调用发生在用户本机**：所有 Claude/Codex/OpenCode/Qoder 进程在用户本机运行。
 - **不读取、不上传、不分发用户文件**：FanBox 只在你的本机读写文件。
 - **不上传截图**：截图面板内容仅留在本机；不外发。
-- **不上传 Claude/Codex 本地记录**：用量统计只读本地文件，不联网。
+- **不上传 Claude/Codex 本地记录**：用量统计只读本地文件，不联网（Claude 限额查询只发往 `api.anthropic.com` 用于 `/usage` 同源数据）。
 - **回收站删除不是永久删除**：删除到回收站后文件仍可恢复；永久删除请用资源管理器。
-- **HTML 预览隔离**：独立端口 + sandbox + 主目录白名单 + 点目录黑名单。
+- **HTML 预览隔离**：独立端口 + sandbox + 主目录白名单 + 点目录黑名单（防读 `~/.ssh` 等点目录）。
+- **不自动安装任何 CLI**：OpenCode / Qoder 未装时只弹 toast 提示，不替用户装东西。
+- **不读取任何 provider token / cookie / authorization header**
+- **验证脚本使用 `.tmp/verify-wechat/` 隔离目录**：不读写真实 account。
 - **不要提交 `account.json`、`config.json`、logs、recordings、`dist/`、`node_modules/`** 到版本控制。
 
 ---
@@ -267,7 +200,7 @@ npm run rebuild
 - MSVC v143 是否安装
 - Windows 10/11 SDK 是否安装
 
-### Claude / Codex 找不到
+### Claude / Codex / OpenCode / Qoder 找不到
 
 ```bash
 # Claude
@@ -277,11 +210,14 @@ claude --version
 # Codex
 npm install -g @openai/codex
 codex --version
+
+# OpenCode: 见 https://opencode.ai
+# Qoder CLI
+npm install -g @qoder-ai/qodercli
+qoder --version
 ```
 
-### OpenCode / Qoder 未安装
-
-未装时点击入口会弹 toast 提示「未找到 OpenCode / Qoder CLI，请先安装…」。**FanBox 不自动安装**。
+未装时点击 FanBox 入口会弹 toast 提示，**FanBox 不自动安装**。
 
 ### Windows SmartScreen 提示
 
@@ -301,11 +237,11 @@ codex --version
 
 ---
 
-## 🧭 Architecture · 技术架构
+## 🏗 Architecture · 技术架构
 
 | 层 | 技术 |
 |---|---|
-| 后端 | 零依赖 Node.js `server.js`（**24+ REST API**：文件、Git、回收站、归档、用量、统计、发版流…） |
+| 后端 | 零依赖 Node.js `server.js`（24+ REST API：文件、Git、回收站、归档、用量、统计、发版流…） |
 | 桌面壳 | Electron 33 + node-pty（asarUnpack 原生模块） |
 | 终端 | xterm.js + WebGL + unicode11 |
 | 编辑器 | Monaco（代码 / JSON / Git diff）+ Milkdown Crepe（Markdown） |
@@ -345,19 +281,6 @@ fanbox/
 
 ---
 
-## ✅ 验证状态
-
-| 验证 | 结果 |
-|---|---|
-| `node --check`（5 个核心 JS） | ALL OK |
-| `npm run verify:paths` | PASS |
-| `npm run verify:build` | PASS |
-| `node scripts/verify-agent-driver.js` | PASS |
-| `node scripts/verify-wechat-bridge.js` | PASS |
-| `npm run test:e2e:windows` | **35/35 通过** |
-
----
-
 ## 🛣 Roadmap
 
 ### 已完成
@@ -365,9 +288,11 @@ fanbox/
 - [x] Windows node-pty 构建（ConPTY）
 - [x] Windows exe 打包
 - [x] Claude Code CLI Windows 链路验证
-- [x] Codex CLI 启动 + 用量统计
-- [x] OpenCode / Qoder CLI 入口（轻量注册表 + 探测）
-- [x] 微信 ClawBot Windows 运行验证
+- [x] Codex CLI 启动 + 本地用量统计
+- [x] OpenCode / Qoder CLI 启动入口（轻量注册表 + 探测）
+- [x] 微信 ClawBot Windows 运行验证（手机 → 本机 Claude / Codex）
+- [x] 微信 ClawBot 记忆系统（memory-flush）
+- [x] 微信 ClawBot 多 persona 切换
 - [x] Windows 搜索（Ctrl+K 命令面板）
 - [x] Windows 缩略图（PowerShell COM 探测 + 自动裁剪）
 - [x] Windows 截图直通车（截图面板 + Alt+A 导入 + 复制图片按钮）
@@ -375,11 +300,15 @@ fanbox/
 - [x] 回收站（Windows Recycle API）
 - [x] 磁盘占用透视
 - [x] 中英双语
-- [x] 拖放导入
+- [x] 拖放导入 + 拖图片发图给 agent
 - [x] Git 集成（状态 / diff）
 - [x] 收藏夹 / 最近打开
+- [x] 文件移动 / 重命名 / 创建
+- [x] 归档列表（zip / tar）
+- [x] 路径定位（多根搜索）
 - [x] 终端录制（.cast）
 - [x] 自动更新检测
+- [x] HTML 预览隔离（独立端口 + sandbox）
 - [x] Playwright e2e 35/35
 
 ### 待办
@@ -405,7 +334,7 @@ fanbox/
 | [Milkdown](https://milkdown.dev/) (Crepe) | Markdown 所见即所得 | MIT |
 | [marked](https://marked.js.org/) | Markdown 预览 | MIT |
 | [highlight.js](https://highlightjs.org/) | 代码高亮 | BSD-3-Clause |
-| [esbuild](https://esbuild.github.org/) | vendor 打包 | MIT |
+| [esbuild](https://esbuild.github.io/) | vendor 打包 | MIT |
 | [electron-builder](https://www.electron.build/) | 打包 exe | MIT |
 | [Playwright](https://playwright.dev/) | UI 验证 | Apache-2.0 |
 
