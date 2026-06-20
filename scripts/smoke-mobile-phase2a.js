@@ -447,6 +447,67 @@ function req(opts, body) {
   // 验证：所有 disable 按钮的文字内容里允许出现"危险动词"
   const disabledBtnTexts = btnTexts.filter(b => /\bdisabled\b/.test(b.attrs)).map(b => b.text);
   ok('disabled 按钮可能包含 "Send" 等动词（仅 disabled）', disabledBtnTexts.every(t => t === '' || singleWords.every(w => !new RegExp('\\b' + w + '\\b', 'i').test(t)) || true));
+
+  // ============================================================
+  // [11.5] Phase 2A-1 真机修复断言（Android Chrome 适配）
+  // ============================================================
+  section('11.5) Phase 2A-1 真机修复断言');
+  // 1) 长 cwd/title 撑开防护：.card-meta 需 min-width:0 + text-overflow:ellipsis + white-space:nowrap
+  ok('CSS .card-meta 含 min-width:0', /\.card-meta\s*\{[^}]*min-width:\s*0/.test(css));
+  ok('CSS .card-meta 含 text-overflow:ellipsis', /\.card-meta\s*\{[^}]*text-overflow:\s*ellipsis/.test(css));
+  ok('CSS .card-meta 含 white-space:nowrap', /\.card-meta\s*\{[^}]*white-space:\s*nowrap/.test(css));
+  // 2) #files-cwd-label / #agent-cwd 独立规则（monospace + ellipsis）
+  ok('CSS #files-cwd-label 含 text-overflow:ellipsis', /#files-cwd-label[\s\S]{0,400}text-overflow:\s*ellipsis/.test(css));
+  ok('CSS #agent-cwd 含 text-overflow:ellipsis', /#agent-cwd[\s\S]{0,400}text-overflow:\s*ellipsis/.test(css));
+  // 3) .card-row-between 支持 flex-wrap
+  ok('CSS .card-row-between 含 flex-wrap:wrap', /\.card-row-between[\s\S]{0,200}flex-wrap:\s*wrap/.test(css));
+  // 4) Android tap target ≥ 44px
+  ok('CSS .agent-chip min-height ≥ 44px', /\.agent-chip[\s\S]{0,400}min-height:\s*44px/.test(css));
+  ok('CSS .tab-btn min-height ≥ 56px（> 44px）', /\.tab-btn[\s\S]{0,400}min-height:\s*(?:44|48|56)px/.test(css));
+  ok('CSS .qa-tile min-height ≥ 44px', /\.qa-tile[\s\S]{0,400}min-height:\s*56px/.test(css));
+  ok('CSS .session-card min-height ≥ 44px', /\.session-card[\s\S]{0,400}min-height:\s*56px/.test(css));
+  ok('CSS .file-row min-height ≥ 44px', /\.file-row[\s\S]{0,400}min-height:\s*56px/.test(css));
+  // 5) touch-action: manipulation 消除 300ms tap delay
+  ok('CSS .tab-btn 含 touch-action:manipulation', /\.tab-btn[\s\S]{0,500}touch-action:\s*manipulation/.test(css));
+  ok('CSS .agent-chip 含 touch-action:manipulation', /\.agent-chip[\s\S]{0,500}touch-action:\s*manipulation/.test(css));
+  ok('CSS .qa-tile 含 touch-action:manipulation', /\.qa-tile[\s\S]{0,500}touch-action:\s*manipulation/.test(css));
+  ok('CSS .session-card 含 touch-action:manipulation', /\.session-card[\s\S]{0,500}touch-action:\s*manipulation/.test(css));
+  ok('CSS .file-row 含 touch-action:manipulation', /\.file-row[\s\S]{0,500}touch-action:\s*manipulation/.test(css));
+  // 6) -webkit-tap-highlight-color: transparent（移除 Android Chrome 高亮）
+  ok('CSS .tab-btn 移除 tap highlight', /\.tab-btn[\s\S]{0,400}-webkit-tap-highlight-color:\s*transparent/.test(css));
+  // 7) viewport-fit=cover 启用 env() safe-area
+  ok('HTML viewport 含 viewport-fit=cover', /viewport-fit=cover/.test(html));
+  // 8) .app-bottom-nav env(safe-area-inset-bottom)
+  ok('CSS .app-bottom-nav 含 env(safe-area-inset-bottom)', /\.app-bottom-nav[\s\S]{0,400}env\(safe-area-inset-bottom\)/.test(css));
+  ok('CSS .app 含 padding-bottom 包含 bottom-nav-h + safe-area', /\.app\s*\{[^}]*padding-bottom:\s*calc\(var\(--bottom-nav-h\)\s*\+\s*env\(safe-area-inset-bottom\)/.test(css));
+  // 9) session card flex 1 1 0（不要 max-width:70% 的旧 bug）
+  ok('CSS .session-title 用 flex:1 1 0 而非 max-width:70%', /\.session-title\s*\{[^}]*flex:\s*1 1 0/.test(css));
+  ok('CSS .session-meta-row min-width:0 修复 flex overflow', /\.session-meta-row\s*\{[^}]*min-width:\s*0/.test(css));
+  // 10) agent input row 支持 wrap
+  ok('CSS .agent-input-row 含 flex-wrap:wrap', /\.agent-input-row\s*\{[^}]*flex-wrap:\s*wrap/.test(css));
+  // 11) cta-row 在 ≥ 520px 变横向，< 520px 变纵向
+  ok('CSS .cta-row 媒体查询 ≥ 520px 变 row', /@media\s*\(min-width:\s*520px\)\s*\{[^}]*\.cta-row\s*\{[^}]*flex-direction:\s*row/.test(css));
+  // 12) #files-cwd-label 在 Files Tab 中（保证 Files UI 真有 cwd 展示）
+  ok('HTML 含 #files-cwd-label', /id="files-cwd-label"/.test(html));
+  ok('HTML 含 #files-open-agent', /id="files-open-agent"/.test(html));
+  ok('HTML 含 #files-view-sessions', /id="files-view-sessions"/.test(html));
+  // 13) Agent input disabled（防止 Phase 2A-1 误开）
+  ok('HTML #agent-input disabled', /id="agent-input"[^>]*\bdisabled\b/.test(html) || /\bdisabled\b[^>]*id="agent-input"/.test(html));
+  ok('HTML #agent-send disabled', /id="agent-send"[^>]*\bdisabled\b/.test(html) || /\bdisabled\b[^>]*id="agent-send"/.test(html));
+  // 14) 5 Tab 顺序：home / files / agent / skills / sessions
+  const orderMatch = html.match(/data-tab-btn="(home|files|agent|skills|sessions)"/g) || [];
+  const order = orderMatch.map(s => s.match(/"([^"]+)"/)[1]);
+  ok('Tab 顺序: home / files / agent / skills / sessions',
+    order.length === 5 && order[0] === 'home' && order[1] === 'files' && order[2] === 'agent' && order[3] === 'skills' && order[4] === 'sessions',
+    'order=' + order.join(','));
+  // 15) Home 含 usage 摘要（id 存在）
+  ok('HTML #home-usage-today', /id="home-usage-today"/.test(html));
+  ok('HTML #home-usage-week', /id="home-usage-week"/.test(html));
+  // 16) mobile.js apiPost 白名单仍只放行 context/*
+  ok('js POST_ALLOWLIST 仅匹配 /api/mobile/context/(cwd|select)', /POST_ALLOWLIST\s*=\s*\/\\^\\\/\?api\\\/\?mobile\\\/\?context\\\/\?(cwd\|select)\$/.test(js) || /POST_ALLOWLIST\s*=\s*\/[^\n]*context[^\n]*\//.test(js));
+  // 17) electron/mobile.js handleApi 内部对 POST context 用 pathInAllowed 校验
+  const mobileJsCode = fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile.js'), 'utf8');
+  ok('electron/mobile.js POST context 走 pathInAllowed 校验', /pathInAllowed/.test(mobileJsCode) && /isForbiddenPath/.test(mobileJsCode));
   // 没有 /api/mobile/pty/input 端点
   ok('mobile.js 不暴露 /api/mobile/pty/input 字符串', !/api\/mobile\/pty\/input/.test(js) && !/api\/mobile\/pty\/input/.test(html));
   // 没有 /api/mobile/sessions/:id/messages 执行端点

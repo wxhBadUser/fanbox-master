@@ -64,7 +64,7 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   margin-bottom: var(--s-3);
 }
 .card-row { display: flex; align-items: center; gap: var(--s-2); }
-.card-row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); }
+.card-row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); flex-wrap: wrap; }
 .card-h {
   font-size: var(--fs-h2);
   font-weight: var(--fw-h2);
@@ -79,6 +79,10 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 .card-meta {
   color: var(--fg-3);
   font-size: var(--fs-meta);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .card-stat .card-p { margin-top: 2px; }
 .card-stat-wide { grid-column: 1 / -1; }
@@ -302,9 +306,12 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   align-items: center;
   justify-content: center;
   gap: 2px;
+  min-height: 56px;
   color: var(--fg-3);
   position: relative;
   transition: color 80ms ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 .tab-btn::before {
   content: "";
@@ -395,11 +402,14 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   align-items: center;
   gap: var(--s-2);
   padding: var(--s-3);
+  min-height: 56px;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--r-control);
   text-align: left;
   transition: background 80ms ease, border-color 80ms ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 .qa-tile:hover { background: var(--bg-2); border-color: var(--blue-line); }
 .qa-tile:active { background: var(--blue-soft); }
@@ -414,10 +424,14 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   width: 100%;
   text-align: left;
   padding: var(--s-3);
+  min-height: 56px;
   background: var(--card);
   border: 1px solid var(--border-soft);
   border-radius: var(--r-control);
   transition: background 80ms ease, border-color 80ms ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  cursor: pointer;
 }
 .file-row:hover { background: var(--bg-2); border-color: var(--border); }
 .file-row.is-active { background: var(--blue-soft); border-color: var(--blue-line); }
@@ -561,7 +575,8 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 10px 14px;
+  min-height: 44px;
   font-size: var(--fs-meta);
   font-weight: 500;
   color: var(--fg-2);
@@ -570,6 +585,8 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   border-radius: var(--r-pill);
   transition: background 80ms ease, border-color 80ms ease, color 80ms ease;
   white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 .agent-chip:hover { background: var(--card); border-color: var(--blue-line); }
 .agent-chip.is-active {
@@ -641,12 +658,14 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 
 .agent-input-row {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--s-2);
   align-items: stretch;
   margin-top: var(--s-3);
 }
 .agent-input {
-  flex: 1 1 0;
+  flex: 1 1 200px;
+  min-width: 0;
   min-height: 56px;
   max-height: 160px;
   padding: 10px 12px;
@@ -662,11 +681,22 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 .agent-input:focus { border-color: var(--blue-line); }
 .agent-input:disabled { color: var(--fg-3); cursor: not-allowed; }
 .agent-input::placeholder { color: var(--fg-3); }
+.agent-input-row .btn-primary {
+  width: auto;
+  min-width: 88px;
+  flex: 0 0 auto;
+  margin-top: 0;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
 .agent-input-note {
   margin-top: var(--s-1);
   font-size: 11px;
   color: var(--fg-3);
   text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---------- Phase 2A-1：CTA / Sessions 列表 ---------- */
@@ -677,9 +707,31 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   flex-direction: column;
   gap: var(--s-2);
   flex: 0 0 auto;
+  min-width: 0;
 }
 .cta-row .btn-primary,
-.cta-row .btn-ghost { width: auto; min-width: 160px; margin-top: 0; }
+.cta-row .btn-ghost {
+  width: 100%;
+  min-width: 0;
+  margin-top: 0;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+@media (min-width: 520px) {
+  .cta-row { flex-direction: row; }
+  .cta-row .btn-primary,
+  .cta-row .btn-ghost { width: auto; min-width: 160px; }
+}
+#files-cwd-label,
+#agent-cwd {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
 
 .sessions-list { display: flex; flex-direction: column; gap: var(--s-2); margin-bottom: var(--s-3); }
 .session-card {
@@ -691,6 +743,10 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   border: 1px solid var(--border-soft);
   border-radius: var(--r-control);
   transition: background 80ms ease, border-color 80ms ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  min-height: 56px;
+  cursor: pointer;
 }
 .session-card:hover { background: var(--bg-2); border-color: var(--blue-line); }
 .session-card:active { background: var(--blue-soft); }
@@ -700,6 +756,7 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   justify-content: space-between;
   gap: var(--s-2);
   margin-bottom: var(--s-1);
+  min-width: 0;
 }
 .session-title {
   font-size: var(--fs-body);
@@ -708,7 +765,8 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 70%;
+  min-width: 0;
+  flex: 1 1 0;
 }
 .session-source {
   font-size: 11px;
@@ -743,16 +801,25 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   margin-top: var(--s-1);
   font-size: 11px;
   color: var(--fg-3);
+  min-width: 0;
 }
 .session-meta-row {
   display: flex;
   align-items: center;
-  gap: var(--s-2);
-  flex-wrap: wrap;
-  max-width: 75%;
+  gap: 6px;
+  flex-wrap: nowrap;
+  min-width: 0;
+  flex: 1 1 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.session-meta-row > * {
+  flex: 0 0 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 .session-status {
   display: inline-flex;
