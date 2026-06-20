@@ -5,32 +5,68 @@
 - **版本名称**：FanBox Windows Edition 2.3.0 MVP
 - **基于项目**：[alchaincyf/fanbox](https://github.com/alchaincyf/fanbox)
 - **许可**：MIT License
-- **发布日期**：2026-06-19
+- **建议 tag**：`v2.3.0-windows-mvp`
+- **发布日期**：2026-06-20
+
+> 本版本是 **FanBox 的 Windows 适配版本，不是上游官方 release**。
+> macOS 用户请访问上游项目 [alchaincyf/fanbox](https://github.com/alchaincyf/fanbox)。
 
 ## 已验证功能
 
-- ✅ Windows exe 可启动（portable 免安装）
-- ✅ Electron GUI 可正常打开
-- ✅ node-pty Windows 构建和打包可用
-- ✅ 内嵌终端可用（xterm.js + WebGL 渲染，中文宽字符正确）
-- ✅ Claude Code CLI 可识别和调用
-- ✅ bridge → driver → Claude 链路通过
-- ✅ 微信 ClawBot 真实链路验证通过
-- ✅ 手机微信消息可驱动 Windows 本机 Claude 回复
-- ✅ 登录态持久化通过
-- ✅ 打包版 exe（dist/FanBox 2.3.0.exe）通过
-- ✅ Codex 未安装时优雅降级
-- ✅ 验证脚本使用 `.tmp/verify-wechat/` 隔离目录，不读写真实 account
+### Windows 桌面端
 
-## 使用前提
+- Windows exe 可启动（portable 免安装）
+- Electron GUI 可正常打开
+- node-pty Windows 构建和打包可用
+- 内嵌终端可用（xterm.js + WebGL 渲染，中文宽字符正确）
 
-> **⚠️ 用户需要自行准备的账号/工具：**
+### 文件管理
 
-- **Claude Code CLI**：使用 Claude 功能需要用户本机自行安装并登录 Claude Code CLI（`npm install -g @anthropic-ai/claude-code`）
-- **Codex CLI**：使用 Codex 功能需要用户本机自行安装（当前 Windows 版主要验证了 Claude 链路，Codex 完整链路仍在完善）
-- **微信账号**：使用微信 ClawBot 需要用户自己扫码登录
+- 文件浏览（左侧文件树）
+- **此电脑 / 盘符导航**（This PC view + drive breadcrumb）
+- **Windows 搜索**（系统级 Everything 风格 fast-find）
+- **图片缩略图**（PowerShell COM 探测）
+- **最近截图面板**
+- **微信 Alt+A 剪贴板截图导入**
+- **复制文件到剪贴板**（访达可粘贴）
+- **复制图片到剪贴板**（file right-click + 截图面板）
+- **删除到回收站**（不是永久删除）
+- **磁盘占用透视**
 
-**隐私说明**：FanBox 不上传、不托管、不分发用户微信/Claude/Codex 凭据。所有 agent 调用发生在用户本机，凭据仅在用户本机使用。
+### AI Agent 入口
+
+- **Claude Code** —— 完整启动链路
+- **Codex** —— 启动 + 用量统计
+- **OpenCode** —— 轻量入口，PATH 探测，未装时友好提示
+- **Qoder CLI** —— 探测 `qoder` / `qodercli` / `qoder-cli`，未装时友好提示
+- **Claude / Codex 本地用量统计**（不联网，仅读本地文件；Claude 限额查询只发往 `api.anthropic.com` 用于 `/usage` 同源数据）
+
+### 微信 ClawBot
+
+- bridge → driver → Claude 链路通过
+- 手机微信消息可驱动 Windows 本机 Claude 回复
+- 登录态持久化通过
+- 真实链路验证通过
+
+### 自动化验证
+
+- Playwright 回归（35/35 通过）
+- `verify:paths` / `verify:build` / `verify-agent-driver` / `verify-wechat-bridge` 全部 PASS
+
+## 使用要求
+
+> **本项目不内置任何账号、token、API key。** 用户需要自行准备：
+
+| 项 | 安装方式 | 备注 |
+|---|---|---|
+| **Node.js** | 22 LTS 或更新版本 | 必装（源码运行 / 自行打包时） |
+| **Claude Code CLI** | `npm install -g @anthropic-ai/claude-code` | 必装（要用 Claude 时） |
+| **Codex CLI** | `npm install -g @openai/codex` | 必装（要用 Codex 时） |
+| **OpenCode** | 见 [opencode 官网](https://opencode.ai) | 可选 |
+| **Qoder CLI** | `npm install -g @qoder-ai/qodercli` | 可选 |
+| **微信账号** | 用户自己扫码登录 | 必装（要用 ClawBot 时） |
+
+**隐私说明**：FanBox 不上传、不托管、不分发用户微信/Claude/Codex 凭据。所有 agent 调用发生在用户本机。
 
 ## 下载与启动
 
@@ -43,13 +79,12 @@
 双击 `FanBox 2.3.0.exe` 即可运行。
 
 > ⚠️ 当前 Windows 构建未签名。首次运行可能出现 Windows SmartScreen 提示。
->
 > 解决方法：点击「更多信息 (More info)」→「仍要运行 (Run anyway)」。
 
 ### 源码运行
 
 ```bash
-git clone https://github.com/wxhBadUser/fanbox-master.git
+git clone <your-repo-url>
 cd fanbox-master
 npm install
 npm run rebuild
@@ -82,38 +117,50 @@ npm run dist:win
 4. 用自己的微信扫码
 5. 选择 Claude target
 6. 从手机发送消息即可驱动本机 Claude
-7. 登录态保存在用户本机数据目录
+7. 登录态保存在用户本机数据目录（`%APPDATA%/FanBox/wechat/` 或 `%APPDATA%/Electron/wechat/`）
 
 ## 已知限制
 
-- **Codex 完整链路尚未验证**：当前 Windows 版主要验证了 Claude 链路（Claude 是底层主力模型），Codex 的端到端驱动仍在完善中。
-- **Windows 搜索/缩略图/防休眠/截图直通车仍在完善**：这些功能目前是占位或 macOS 优先实现的状态。
-- **安装包未签名**：当前 Windows 构建为未签名 portable exe，首次运行时可能出现 SmartScreen 提示。
-- **Windows 版目前是 MVP**：核心链路稳定可用，但部分 UI 和功能细节还有完善空间。推荐先将本项目作为桌面入口、配合 Claude Code CLI 和微信 ClawBot 使用。
-- **macOS 原功能不保证全部已在 Windows 等价实现**：macOS 版的一些功能（如 Spotlight 搜索、macOS 特有快捷键、截图直通车）尚未移植到 Windows。
+- **未做代码签名**：当前 Windows 构建为未签名 portable exe，首次运行可能出现 SmartScreen 提示。
+- **不包含 IDE Composer**：本版本聚焦轻量终端入口，不做 IDE 化输入框。
+- **不包含 `/` 技能菜单**、**不包含 `+` 上下文菜单**：上一轮撤回。
+- **图片粘贴由各 CLI 自己处理**：FanBox 不处理终端图片粘贴。
+  - Claude Code 图片：`Alt+V` 触发（由 Claude Code CLI 自己处理）
+  - Codex 图片：`Ctrl+V` 触发（由 Codex CLI 自己处理）
+  - OpenCode / Qoder：由各自 CLI 决定，FanBox 不做特殊处理
+  - FanBox 只提供「**复制图片到系统剪贴板**」功能（与终端粘贴解耦）
+- **HEIC / 视频缩略图不是核心功能**
+- **不包含 codegraph / cursor rules**：本地 dev tooling 不入仓库。
 
-## Release 附件
+## 安全声明
 
-请上传：
+- **不读取、不上传、不分发用户文件**：FanBox 只在你的本机读写文件。
+- **不上传截图**：截图面板内容仅留在本机。
+- **不上传 Claude / Codex 本地记录**：用量统计只读本地文件。
+- **回收站删除不是永久删除**：删除到回收站后文件仍可恢复；永久删除请用资源管理器。
+- **未内置任何账号 / token / API key**：所有 CLI 凭据由用户各自 CLI 自行管理。
+- **不读取任何 provider token / cookie / authorization header**
+
+## Release 附件清单
+
+请上传到 GitHub Releases（**不入 repo**）：
 
 - `dist/FanBox 2.3.0.exe` — Windows portable 安装包
+- `dist/latest.yml` — electron-builder 自动更新清单（可选）
 
 > **请勿上传：**
->
-> - `dist/win-unpacked/` — 解包目录，不是分发包
+> - `dist/win-unpacked/` — 解包目录
 > - `dist/builder-debug.yml` — 构建调试日志
-> - 各 `.exe.blockmap` 文件
+> - `dist/*.exe.blockmap` — 分片校验
+> - `node_modules/` — 依赖
+> - `account.json` / `config.json` / `.env` / `*.log` — 本地凭据与日志
 
 ## 后续 Roadmap
 
-- [ ] Codex Windows 链路验证
-- [ ] Windows 搜索结果集成
-- [ ] Windows 缩略图缓存
-- [ ] Windows 截图直通车
-- [ ] Windows 防休眠
-- [ ] 安装体验优化（签名、安装向导）
-- [ ] 签名/发布流程规范化
+- [ ] Windows 代码签名 + 安装向导
 - [ ] 自动更新机制
+- [ ] 屏幕 OCR 集成
+- [ ] 多 Agent 并发面板
 
 ## 致谢
 
@@ -121,4 +168,4 @@ npm run dist:win
 
 ---
 
-*FanBox Windows Edition 2.3.0 MVP — 2026-06-19*
+*FanBox Windows Edition 2.3.0 MVP — 2026-06-20*

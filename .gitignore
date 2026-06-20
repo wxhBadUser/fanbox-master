@@ -35,3 +35,30 @@ Desktop.ini
 
 # 终端录制文件（用户本机数据）
 *.cast
+
+# 运行时可能出现的本地凭据 / 配置 / 日志（防御性：用户主目录配置文件不应入仓库）
+.env
+.env.*
+.env.local
+.env.*.local
+
+# 截图 / 缩略图缓存（运行时生成，不入库）
+screenshots/
+thumbnails/
+*.png.cache
+*.jpg.cache
+
+# Windows 打包产物（dist/ 已覆盖；这里多列一次 dist/win-unpacked/ 防御性）
+dist/win-unpacked/
+dist/*.exe
+dist/*.dmg
+dist/*.zip
+dist/builder-debug.yml
+dist/builder-effective-config.yaml
+
+# 微信 ClawBot 运行时登录态（不入库）
+*.ilink-token
+ilink-sessions/
+
+# 任何被显式标为本地「不外发」的旁路目录
+.fanbox-context/
