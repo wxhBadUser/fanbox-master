@@ -386,6 +386,6 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE).
 - [ ] 确认无 `account.json` / `config.json` / `.env` / `*.log` / `dist/` / `node_modules` 误入暂存
 - [ ] 在 GitHub 创建空仓库（**不要**用「Initialize with README」勾选，本仓库已有 README）
 - [ ] `git remote add origin <new-repo-url>` 后 `git push -u origin master`
-- [ ] 打 tag `v2.3.0-windows-mvp` 并 push
-- [ ] 在 GitHub Releases 上传 `FanBox 2.3.0.exe`（`npm run dist:win` 产物，**不入 repo**）
+- [ ] 打 tag `v2.4.0-windows` 并 push
+- [ ] 在 GitHub Releases 上传 `FanBox 2.4.0.exe`（`npm run dist:win` 产物，**不入 repo**）
 - [ ] Release Notes 见 `docs/release-windows-mvp.md` 末段模板
