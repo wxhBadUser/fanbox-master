@@ -17,6 +17,9 @@ build/*
 # 本地运行时（翻箱的收藏/最近记录存在用户主目录，不入库）
 .fanbox/
 
+# 终端粘贴临时文件
+.fanbox-paste/
+
 # CodeGraph 本地索引（每台机器各自构建，不入库）
 .codegraph/
 

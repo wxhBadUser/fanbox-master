@@ -832,7 +832,7 @@ function renderPreviewFoot(e) {
   if (!e || e.isDir) { f.innerHTML = ''; return; }
   f.innerHTML = `<span title="大小">${e.size ? fmtSize(e.size) : '0 B'}</span><span title="创建时间">创建 ${fmtDateTime(e.btime)}</span><span title="修改时间">改 ${fmtDateTime(e.mtime)}</span>`;
 }
-async function copyImage(p) { const r = await window.fanboxClipboard.copyImage(p); toast(r.ok ? '已复制图片，可粘贴到其它应用' : '复制图片失败：' + (r.error || ''), !r.ok); }
+async function copyImage(p) { const r = await window.fanboxClipboard.copyImage(p); toast(r.ok ? t('图片已复制到剪贴板') : t('复制图片失败') + '：' + (r.error || ''), !r.ok); }
 async function copyFile(p) { const r = await window.fanboxClipboard.copyFiles([p]); toast(r.ok ? '已复制文件' : '复制文件失败', !r.ok); }
 async function closePreview() {
   if (!await guardDirty()) return;
@@ -1833,6 +1833,7 @@ function showContextMenu(ev, e) {
   items.push({ label: '在编辑器打开', fn: () => openWith(e.path, 'editor') });
   items.push({ label: '在 Finder 显示', fn: () => openWith(e.path, 'reveal') });
   items.push({ label: '复制路径', fn: () => copyPath(e.path) });
+  if (e.kind === 'image' && !e.drive) items.push({ label: t('复制图片到剪贴板'), fn: () => copyImage(e.path) });
   if (!e.drive) items.push({ label: '复制文件', fn: () => copyFileDirectly(e.path) });
   items.push({ sep: true });
   items.push({ label: isFav(e.path) ? '取消收藏' : '收藏', fn: () => toggleFav(e) });
@@ -3059,6 +3060,56 @@ function fmtStamp() {
 // agent「等你拍板」界面特征（claude code 2.1.x / codex 0.13x 实测文案，宁缺勿滥：
 // 不命中只是退化成「任务完成」标题，不会漏响）
 const TERM_ASK_RE = /(Do you want to (proceed|continue|make this edit|allow|use this)|Would you like to proceed|Ready to code\?|created or one you trust\?|tell (Claude|Codex) what to do differently|Yes, and don't ask again|Allow Codex to (run|apply|create)|Codex wants to|[❯›][ \t]*1\.[ \t]*Yes)/;
+
+// ---------- 终端右键菜单 ----------
+function showTerminalContextMenu(ev, sess) {
+  const existing = $('#term-ctx-menu'); if (existing) existing.remove();
+  const menu = document.createElement('div');
+  menu.id = 'term-ctx-menu';
+  menu.className = 'term-ctx-menu';
+  menu.setAttribute('data-testid', 'term-ctx-menu');
+  const hasSelection = sess && sess.xterm && sess.xterm.hasSelection();
+  menu.innerHTML = `
+    <div class="term-ctx-item${hasSelection ? '' : ' disabled'}" data-act="copy" data-testid="term-ctx-copy">${t('复制')}</div>
+    <div class="term-ctx-item" data-act="paste" data-testid="term-ctx-paste">${t('粘贴')}</div>
+  `;
+  document.body.appendChild(menu);
+  menu.style.left = ev.clientX + 'px';
+  menu.style.top = ev.clientY + 'px';
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) menu.style.left = (window.innerWidth - rect.width - 4) + 'px';
+  if (rect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - rect.height - 4) + 'px';
+  menu.querySelectorAll('.term-ctx-item').forEach((item) => {
+    item.onclick = () => {
+      const act = item.dataset.act;
+      menu.remove();
+      if (act === 'copy' && hasSelection) {
+        const sel = sess.xterm.getSelection();
+        if (sel) navigator.clipboard.writeText(sel).then(() => toast('已复制')).catch(() => {});
+      } else if (act === 'paste') {
+        term.pasteToActiveTerminal();
+      }
+    };
+  });
+  setTimeout(() => {
+    const close = (e) => { if (!e.target.closest('#term-ctx-menu')) { menu.remove(); document.removeEventListener('click', close); document.removeEventListener('contextmenu', close); } };
+    document.addEventListener('click', close);
+    document.addEventListener('contextmenu', close);
+  }, 0);
+}
+
+async function confirmLongPaste(len) {
+  return new Promise((resolve) => {
+    const ov = document.createElement('div');
+    ov.className = 'confirm-overlay';
+    ov.innerHTML = `<div class="confirm-dialog"><div class="confirm-msg">${t('剪贴板文本较长')}（${len} ${t('字符')}），${t('是否保存为文件并粘贴路径')}？</div><div class="confirm-btns"><button class="confirm-cancel">${t('取消')}</button><button class="confirm-ok">${t('确定')}</button></div></div>`;
+    document.body.appendChild(ov);
+    ov.querySelector('.confirm-cancel').onclick = () => { ov.remove(); resolve(false); };
+    ov.querySelector('.confirm-ok').onclick = () => { ov.remove(); resolve(true); };
+    ov.onclick = (e) => { if (e.target === ov) { ov.remove(); resolve(false); } };
+  });
+}
+
 const term = {
   sessions: [], seq: 0, active: null, maximized: false,
   dock: localStorage.getItem('fb_term_dock') || 'right',
@@ -3170,7 +3221,9 @@ const term = {
       if (cur && !cur.dead && await this.isPlainShell(cur)) sess = cur;
     }
     if (!sess) sess = await this.openInDir(state.cwd); // 等 spawn 完，拿确切 session 写入
-    if (sess && !sess.dead) { this.input(sess.id, cmd + '\r'); sess.xterm.focus(); toast('已在终端启动 ' + cmd); }
+    if (sess && !sess.dead) {
+      this.input(sess.id, cmd + '\r'); sess.xterm.focus(); toast('已在终端启动 ' + cmd);
+    }
     else toast('终端启动失败', true);
   },
   // 在指定目录新开标签跑命令（续会话/发版等）：不复用别处的空闲 shell，目录必须对
@@ -3204,6 +3257,50 @@ const term = {
       const s = this.sessions.find((x) => x.id === this.active); if (s) s.xterm.focus();
     };
     if (wasHidden) setTimeout(write, 300); else write();
+  },
+  // ---------- 终端剪贴板粘贴（只处理长文本，短文本和图片交给终端/Agent 自己处理）----------
+  async pasteToActiveTerminal() {
+    if (!this.available()) { toast('内嵌终端不可用', true); return; }
+    if (!this.active) { toast('请先打开一个终端', true); return; }
+
+    // 只读剪贴板文本，不读图片
+    let text = '';
+    try { text = await navigator.clipboard.readText(); } catch { /* */ }
+
+    const LONG_TEXT_THRESHOLD = 8000;
+
+    // 没有文本或短文本：不接管，让终端/Ctrl+V 原样处理
+    if (!text || text.length < LONG_TEXT_THRESHOLD) {
+      // 短文本：直接 bracketed paste 到 pty
+      if (text && text.trim()) {
+        this.input(this.active, '\x1b[200~' + text + '\x1b[201~');
+        const s = this.sessions.find((x) => x.id === this.active);
+        if (s) s.xterm.focus();
+      }
+      return;
+    }
+
+    // 长文本：保存为文件，粘贴文件路径提示
+    const cwd = state.cwd || '';
+    const ts = new Date().toISOString().replace(/[T:.]/g, '').slice(0, 15);
+    const safeName = `clipboard-${ts}.md`;
+
+    if (window.fanboxClipboard && window.fanboxClipboard.savePasteText) {
+      const r = await window.fanboxClipboard.savePasteText(cwd, safeName, text);
+      if (r && r.ok) {
+        const rel = r.relative || '.fanbox-paste/' + safeName;
+        const insertText = `请阅读这个长文本文件："${rel}"`;
+        this.input(this.active, '\x1b[200~' + insertText + '\x1b[201~');
+        const s = this.sessions.find((x) => x.id === this.active);
+        if (s) s.xterm.focus();
+        toast(t('长文本已保存为文件并粘贴路径'));
+        return;
+      }
+    }
+    // fallback：保存失败时直接粘贴文本（bracketed paste）
+    this.input(this.active, '\x1b[200~' + text + '\x1b[201~');
+    const s = this.sessions.find((x) => x.id === this.active);
+    if (s) s.xterm.focus();
   },
   // 文件区导航后尝试 cd 终端：仅当活动终端空闲时才发 cd 命令
   async maybeCdTo(dir) {
@@ -3396,6 +3493,21 @@ const term = {
     xterm.onData((d) => {
       if (sess.dead) { if (d === '\r' || d === '\n') this.respawn(sess); return; } // 进程退出后回车真重开
       this.input(id, d);
+    });
+    // Ctrl+V 粘贴：拦截终端区域的 Ctrl+V，智能识别图片/文本
+    xterm.attachCustomKeyEventHandler((ev) => {
+      if (ev.type === 'keydown' && ev.ctrlKey && ev.key === 'v' && !ev.shiftKey && !ev.altKey && !ev.metaKey) {
+        ev.preventDefault();
+        this.pasteToActiveTerminal();
+        return false;
+      }
+      return true;
+    });
+    // 右键菜单
+    host.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      showTerminalContextMenu(ev, sess);
     });
     xterm.onResize(({ cols, rows }) => { sess.lastInput = Date.now(); window.fanboxPty.resize(id, cols, rows); }); // resize 引发的 TUI 重绘不算 agent 干活
     window.fanboxPty.resize(id, xterm.cols, xterm.rows); // spawn 等待期间 fit 过的 resize 事件无人监听会丢：补发一次对齐 PTY
@@ -4192,7 +4304,7 @@ async function loadScreenshots(panel) {
       <span class="shot-thumb"><img src="/api/thumb?path=${encodeURIComponent(s.path)}&w=120&v=${s.mtime}" loading="lazy" decoding="async" onerror="this.outerHTML='<span class=svg-icon>'+(window.__svgImg||'')+'</span>'"></span>
       <span class="cp-name">${escapeHtml(s.name)}</span>
       <span class="cp-time">${fmtTime(s.mtime)}</span>
-      <span class="shot-actions"><button class="ghost-btn shot-copy" title="复制路径">📋</button><button class="ghost-btn shot-reveal" title="在资源管理器中显示">📁</button><button class="ghost-btn shot-copyfile" title="复制文件">📄</button></span>
+      <span class="shot-actions"><button class="ghost-btn shot-copyimg" title="复制图片到剪贴板">🖼</button><button class="ghost-btn shot-copy" title="复制路径">📋</button><button class="ghost-btn shot-reveal" title="在资源管理器中显示">📁</button><button class="ghost-btn shot-copyfile" title="复制文件">📄</button></span>
     </div>`).join('');
   } catch {
     body.innerHTML = '<div class="cp-empty">渲染列表时出错</div>';
@@ -4210,6 +4322,9 @@ async function loadScreenshots(panel) {
         applySelection(p); openPreview(e); recordRecent(p);
       });
     };
+  });
+  panel.querySelectorAll('.shot-copyimg').forEach((btn) => {
+    btn.onclick = (ev) => { ev.stopPropagation(); copyImage(btn.closest('.shot-row').dataset.path); };
   });
   panel.querySelectorAll('.shot-copy').forEach((btn) => {
     btn.onclick = (ev) => { ev.stopPropagation(); copyPath(btn.closest('.shot-row').dataset.path); };

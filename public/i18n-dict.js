@@ -379,6 +379,18 @@ window.FANBOX_DICT = {
   '文档': 'Documents',
   '下载': 'Downloads',
 
+  // ---------- 终端粘贴 ----------
+  '复制': 'Copy',
+  '粘贴': 'Paste',
+  '长文本已保存为文件并粘贴路径': 'Long text saved as file and path pasted',
+  '请先打开一个终端': 'Please open a terminal first',
+  '已复制': 'Copied',
+
+  // ---------- 图片剪贴板 ----------
+  '复制图片到剪贴板': 'Copy image to clipboard',
+  '图片已复制到剪贴板': 'Image copied to clipboard',
+  '复制图片失败': 'Failed to copy image',
+
   // ---------- 杂项 ----------
   '刚刚': 'just now',
 };

@@ -658,6 +658,32 @@ ipcMain.handle('clip:save-image', async () => {
   } catch (err) { return { ok: false, error: err.message }; }
 });
 
+// ---------- 终端粘贴：保存长文本到项目目录 ----------
+ipcMain.handle('clip:save-paste-text', (e, { dir, name, content }) => {
+  try {
+    const homeDir = os.homedir();
+    let absDir;
+    if (dir && typeof dir === 'string' && dir.length > 0) {
+      absDir = path.resolve(dir);
+    } else {
+      absDir = path.join(homeDir, '.fanbox', 'paste');
+    }
+    if (!absDir.startsWith(homeDir)) absDir = path.join(homeDir, '.fanbox', 'paste');
+    const pasteDir = path.join(absDir, '.fanbox-paste');
+    fs.mkdirSync(pasteDir, { recursive: true });
+    const safeName = String(name || 'clipboard.md').replace(/[/\\:]/g, '-');
+    const dest = path.join(pasteDir, safeName);
+    fs.writeFileSync(dest, content, 'utf8');
+    const gitignore = path.join(absDir, '.gitignore');
+    let gi = '';
+    try { gi = fs.readFileSync(gitignore, 'utf8'); } catch { /* */ }
+    if (!gi.includes('.fanbox-paste')) {
+      fs.appendFileSync(gitignore, (gi && !gi.endsWith('\n') ? '\n' : '') + '.fanbox-paste/\n', 'utf8');
+    }
+    return { ok: true, path: dest, relative: '.fanbox-paste/' + safeName };
+  } catch (err) { return { ok: false, error: err.message }; }
+});
+
 // 拖拽落盘：file-promise 类拖入（截图浮窗等）没有真实路径，把字节写进临时目录换路径
 ipcMain.handle('drop:save', (e, { name, buf }) => {
   try {

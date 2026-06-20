@@ -220,6 +220,54 @@ async function runTests() {
       }
     }
 
+    // ========== 终端右键菜单 ==========
+    console.log('\n--- Terminal context menu ---');
+
+    // 先打开终端
+    const termBtn2 = await win.$('[data-testid="btn-terminal"]').catch(() => null);
+    if (termBtn2) {
+      await termBtn2.click();
+      await win.waitForTimeout(1500);
+    }
+
+    // 右键终端区域
+    const xtermHost = await win.$('.xterm-instance.show').catch(() => null);
+    if (xtermHost) {
+      const box = await xtermHost.boundingBox();
+      if (box) {
+        await win.mouse.click(box.x + 50, box.y + 50, { button: 'right' });
+        await win.waitForTimeout(800);
+        const ctxMenu = await win.$('[data-testid="term-ctx-menu"]').catch(() => null);
+        check('终端右键菜单弹出', !!ctxMenu, 'term-ctx-menu');
+
+        if (ctxMenu) {
+          const copyItem = await win.$('[data-testid="term-ctx-copy"]').catch(() => null);
+          const pasteItem = await win.$('[data-testid="term-ctx-paste"]').catch(() => null);
+          const pasteImgPathItem = await win.$('[data-testid="term-ctx-paste-image-path"]').catch(() => null);
+          check('右键菜单有复制', !!copyItem, 'term-ctx-copy');
+          check('右键菜单有粘贴', !!pasteItem, 'term-ctx-paste');
+          check('右键菜单无粘贴图片为路径', !pasteImgPathItem, 'term-ctx-paste-image-path');
+        }
+        // 关闭菜单
+        await win.keyboard.press('Escape');
+        await win.waitForTimeout(300);
+      }
+    } else {
+      check('终端右键菜单弹出', false, 'no xterm instance');
+    }
+
+    // ========== 截图面板：复制图片按钮 ==========
+    const shotBtn = await win.$('#btn-screenshots').catch(() => null);
+    if (shotBtn) {
+      await shotBtn.click();
+      await win.waitForTimeout(1500);
+      const shotCopyImgBtn = await win.$('.shot-copyimg').catch(() => null);
+      check('截图面板有复制图片按钮', !!shotCopyImgBtn, 'shot-copyimg');
+      // 关闭面板
+      await win.keyboard.press('Escape');
+      await win.waitForTimeout(300);
+    }
+
     // ========== 最终检查 ==========
     check('渲染层零 console error', win._errs.length === 0, win._errs.slice(0, 3).join(' | '));
 

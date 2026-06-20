@@ -1207,6 +1207,67 @@ body { transition: background-color 0.28s ease, color 0.28s ease; }
 .sk-switch { justify-self: end; width: 30px; height: 17px; border: 1px solid var(--border); border-radius: 99px; background: var(--bg-3); position: relative; cursor: pointer; transition: 0.15s; }
 .sk-switch i { position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: var(--text-faint); transition: 0.15s; }
 .sk-switch.on { background: var(--accent); border-color: var(--accent); }
+
+/* ---------- 终端右键菜单 ---------- */
+.term-ctx-menu {
+  position: fixed;
+  z-index: 12000;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 0;
+  min-width: 140px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.35);
+  font-size: 13px;
+}
+.term-ctx-item {
+  padding: 5px 14px;
+  cursor: pointer;
+  color: var(--text);
+}
+.term-ctx-item:hover { background: var(--bg-3); }
+.term-ctx-item.disabled { color: var(--text-dim); pointer-events: none; }
+
+/* ---------- 确认对话框 ---------- */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20000;
+  background: rgba(0,0,0,.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.confirm-dialog {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 12px 32px rgba(0,0,0,.5);
+}
+.confirm-msg {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+.confirm-btns {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.confirm-btns button {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+}
+.confirm-btns button:hover { background: var(--bg-3); }
 .sk-switch.on i { left: 15px; background: var(--accent-ink); }
 .sk-chev { color: var(--text-faint); font-size: 11px; text-align: center; transition: transform 0.15s; }
 .sk-row.expanded .sk-chev { transform: rotate(90deg); }
