@@ -151,9 +151,9 @@ npm run dist:win   # 产物在 dist/（FanBox 2.4.0.exe + win-unpacked/）
 
 | | |
 |---|---|
-| <img src="assets/screenshot-volt.png" alt="Volt skin"> | **终端 · Volt** · 荧光绿 × 炭黑 × 等宽字，工业仪器面板感（默认） |
-| <img src="assets/screenshot-archive.png" alt="Archive skin"> | **档案 · Archive** · 奶油纸 × 赤陶橙 × 衬线，温暖纸感档案馆 |
-| <img src="assets/screenshot-index.png" alt="Index skin"> | **索引 · Index** · 黑白 × 信号红/绿 × 巨号字，编辑式索引日报 |
+| <img src="assets/screenshot-volt.png" alt="Volt skin / 终端皮肤"> | **终端 · Volt** · 荧光绿 × 炭黑 × 等宽字，工业仪器面板感（默认）<br>**Volt** · neon green × charcoal × monospace, industrial instrument panel (default) |
+| <img src="assets/screenshot-archive.png" alt="Archive skin / 档案皮肤"> | **档案 · Archive** · 奶油纸 × 赤陶橙 × 衬线，温暖纸感档案馆<br>**Archive** · cream paper × terracotta × serif, a warm paper archive |
+| <img src="assets/screenshot-index.png" alt="Index skin / 索引皮肤"> | **索引 · Index** · 黑白 × 信号红/绿 × 巨号字，编辑式索引日报<br>**Index** · black & white × signal red/green × oversized type, editorial index daily |
 
 ---
 
