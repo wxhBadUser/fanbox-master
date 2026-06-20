@@ -1,6 +1,7 @@
 /* ============================================================
    FanBox Mobile · Mobile Console
    Phase 1 · 5 Tab · 只读 · LAN + Token
+   Phase 1 修复 · 真实手机运行时硬化
    ============================================================ */
 (function () {
   'use strict';
@@ -34,7 +35,27 @@
     return j;
   }
 
-  // ---------------- 工具 ----------------
+  // ---------------- 安全 DOM 工具 ----------------
+  // 把任意值安全转成 Node，杜绝 appendChild(string) 抛错
+  function asNode(v) {
+    if (v == null) return document.createTextNode('');
+    if (v instanceof Node) return v;
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+      return document.createTextNode(String(v));
+    }
+    return document.createTextNode(String(v));
+  }
+  function appendNodes(parent, children) {
+    if (children == null) return;
+    var arr = Array.isArray(children) ? children : [children];
+    for (var i = 0; i < arr.length; i++) {
+      if (arr[i] == null) continue;
+      try { parent.appendChild(asNode(arr[i])); } catch (e) { /* swallow one bad child */ }
+    }
+  }
+  function clearChildren(n) { while (n && n.firstChild) n.removeChild(n.firstChild); }
+
+  // ---------------- 通用工具 ----------------
   function $(s) { return document.querySelector(s); }
   function $all(s) { return Array.prototype.slice.call(document.querySelectorAll(s)); }
   function el(tag, attrs, kids) {
@@ -45,8 +66,15 @@
       else if (k === 'text') n.textContent = attrs[k];
       else n.setAttribute(k, attrs[k]);
     }
-    if (kids) for (var i = 0; i < kids.length; i++) if (kids[i]) n.appendChild(kids[i]);
+    if (kids != null) appendNodes(n, kids);
     return n;
+  }
+  // 简化：文字 span，避免 [el, 'text'] 这种不安全模式
+  function tspan(text, cls) {
+    var s = document.createElement('span');
+    if (cls) s.className = cls;
+    s.textContent = text == null ? '' : String(text);
+    return s;
   }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
   function fmtSize(n) {
@@ -76,6 +104,19 @@
     var parts = s.split('/');
     if (parts.length <= 3) return s;
     return '…/' + parts.slice(-3).join('/');
+  }
+  // 兼容 API 返回结构：data.items / data.skills / data.results / data.agents / []
+  function pickList(data) {
+    if (!data) return [];
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data.items)) return data.items;
+    if (Array.isArray(data.skills)) return data.skills;
+    if (Array.isArray(data.results)) return data.results;
+    if (Array.isArray(data.agents)) return data.agents;
+    return [];
+  }
+  function safeCall(fn) {
+    try { return fn(); } catch (e) { return undefined; }
   }
 
   // ---------------- Icons（inline SVG） ----------------
@@ -108,17 +149,34 @@
     }
   }
 
+  // ---------------- 状态点 helper ----------------
+  function statusPill(text, kind) {
+    // kind: 'ok' | 'empty' | 'unknown'
+    var cls = 'usage-pill';
+    if (kind === 'empty') cls += ' usage-pill-empty';
+    if (kind === 'unknown') cls += ' usage-pill-unknown';
+    var dotCls = 'status-dot';
+    if (kind === 'ok') dotCls += ' status-dot-ok';
+    else if (kind === 'empty') dotCls += ' status-dot-empty';
+    else dotCls += ' status-dot-unknown';
+    return el('span', { class: cls }, [
+      el('span', { class: dotCls }),
+      tspan(text)
+    ]);
+  }
+
   // ---------------- Home ----------------
   async function renderHome() {
     var rootsBox = $('#home-roots');
+    clearChildren(rootsBox);
     try {
       var r = await api('/api/mobile/roots');
-      rootsBox.innerHTML = '';
-      if (!r.roots || !r.roots.length) {
+      var roots = pickList(r.roots);
+      if (!roots.length) {
         rootsBox.appendChild(emptyBlock('No roots available', 'allowedRoots 列表为空'));
         return;
       }
-      r.roots.forEach(function (x) {
+      roots.forEach(function (x) {
         var row = el('div', { class: 'root-row' }, [
           el('div', { class: 'root-name', text: x.name || 'root' }),
           el('div', { class: 'root-path', text: relPath(x.path), title: x.path || '' })
@@ -126,13 +184,13 @@
         rootsBox.appendChild(row);
       });
     } catch (e) {
-      rootsBox.innerHTML = '';
+      clearChildren(rootsBox);
       rootsBox.appendChild(emptyBlock('Failed to load roots', String(e && e.message || e)));
     }
   }
 
   // ---------------- Files ----------------
-  var filesState = { root: '', q: '', lastResults: [], lastPicked: null, aborter: null };
+  var filesState = { root: '', q: '', lastResults: [], lastPicked: null, aborter: null, currentObjectUrl: null };
 
   async function loadRoots() {
     var sel = $('#files-root');
@@ -142,13 +200,14 @@
     try {
       var r = await api('/api/mobile/roots');
       sel.innerHTML = '';
-      (r.roots || []).forEach(function (x) {
+      var roots = pickList(r.roots);
+      roots.forEach(function (x) {
         var o = el('option', { value: x.path, text: x.name || x.path });
         sel.appendChild(o);
       });
-      if ((r.roots || []).length) {
-        sel.value = r.roots[0].path;
-        filesState.root = r.roots[0].path;
+      if (roots.length) {
+        sel.value = roots[0].path;
+        filesState.root = roots[0].path;
       }
     } catch (e) {
       sel.innerHTML = '<option>No roots</option>';
@@ -163,7 +222,7 @@
     var list = $('#files-list');
     var meta = $('#files-meta');
     if (!q) {
-      list.innerHTML = '';
+      clearChildren(list);
       list.appendChild(emptyBlock('输入关键字开始搜索', 'Root + 关键字 = 模糊文件名匹配'));
       meta.textContent = '';
       return;
@@ -171,30 +230,30 @@
     if (filesState.aborter) try { filesState.aborter.abort(); } catch (e) {}
     filesState.aborter = new AbortController();
     meta.textContent = '搜索中…';
-    list.innerHTML = '';
-    var sk = el('div', { class: 'skeleton', style: 'height: 56px; margin-bottom: 8px;' });
-    list.appendChild(sk);
+    clearChildren(list);
+    list.appendChild(el('div', { class: 'skeleton', style: 'height: 56px; margin-bottom: 8px;' }));
     try {
       var url = '/api/mobile/search?q=' + encodeURIComponent(q) + '&path=' + encodeURIComponent(root) + '&limit=50';
       var t = getToken();
       var r = await fetch(url, { method: 'GET', headers: { 'Authorization': 'Bearer ' + t, 'Accept': 'application/json' }, signal: filesState.aborter.signal });
       var j = null; try { j = await r.json(); } catch (e) { j = { ok: false }; }
-      list.innerHTML = '';
+      clearChildren(list);
       if (!j.ok) throw new Error(j.error || ('http_' + r.status));
-      filesState.lastResults = j.items || [];
-      meta.textContent = (j.items || []).length + ' results' + (j.truncated ? ' (truncated)' : '');
-      if (!j.items.length) {
+      var items = pickList(j);
+      filesState.lastResults = items;
+      meta.textContent = items.length + ' results' + (j.truncated ? ' (truncated)' : '');
+      if (!items.length) {
         list.appendChild(emptyBlock('No files found', '没有匹配的文件名'));
         return;
       }
-      j.items.forEach(function (it) {
+      items.forEach(function (it) {
         var row = el('button', { class: 'file-row', type: 'button' }, [
           el('div', { class: 'file-name', text: it.name }),
           el('div', { class: 'file-path', text: relPath(it.path), title: it.path || '' }),
           el('div', { class: 'file-meta' }, [
             el('span', { class: 'pill' + (it.kind && it.kind !== 'text' ? '' : ' pill-blue'), text: it.kind || 'file' }),
-            el('span', { text: fmtSize(it.size) }),
-            el('span', { text: fmtTime(it.mtime) })
+            tspan(fmtSize(it.size)),
+            tspan(fmtTime(it.mtime))
           ])
         ]);
         row.addEventListener('click', function () { pickFile(it); });
@@ -202,35 +261,65 @@
       });
     } catch (e) {
       if (String(e && e.name) === 'AbortError') return;
-      list.innerHTML = '';
+      clearChildren(list);
       list.appendChild(emptyBlock('Search failed', String(e && e.message || e)));
       meta.textContent = '';
     }
   }
 
+  // ---------------- 受保护图片：fetch + token + blob URL ----------------
+  var imageRegistry = []; // 跟踪本次会话所有 objectURL，关闭预览时回收
+  function registerObjectUrl(url) {
+    if (!url) return;
+    imageRegistry.push(url);
+  }
+  function revokeAllObjectUrls() {
+    while (imageRegistry.length) {
+      var u = imageRegistry.pop();
+      try { URL.revokeObjectURL(u); } catch (e) {}
+    }
+    if (filesState.currentObjectUrl) {
+      try { URL.revokeObjectURL(filesState.currentObjectUrl); } catch (e) {}
+      filesState.currentObjectUrl = null;
+    }
+  }
+  async function loadAuthImage(url) {
+    var t = getToken();
+    if (!t) throw new Error('no_token');
+    var r = await fetch(url, { method: 'GET', headers: { 'Authorization': 'Bearer ' + t } });
+    if (!r.ok) throw new Error('image_http_' + r.status);
+    var blob = await r.blob();
+    return URL.createObjectURL(blob);
+  }
+
   async function pickFile(it) {
     filesState.lastPicked = it;
+    // 关闭旧预览时回收上次的 objectURL
+    if (filesState.currentObjectUrl) {
+      try { URL.revokeObjectURL(filesState.currentObjectUrl); } catch (e) {}
+      filesState.currentObjectUrl = null;
+    }
     var box = $('#files-preview');
     var nameEl = $('#files-preview-name');
     var metaEl = $('#files-preview-meta');
     var body = $('#files-preview-body');
     nameEl.textContent = it.name;
     metaEl.textContent = relPath(it.path) + ' · ' + fmtSize(it.size) + ' · ' + fmtTime(it.mtime);
-    body.innerHTML = '';
+    clearChildren(body);
     body.appendChild(el('div', { class: 'skeleton', style: 'height: 16px; width: 60%;' }));
     box.hidden = false;
     try {
       var j = await api('/api/mobile/file?path=' + encodeURIComponent(it.path) + '&max=262144');
       renderFilePreview(j, body);
     } catch (e) {
-      body.innerHTML = '';
+      clearChildren(body);
       body.appendChild(emptyBlock('Preview failed', String(e && e.message || e)));
     }
     try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
   }
 
   function renderFilePreview(j, body) {
-    body.innerHTML = '';
+    clearChildren(body);
     if (!j || !j.ok) {
       body.appendChild(emptyBlock('Preview unavailable', (j && j.error) || 'unknown'));
       return;
@@ -243,8 +332,30 @@
       return;
     }
     if (j.kind === 'image' && j.thumbUrl) {
-      var img = el('img', { class: 'preview-thumb', src: j.thumbUrl, alt: j.name || 'image' });
-      body.appendChild(img);
+      // 不直接 <img src="/api/mobile/thumb?...">：浏览器不会带 Authorization。
+      // 走 fetch + Bearer + blob URL，关闭时 revoke。
+      body.appendChild(el('div', { class: 'preview-loading', text: '图片加载中…' }));
+      loadAuthImage(j.thumbUrl).then(function (objectUrl) {
+        // 二次校验：确保用户没有切到其它文件
+        if (body !== $('#files-preview-body')) {
+          try { URL.revokeObjectURL(objectUrl); } catch (e) {}
+          return;
+        }
+        clearChildren(body);
+        var img = el('img', { class: 'preview-thumb', alt: j.name || 'image' });
+        img.dataset.objectUrl = objectUrl;
+        img.src = objectUrl;
+        img.addEventListener('error', function () {
+          clearChildren(body);
+          body.appendChild(emptyBlock('图片预览失败', '可返回文件列表重试'));
+        });
+        body.appendChild(img);
+        filesState.currentObjectUrl = objectUrl;
+        registerObjectUrl(objectUrl);
+      }).catch(function (e) {
+        clearChildren(body);
+        body.appendChild(emptyBlock('图片预览失败', '可返回文件列表重试 (' + (e && e.message) + ')'));
+      });
       return;
     }
     if (j.kind === 'text' && typeof j.text === 'string') {
@@ -276,28 +387,33 @@
 
   async function renderSkills() {
     var list = $('#skills-list');
-    list.innerHTML = '';
+    clearChildren(list);
     list.appendChild(el('div', { class: 'skeleton', style: 'height: 64px; margin-bottom: 10px;' }));
     try {
       var j = await api('/api/mobile/skills');
-      skillsState.items = j.items || [];
-      paintSkills();
+      skillsState.items = pickList(j);
     } catch (e) {
-      list.innerHTML = '';
-      list.appendChild(emptyBlock('No skills available', String(e && e.message || e)));
+      skillsState.items = [];
+      paintSkills(String(e && e.message || e));
+      return;
     }
+    paintSkills();
   }
 
-  function paintSkills() {
+  function paintSkills(errMsg) {
     var list = $('#skills-list');
     var q = ($('#skills-q').value || '').trim().toLowerCase();
-    var items = skillsState.items.filter(function (x) { return !q || (x.name || '').toLowerCase().indexOf(q) >= 0; });
-    list.innerHTML = '';
+    var items = (skillsState.items || []).filter(function (x) { return !q || (x.name || '').toLowerCase().indexOf(q) >= 0; });
+    clearChildren(list);
     if (!items.length) {
-      list.appendChild(emptyBlock('No skills available', skillsState.items.length ? '没有匹配名称的 skill' : '~/.claude/skills 暂为空'));
+      var sub = errMsg
+        ? ('加载失败：' + errMsg)
+        : (skillsState.items.length ? '没有匹配名称的 skill' : '~/.claude/skills 暂为空');
+      list.appendChild(emptyBlock('No skills available', sub));
       return;
     }
     items.forEach(function (s) {
+      var enabled = !!s.enabled;
       var card = el('div', { class: 'skill-card' }, [
         el('div', { class: 'skill-head' }, [
           el('div', { class: 'skill-name', text: s.name || '(unnamed)' }),
@@ -305,11 +421,8 @@
         ]),
         el('p', { class: 'skill-desc', text: s.description || 'No description' }),
         el('div', { class: 'skill-foot' }, [
-          el('span', { text: s.enabled ? 'enabled' : 'disabled' }),
-          el('span', { class: s.enabled ? 'usage-pill' : 'usage-pill usage-pill-empty' }, [
-            el('span', { class: 'status-dot ' + (s.enabled ? 'status-dot-ok' : 'status-dot-empty') }),
-            s.enabled ? 'available' : 'unavailable'
-          ])
+          tspan(enabled ? 'enabled' : 'disabled'),
+          statusPill(enabled ? 'available' : 'unavailable', enabled ? 'ok' : 'empty')
         ])
       ]);
       list.appendChild(card);
@@ -317,38 +430,64 @@
   }
 
   // ---------------- Agents ----------------
-  var AGENT_ICONS = {
-    claude: '◆', codex: '◇', opencode: '⬡', qoder: '◈'
-  };
+  // 即使 API 失败或返回空，也至少显示 4 张只读卡片（绝不显示 "No agent detected" 阻断感）
+  var AGENT_FALLBACK = [
+    { id: 'claude',   label: 'Claude Code', command: 'claude' },
+    { id: 'codex',    label: 'Codex',       command: 'codex' },
+    { id: 'opencode', label: 'OpenCode',    command: 'opencode' },
+    { id: 'qoder',    label: 'Qoder CLI',   command: 'qodercli' }
+  ];
 
   async function renderAgents() {
     var list = $('#agents-list');
-    list.innerHTML = '';
+    clearChildren(list);
     for (var i = 0; i < 4; i++) list.appendChild(el('div', { class: 'skeleton', style: 'height: 84px;' }));
+    var items = [];
+    var errMsg = null;
     try {
       var j = await api('/api/mobile/agents');
-      list.innerHTML = '';
-      (j.items || []).forEach(function (a) {
-        var status = a.installed
-          ? el('span', { class: 'usage-pill' }, [el('span', { class: 'status-dot status-dot-ok' }), 'detected'])
-          : el('span', { class: 'usage-pill usage-pill-empty' }, [el('span', { class: 'status-dot status-dot-empty' }), 'not found']);
-        var card = el('div', { class: 'agent-card' }, [
-          el('div', { class: 'agent-head' }, [
-            el('div', { class: 'agent-name', text: a.label || a.id || 'agent' }),
-            status
-          ]),
-          el('div', { class: 'agent-cmd', text: 'command: ' + (a.command || a.id || '?') }),
-          a.hint ? el('div', { class: 'agent-hint', text: a.hint }) : null
-        ]);
-        list.appendChild(card);
-      });
-      if (!(j.items || []).length) {
-        list.appendChild(emptyBlock('No agent detected', '无 agent 信息'));
-      }
+      items = pickList(j);
     } catch (e) {
-      list.innerHTML = '';
-      list.appendChild(emptyBlock('No agent detected', String(e && e.message || e)));
+      errMsg = String(e && e.message || e);
+      items = [];
     }
+    paintAgents(items, errMsg);
+  }
+
+  function paintAgents(items, errMsg) {
+    var list = $('#agents-list');
+    clearChildren(list);
+    // 合并：API 返回的优先；不足 4 个用 fallback 补齐；不暴露启动/发送任务
+    var seen = {};
+    var merged = [];
+    items.forEach(function (a) { if (a && a.id && !seen[a.id]) { seen[a.id] = 1; merged.push(a); } });
+    AGENT_FALLBACK.forEach(function (f) {
+      if (merged.length >= 4) return;
+      if (!seen[f.id]) { merged.push({ id: f.id, label: f.label, command: f.command, installed: false, hint: '探测失败' }); }
+    });
+    // 若 API 完全没返回 4 个也没有 fallback 标记 → 仍然 4 张 unknown
+    if (merged.length < 4) {
+      var have = {};
+      merged.forEach(function (m) { have[m.id] = 1; });
+      AGENT_FALLBACK.forEach(function (f) {
+        if (merged.length >= 4) return;
+        if (!have[f.id]) merged.push({ id: f.id, label: f.label, command: f.command, installed: false, hint: '探测失败' });
+      });
+    }
+    merged.forEach(function (a) {
+      var known = (typeof a.installed === 'boolean');
+      var kind = known ? (a.installed ? 'ok' : 'empty') : 'unknown';
+      var statusText = known ? (a.installed ? 'detected' : 'not found') : 'unknown';
+      var card = el('div', { class: 'agent-card' }, [
+        el('div', { class: 'agent-head' }, [
+          el('div', { class: 'agent-name', text: a.label || a.id || 'agent' }),
+          statusPill(statusText, kind)
+        ]),
+        el('div', { class: 'agent-cmd', text: 'command: ' + (a.command || a.id || '?') }),
+        a.hint ? el('div', { class: 'agent-hint', text: a.hint }) : null
+      ]);
+      list.appendChild(card);
+    });
   }
 
   // ---------------- Usage ----------------
@@ -358,34 +497,48 @@
     var list = $('#usage-list');
     todayEl.textContent = '—';
     weekEl.textContent = '—';
-    list.innerHTML = '<div class="skeleton" style="height: 44px;"></div><div class="skeleton" style="height: 44px; margin-top: 8px;"></div>';
+    clearChildren(list);
+    list.appendChild(el('div', { class: 'skeleton', style: 'height: 44px;' }));
+    list.appendChild(el('div', { class: 'skeleton', style: 'height: 44px; margin-top: 8px;' }));
+    var j = null; var errMsg = null;
     try {
-      var j = await api('/api/mobile/usage');
-      todayEl.textContent = fmtTokens(j.summary && j.summary.todayTokens);
-      weekEl.textContent = fmtTokens(j.summary && j.summary.weekTokens);
-      list.innerHTML = '';
-      (j.agents || []).forEach(function (a) {
-        var pill = a.available
-          ? el('span', { class: 'usage-pill' }, [el('span', { class: 'status-dot status-dot-ok' }), 'available'])
-          : el('span', { class: 'usage-pill usage-pill-empty' }, [el('span', { class: 'status-dot status-dot-empty' }), 'no data']);
-        var row = el('div', { class: 'usage-row' }, [
-          el('div', null, [
-            el('div', { class: 'usage-name', text: a.label || a.id }),
-            el('div', { class: 'usage-meta', text: 'today ' + fmtTokens(a.todayTokens) + ' · week ' + fmtTokens(a.weekTokens) })
-          ]),
-          pill
-        ]);
-        list.appendChild(row);
-      });
-      if (!(j.agents || []).length) {
-        list.appendChild(emptyBlock('No usage data yet', 'Claude/Codex 暂未上报事件'));
-      }
+      j = await api('/api/mobile/usage');
     } catch (e) {
-      todayEl.textContent = '—';
-      weekEl.textContent = '—';
-      list.innerHTML = '';
-      list.appendChild(emptyBlock('No usage data yet', String(e && e.message || e)));
+      errMsg = String(e && e.message || e);
     }
+    paintUsage(j, errMsg);
+  }
+
+  function paintUsage(j, errMsg) {
+    var todayEl = $('#usage-today');
+    var weekEl = $('#usage-week');
+    var list = $('#usage-list');
+    var summary = (j && j.summary) || {};
+    todayEl.textContent = fmtTokens(summary.todayTokens);
+    weekEl.textContent = fmtTokens(summary.weekTokens);
+    clearChildren(list);
+    var items = pickList(j && (j.agents || j.items));
+    if (errMsg && !items.length) {
+      list.appendChild(emptyBlock('暂无用量数据', '加载失败：' + errMsg));
+      return;
+    }
+    if (!items.length) {
+      list.appendChild(emptyBlock('暂无用量数据', 'Claude/Codex 暂未上报事件'));
+      return;
+    }
+    items.forEach(function (a) {
+      var known = (typeof a.available === 'boolean');
+      var kind = known ? (a.available ? 'ok' : 'empty') : 'unknown';
+      var statusText = known ? (a.available ? 'available' : 'no data') : 'unknown';
+      var row = el('div', { class: 'usage-row' }, [
+        el('div', null, [
+          el('div', { class: 'usage-name', text: a.label || a.id }),
+          el('div', { class: 'usage-meta', text: 'today ' + fmtTokens(a.todayTokens) + ' · week ' + fmtTokens(a.weekTokens) })
+        ]),
+        statusPill(statusText, kind)
+      ]);
+      list.appendChild(row);
+    });
   }
 
   // ---------------- Empty ----------------
@@ -398,17 +551,20 @@
 
   // ---------------- 配对 ----------------
   function showPair(msg) {
-    document.getElementById('pair-screen').hidden = false;
-    document.getElementById('app').hidden = true;
+    var p = document.getElementById('pair-screen');
+    var a = document.getElementById('app');
+    if (p) p.hidden = false;
+    if (a) a.hidden = true;
     if (msg) {
       var m = document.getElementById('pair-msg');
-      m.textContent = msg;
-      m.className = 'msg msg-err';
+      if (m) { m.textContent = msg; m.className = 'msg msg-err'; }
     }
   }
   function showApp() {
-    document.getElementById('pair-screen').hidden = true;
-    document.getElementById('app').hidden = false;
+    var p = document.getElementById('pair-screen');
+    var a = document.getElementById('app');
+    if (p) p.hidden = true;
+    if (a) a.hidden = false;
     paintIcons();
     showTab('home');
   }
@@ -478,7 +634,9 @@
     if (filesRoot) filesRoot.addEventListener('change', function () { if (filesState.q) runSearch(); });
     var filesPreviewClose = document.getElementById('files-preview-close');
     if (filesPreviewClose) filesPreviewClose.addEventListener('click', function () {
-      document.getElementById('files-preview').hidden = true;
+      revokeAllObjectUrls();
+      var p = document.getElementById('files-preview');
+      if (p) p.hidden = true;
     });
     // skills filter
     var skillsQ = document.getElementById('skills-q');
@@ -486,6 +644,9 @@
     // pair
     var pairBtn = document.getElementById('pair-btn');
     if (pairBtn) pairBtn.addEventListener('click', doPair);
+    // 离开页面时回收所有 objectURL
+    window.addEventListener('beforeunload', revokeAllObjectUrls);
+    window.addEventListener('pagehide', revokeAllObjectUrls);
   }
 
   // ---------------- 启动 ----------------
@@ -493,16 +654,44 @@
     paintIcons();
     bind();
     if (getToken()) {
-      // 轻校验：调 roots，能通则进 app
       api('/api/mobile/roots').then(function () { showApp(); }).catch(function () { showPair(); });
     } else {
       showPair();
     }
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot);
-  } else {
-    boot();
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', boot);
+    } else {
+      boot();
+    }
+  }
+
+  // ---------------- 测试导出（仅在 Node 环境） ----------------
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+      // 核心安全工具
+      asNode: asNode,
+      appendNodes: appendNodes,
+      clearChildren: clearChildren,
+      el: el,
+      tspan: tspan,
+      // 适配器
+      pickList: pickList,
+      // 渲染函数
+      emptyBlock: emptyBlock,
+      statusPill: statusPill,
+      paintSkills: paintSkills,
+      paintAgents: paintAgents,
+      paintUsage: paintUsage,
+      renderFilePreview: renderFilePreview,
+      // 状态
+      skillsState: skillsState,
+      filesState: filesState,
+      AGENT_FALLBACK: AGENT_FALLBACK,
+      // API（mock 时可换）
+      api: api
+    };
   }
 })();

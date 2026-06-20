@@ -115,6 +115,10 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   background: transparent;
   border: 1.5px solid var(--fg-3);
 }
+.status-dot-unknown {
+  background: transparent;
+  border: 1.5px dashed var(--fg-3);
+}
 
 /* ---------- 表单字段 ---------- */
 .field {
@@ -238,7 +242,7 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   margin: 0 auto;
   min-height: 100vh;
   background: var(--bg);
-  padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom));
+  padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + var(--s-3));
 }
 @media (min-width: 600px) {
   .app { max-width: 720px; }
@@ -247,7 +251,7 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--s-4) var(--s-4) var(--s-2);
+  padding: var(--s-3) var(--s-4) var(--s-2);
   background: var(--bg);
   position: sticky;
   top: 0;
@@ -332,6 +336,8 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   flex-wrap: nowrap;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
 }
 .flow-node {
   display: inline-flex;
@@ -345,6 +351,9 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   white-space: nowrap;
   flex: 0 0 auto;
   font-weight: 500;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .flow-node-active {
   color: var(--blue);
@@ -352,6 +361,7 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   background: var(--blue-soft);
 }
 .flow-edge { flex: 0 0 auto; display: flex; align-items: center; }
+.flow-edge svg { width: 16px; height: 16px; color: var(--blue-line); }
 
 /* ---------- Home: roots / quick access ---------- */
 .roots-list { display: flex; flex-direction: column; gap: var(--s-2); }
@@ -524,6 +534,21 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 .usage-meta { font-size: var(--fs-meta); color: var(--fg-2); margin-top: 2px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .usage-pill { font-size: var(--fs-meta); color: var(--ok); display: inline-flex; align-items: center; gap: 4px; }
 .usage-pill-empty { color: var(--fg-3); }
+.usage-pill-unknown { color: var(--fg-3); }
+.usage-pill-unknown .status-dot { border-style: dashed; }
+
+.preview-loading {
+  color: var(--fg-3);
+  font-size: var(--fs-meta);
+  padding: var(--s-3);
+  text-align: center;
+}
+
+.app-main, .tab-pane, .card, .card-grid, .usage-list, .skills-list, .agent-grid, .file-list, .roots-list, .qa-grid, .preview-body { overflow-x: hidden; }
+.preview-pre { overflow-x: auto; }
+.file-row, .root-row, .usage-row, .agent-cmd, .file-path, .file-name, .agent-name, .skill-name, .usage-name, .root-name, .flow-node, .qa-label { max-width: 100%; }
+.file-row { width: 100%; }
+.root-row .root-path { max-width: 55%; }
 
 /* ---------- 空状态 / skeleton / 通用 ---------- */
 .empty {
