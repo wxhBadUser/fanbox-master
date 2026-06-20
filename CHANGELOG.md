@@ -13,53 +13,37 @@
 
 ## [2.4.0] - 2026-06-20
 
-> **Windows Edition release.** 本版本是面向 GitHub 公开发布的「FanBox Windows Edition 2.4.0」，
-> 详细 release notes 见 [`docs/release-windows-mvp.md`](docs/release-windows-mvp.md)。
+> Windows Edition release。详细 release notes 见 [`docs/release-windows-mvp.md`](docs/release-windows-mvp.md)。
 
 ### Added
-- **第三方 Agent CLI 入口：OpenCode / Qoder CLI**
-  - 新增 `AGENT_REGISTRY`（`public/app.js`）—— 4 个 agent 的单点真理源：`claude` / `codex` / `opencode` / `qoder`
-  - 新增 `agent:which` IPC（`electron/main.js`）—— Windows 走 `where`、POSIX 走 `command -v`，白名单正则防命令名注入，4s 超时
-  - 新增 `window.fanboxAgent.which()`（`electron/preload.js`）—— 渲染层探测入口
-  - 新增 `probeAgent()` / `launchRegisteredAgent()`（`public/app.js`）—— Claude / Codex 走原 `term.launchAgent(...)` 路径完全不变；OpenCode / Qoder 先探测再启动
-  - 新增 `#term-opencode` / `#term-qoder` 按钮（`public/index.html`）—— 紧贴 Claude / Codex
-  - 未安装时 UI 友好提示：toast + `.agent-missing` 灰显
-  - Qoder 候选命令探测优先级：`qoder` → `qodercli` → `qoder-cli`
-  - i18n：OpenCode / Qoder CLI / 未找到 OpenCode / 未找到 Qoder CLI / Qoder / 启动 OpenCode.../启动 Qoder CLI...
-
-- **GitHub 公开仓库发布整理**
-  - `.gitignore` 增补：`dist/win-unpacked/`、`dist/*.exe`、`.env*`、`.fanbox-context/`、`*.ilink-token`、`ilink-sessions/`、`screenshots/`、`thumbnails/`
-  - `README.md` 增补：Windows Edition 显式声明、OpenCode / Qoder 验证项、隐私条款、Public Release Checklist
-  - `docs/release-windows-mvp.md` 完整重写为 2.4.0 release notes
-  - `LICENSE` 保留 MIT（原作者花叔 / alchaincyf/fanbox）
-
-### Changed
-- **顶包版本 bump**：`2.3.0` → **`2.4.0`**（`package.json` / `package-lock.json` 同步）
-- **README badge**：`Release 2.3.0` → `Release 2.4.0`
-- **README 下载链接**：`FanBox 2.3.0.exe` → `FanBox 2.4.0.exe`
-- **README Public Release Checklist**：tag 名 `v2.3.0-windows-mvp` → `v2.4.0-windows`
+- **OpenCode / Qoder CLI 启动入口** —— 紧贴 Claude / Codex 按钮
+  - `AGENT_REGISTRY`（`public/app.js`）单点真理源
+  - `agent:which` IPC（`electron/main.js`，Windows `where` / POSIX `command -v`）
+  - Qoder 自动探测 `qoder` / `qodercli` / `qoder-cli` 三个候选
+  - 未装时 toast + `.agent-missing` 灰显
+  - i18n：OpenCode / Qoder CLI / 未找到 OpenCode / 未找到 Qoder CLI / Qoder 等 6 条键
+  - e2e 7b 段覆盖（按钮 / 无 Composer / 无 `/` 菜单 / 无 `+` 上下文 / 友好提示）
 
 ### Fixed
-- **e2e 用量面板 flake（34/35 → 35/35）**
-  - `localStorage.fb_usage_open` 残留值导致 click 切到关闭路径 —— 修：测试前显式 `setItem('0')` 重置
-  - `waitForTimeout(2000)` 裸等 —— 修：轮询 `body.classList.contains('hidden')` 最多 4s
-  - `/api/agent-usage` 异步加载未及时落字 —— 修：轮询 `body.innerText` 最多 6s
-  - 接受 `读取失败` / `loading` 等兜底文案为"有内容"合法标记
+- **e2e 用量面板 flake（34/35 → 35/35）** —— `localStorage` 残留 + 裸等 2s 偶发失败
+  - 显式 `setItem('0')` 重置
+  - 轮询 `hidden` 类名最多 4s
+  - 轮询 `innerText` 最多 6s 让 `/api/agent-usage` 落字
+
+### Changed
+- 顶包版本 `2.3.0` → `2.4.0`（`package.json` / `package-lock.json`）
+- README badge / 下载链接 / Public Release Checklist 全部 2.4.0 化
+- `.gitignore` 增补：`dist/win-unpacked/`、`.env*`、`*.ilink-token`、`ilink-sessions/`、`screenshots/`、`thumbnails/`
 
 ### Constraints (still satisfied)
 - ❌ 不自动安装任何 CLI
-- ❌ 不读取任何 token / cookie / API key / provider secret
-- ❌ 不修改 driver / env / pty 核心逻辑
+- ❌ 不读取任何 token / cookie / API key
 - ❌ 不修改 Claude / Codex 原启动命令
-- ❌ 不接管图片粘贴（Claude Alt+V / Codex Ctrl+V / OpenCode & Qoder 由各自 CLI 决定）
-- ❌ 不新增 IDE 化输入框 / Composer / `/` 菜单 / `+` 上下文
+- ❌ 不接管图片粘贴
+- ❌ 不新增 IDE Composer / `/` 菜单 / `+` 上下文
 
 ### Verified
-- `node --check`（5 个文件）ALL OK
-- `verify:paths` PASS
-- `verify:build` PASS
-- `verify-agent-driver` PASS（claude/codex 命中 + claude -p BRIDGE_OK）
-- `verify-wechat-bridge` PASS（bridge→claude 真实链路 + session resume）
+- `verify:paths` / `verify:build` / `verify-agent-driver` / `verify-wechat-bridge` 全部 PASS
 - `test:e2e:windows` **35/35 通过**
 
 ## [2.3.0] - 2026-06-18
