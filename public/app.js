@@ -242,6 +242,99 @@ function toast(msg, isErr) {
   clearTimeout(toast._t);
   toast._t = setTimeout(() => t.classList.add('hidden'), 2200);
 }
+
+// ---------- Agent Registry：第三方终端 agent 启动入口（轻量） ----------
+// Claude / Codex 走原 term.launchAgent(...) 路径完全不变；这里只收纳 OpenCode / Qoder CLI 等
+// 「探测候选命令 → 复用 term.launchAgent」的轻量注册表。
+// 严格约束：不自动安装 / 不读 token / 不读配置文件 / 不登录 / 不修改 driver/pty/环境。
+const AGENT_REGISTRY = {
+  claude: {
+    id: 'claude',
+    label: 'Claude Code',
+    command: 'claude --dangerously-skip-permissions',
+    detect: ['claude'],
+    builtIn: true,
+  },
+  codex: {
+    id: 'codex',
+    label: 'Codex',
+    command: 'codex',
+    detect: ['codex'],
+    builtIn: true,
+  },
+  opencode: {
+    id: 'opencode',
+    label: 'OpenCode',
+    command: 'opencode',
+    detect: ['opencode'],
+    builtIn: false,
+    installHint: '未找到 OpenCode，请先安装并确认 opencode 在 PATH 中。',
+  },
+  qoder: {
+    id: 'qoder',
+    label: 'Qoder CLI',
+    command: 'qoder', // 默认候选项；实际启动时用 probe 命中的那个
+    detect: ['qoder', 'qodercli', 'qoder-cli'],
+    builtIn: false,
+    installHint: '未找到 Qoder CLI，请先安装并确认 qoder / qodercli / qoder-cli 在 PATH 中。',
+  },
+};
+// 本次运行的探测缓存：{ [agentId]: { found: 'opencode' | null, resolved: '/usr/bin/opencode' | null, ts: number } }
+const _agentProbeCache = Object.create(null);
+// 探测某个 agent 是否有可执行命令。force=true 跳过缓存。
+async function probeAgent(agentId, force) {
+  const a = AGENT_REGISTRY[agentId];
+  if (!a) return { found: null, resolved: null };
+  if (!force) {
+    const cached = _agentProbeCache[agentId];
+    if (cached) return cached;
+  }
+  // built-in agent（Claude / Codex）：不探测，启动失败时让 shell 自己报"command not found"
+  if (a.builtIn) {
+    const r = { found: a.detect[0], resolved: null, builtIn: true, ts: Date.now() };
+    _agentProbeCache[agentId] = r;
+    return r;
+  }
+  if (!window.fanboxAgent || typeof window.fanboxAgent.which !== 'function') {
+    // 非桌面 app（浏览器版 / preload 缺失）：降级显示「未找到」让用户去终端里自己跑
+    const r = { found: null, resolved: null, ts: Date.now() };
+    _agentProbeCache[agentId] = r;
+    return r;
+  }
+  let res;
+  try {
+    res = await window.fanboxAgent.which(a.detect);
+  } catch { res = null; }
+  const r = {
+    found: (res && res.ok && res.found) || null,
+    resolved: (res && res.ok && res.resolved) || null,
+    ts: Date.now(),
+  };
+  _agentProbeCache[agentId] = r;
+  return r;
+}
+// 重新探测（清缓存）。给未来「重新检测 Agent」按钮留的口子，目前没有 UI 入口。
+function clearAgentProbeCache() {
+  for (const k of Object.keys(_agentProbeCache)) delete _agentProbeCache[k];
+}
+// 启动某个注册过的 agent。Claude / Codex 走原 launchAgent 路径（保持原样），其它走探测后启动。
+async function launchRegisteredAgent(agentId) {
+  const a = AGENT_REGISTRY[agentId];
+  if (!a) { toast('未注册的 agent: ' + agentId, true); return; }
+  if (a.builtIn) {
+    // Claude / Codex：行为完全不变——还是把固定命令直接丢给 term.launchAgent
+    term.launchAgent(a.command);
+    return;
+  }
+  // 第三方：先探测，再决定走 launchAgent 还是 toast
+  const probe = await probeAgent(agentId);
+  if (!probe.found) {
+    toast(a.installHint || ('未找到 ' + a.label + ' 命令'), true);
+    return;
+  }
+  // 命中：用探测到的命令名启动（保持 PATH 解析，不写死绝对路径）
+  term.launchAgent(probe.found);
+}
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -2515,6 +2608,28 @@ function bindEvents() {
   $('#btn-terminal').onclick = () => term.toggle();
   $('#term-claude').onclick = () => { wechatView.close(); term.launchAgent('claude --dangerously-skip-permissions'); };
   $('#term-codex').onclick = () => { wechatView.close(); term.launchAgent('codex'); };
+  // OpenCode / Qoder CLI：探测后启动，未安装给友好提示
+  $('#term-opencode').onclick = () => { wechatView.close(); launchRegisteredAgent('opencode'); };
+  $('#term-qoder').onclick = () => { wechatView.close(); launchRegisteredAgent('qoder'); };
+  // 启动后探测一次，给按钮加 .agent-missing 灰显提示（不阻塞点击——点完仍然会探测+提示）
+  if (window.fanboxAgent && typeof window.fanboxAgent.which === 'function') {
+    probeAgent('opencode').then((p) => {
+      const btn = $('#term-opencode'); if (btn) {
+        if (!p.found) { btn.classList.add('agent-missing'); btn.title = AGENT_REGISTRY.opencode.installHint; }
+        else btn.title = '启动 OpenCode（已检测到 ' + p.found + '）';
+      }
+    }).catch(() => {});
+    probeAgent('qoder').then((p) => {
+      const btn = $('#term-qoder'); if (btn) {
+        if (!p.found) { btn.classList.add('agent-missing'); btn.title = AGENT_REGISTRY.qoder.installHint; }
+        else btn.title = '启动 Qoder CLI（已检测到 ' + p.found + '）';
+      }
+    }).catch(() => {});
+  } else {
+    // 非桌面 app / preload 缺失：直接给两个按钮灰显 + 安装提示
+    const oc = $('#term-opencode'); if (oc) { oc.classList.add('agent-missing'); oc.title = AGENT_REGISTRY.opencode.installHint; }
+    const qd = $('#term-qoder'); if (qd) { qd.classList.add('agent-missing'); qd.title = AGENT_REGISTRY.qoder.installHint; }
+  }
   usagePanel.bind();
   shotTray.init();
   $('#skills-entry').onclick = () => skillsView.show();

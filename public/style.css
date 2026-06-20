@@ -1011,6 +1011,10 @@ kbd {
 .term-actions .agent-launch:hover { background: var(--bg-3); }
 .term-actions .agent-launch svg { display: block; flex: none; }
 .term-actions .agent-launch + .agent-launch { margin-right: 4px; } /* 两个 agent 按钮成组，与右侧其它操作拉开一点距离 */
+/* OpenCode / Qoder 这两个没官方品牌 SVG 的 agent 按钮，文字标签要小一号、不抢眼 */
+.term-actions .agent-launch .agent-label { font-size: 11px; margin-left: 4px; line-height: 1; }
+.term-actions .agent-launch.agent-missing { opacity: 0.55; }
+.term-actions .agent-launch.agent-missing:hover { opacity: 0.9; }
 
 #xterm-host { flex: 1; position: relative; min-height: 0; overflow: hidden; background: var(--bg); }
 .xterm-instance { position: absolute; inset: 4px 2px 2px 8px; display: none; }

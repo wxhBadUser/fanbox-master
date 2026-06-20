@@ -73,6 +73,11 @@ contextBridge.exposeInMainWorld('fanboxEnv', {
   platform: process.platform,
 });
 
+// 第三方 Agent CLI 探测（OpenCode / Qoder 等）：只查 PATH，不安装、不读 token、不登录
+contextBridge.exposeInMainWorld('fanboxAgent', {
+  which: (candidates) => ipcRenderer.invoke('agent:which', { candidates: Array.isArray(candidates) ? candidates : [] }),
+});
+
 // 微信 ClawBot：不经 openclaw，直连 iLink + 本机 claude/codex；桌面输入框也能直接和本机大脑聊
 contextBridge.exposeInMainWorld('fanboxWechat', {
   env: () => ipcRenderer.invoke('wechat:env'),            // { connected, account, target, targets, cwd, cwdName }

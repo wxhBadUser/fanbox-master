@@ -201,6 +201,75 @@ async function runTests() {
       check('终端面板出现', false, 'btn-terminal not found');
     }
 
+    // ========== 7b. OpenCode / Qoder CLI 入口（轻量 registry） ==========
+    console.log('\n--- 7b. OpenCode / Qoder 入口 ---');
+
+    const ocBtn = await win.$('[data-testid="term-opencode"]').catch(() => null);
+    check('OpenCode 按钮存在', !!ocBtn, 'data-testid=term-opencode');
+    const qdBtn = await win.$('[data-testid="term-qoder"]').catch(() => null);
+    check('Qoder CLI 按钮存在', !!qdBtn, 'data-testid=term-qoder');
+
+    // 显式断言：没有 Agent Composer / 技能菜单 / + 上下文入口
+    const composerEl = await win.$('[data-testid="agent-composer"], .agent-composer, #agent-composer').catch(() => null);
+    check('不出现 Agent Composer', !composerEl, 'agent-composer');
+    const slashMenuEl = await win.$('[data-testid="slash-menu"], .slash-menu, #slash-menu').catch(() => null);
+    check('不出现 / 技能菜单', !slashMenuEl, 'slash-menu');
+    const plusCtxEl = await win.$('[data-testid="plus-context"], .plus-context, #plus-context').catch(() => null);
+    check('不出现 + 上下文入口', !plusCtxEl, 'plus-context');
+
+    // 渲染层 registry 暴露且包含 4 个 agent
+    const regInfo = await win.evaluate(() => {
+      const r = window.AGENT_REGISTRY || (typeof AGENT_REGISTRY !== 'undefined' ? AGENT_REGISTRY : null);
+      const ids = r ? Object.keys(r) : [];
+      return {
+        ids,
+        hasOpencode: !!(r && r.opencode && r.opencode.command === 'opencode' && Array.isArray(r.opencode.detect) && r.opencode.detect.includes('opencode')),
+        hasQoder: !!(r && r.qoder && Array.isArray(r.qoder.detect) && r.qoder.detect.includes('qoder') && r.qoder.detect.includes('qodercli') && r.qoder.detect.includes('qoder-cli')),
+        hasClaude: !!(r && r.claude && /claude/.test(r.claude.command || '')),
+        hasCodex: !!(r && r.codex && r.codex.command === 'codex'),
+        hasProbe: typeof probeAgent === 'function',
+        hasLauncher: typeof launchRegisteredAgent === 'function',
+        hasIpc: !!(window.fanboxAgent && typeof window.fanboxAgent.which === 'function'),
+      };
+    }).catch(() => null);
+    check('AGENT_REGISTRY 暴露（含 4 个 agent）', regInfo && Array.isArray(regInfo.ids) && regInfo.ids.length === 4, JSON.stringify(regInfo && regInfo.ids));
+    check('Registry 含 opencode', regInfo && regInfo.hasOpencode, '');
+    check('Registry 含 qoder（3 个候选命令）', regInfo && regInfo.hasQoder, '');
+    check('Registry 含 claude', regInfo && regInfo.hasClaude, '');
+    check('Registry 含 codex', regInfo && regInfo.hasCodex, '');
+    check('probeAgent / launchRegisteredAgent 暴露', regInfo && regInfo.hasProbe && regInfo.hasLauncher, '');
+
+    // 探测：无论本机是否安装了 opencode / qoder，渲染层都不能崩。
+    // OpenCode 通常没装：点击应出 toast / agent-missing 灰显。
+    if (ocBtn) {
+      try {
+        await ocBtn.click();
+        await win.waitForTimeout(800);
+        const toastTxt = await win.evaluate(() => { const t = document.getElementById('toast'); return t ? t.textContent : ''; }).catch(() => '');
+        const isMissing = await ocBtn.evaluate((el) => el.classList.contains('agent-missing')).catch(() => false);
+        const friendly = /OpenCode|opencode|未找到/.test(toastTxt) || isMissing;
+        check('OpenCode 未安装时友好提示', friendly, 'toast=' + toastTxt.slice(0, 40) + ' missing=' + isMissing);
+      } catch (e) { check('OpenCode 未安装时友好提示', false, e.message); }
+    }
+    // Qoder：本机如果装了，点了会真在终端启动 qodercli/qoder/qoder-cli，破坏 e2e 收尾。
+    // 这里只做「未安装时友好提示」验证；装了则只校验按钮存在 + 探测到的命令名前缀。
+    if (qdBtn) {
+      try {
+        const qdProbe = await win.evaluate(() => window.fanboxAgent && window.fanboxAgent.which(['qoder', 'qodercli', 'qoder-cli']).then((r) => (r && r.found) || null)).catch(() => null);
+        if (qdProbe) {
+          // 已安装：只校验探测命令名 + 按钮可见，不实际点（避免 spawn 阻塞 watchdog）
+          check('Qoder 已安装时探测命中', /^(qoder|qodercli|qoder-cli)$/.test(qdProbe), '探测=' + qdProbe);
+        } else {
+          await qdBtn.click();
+          await win.waitForTimeout(800);
+          const toastTxt = await win.evaluate(() => { const t = document.getElementById('toast'); return t ? t.textContent : ''; }).catch(() => '');
+          const isMissing = await qdBtn.evaluate((el) => el.classList.contains('agent-missing')).catch(() => false);
+          const friendly = /Qoder|qoder|未找到/.test(toastTxt) || isMissing;
+          check('Qoder 未安装时友好提示', friendly, 'toast=' + toastTxt.slice(0, 40) + ' missing=' + isMissing);
+        }
+      } catch (e) { check('Qoder 未安装时友好提示', false, e.message); }
+    }
+
     // ========== 8. 用量面板基础验证 ==========
     console.log('\n--- 8. 用量面板基础验证 ---');
 

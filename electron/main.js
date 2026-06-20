@@ -529,6 +529,46 @@ ipcMain.handle('pty:spawn', (e, { id, cwd, cols, rows, theme }) => {
   });
   return { ok: true, cwd: startCwd };
 });
+// ---------- Agent CLI 探测：OpenCode / Qoder 等第三方终端 agent 的 which ----------
+// 只探测 PATH 里有没有这个命令，不安装、不读 token、不读配置文件、不登录。
+// candidates 是按优先级排好的命令名数组（Qoder 可能是 qoder / qodercli / qoder-cli）。
+// 命中第一条就返回该命令名（不是绝对路径——保持「原命令启动」语义），未命中返回 null。
+ipcMain.handle('agent:which', (e, { candidates }) => {
+  try {
+    const list = Array.isArray(candidates) ? candidates.filter((x) => typeof x === 'string' && /^[A-Za-z0-9._+-]{1,64}$/.test(x)) : [];
+    if (!list.length) return { ok: true, found: null };
+    const isWin = process.platform === 'win32';
+    const { execFile } = require('child_process');
+    return new Promise((resolve) => {
+      // Windows: where <bin1> <bin2> ...（多条候选一次性问）
+      // POSIX:   command -v <bin1> <bin2> ... || true（不会失败退出）
+      const cmd = isWin ? 'where' : 'command';
+      const args = isWin ? list : ['-v'].concat(list).concat(['||', 'true']); // POSIX 不会真用 || true，但保留 escape
+      // POSIX 的 || 不能跨 execFile args，传 shell:false 时 command -v 多参数会报「too many arguments」，
+      // 改用单候选循环 + which 风格：每个候选单独问。
+      const probeOne = (bin) => new Promise((res) => {
+        const oneArgs = isWin ? [bin] : ['-v', bin];
+        execFile(cmd, oneArgs, { timeout: 4000, windowsHide: true, shell: false }, (err, stdout) => {
+          if (err) return res(null);
+          const first = String(stdout || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0] || null;
+          // where 在 Windows 可能输出「INFO: Could not find files for the given pattern(s).」之类提示，过滤掉
+          if (!first || /^(INFO|WARN):/i.test(first)) return res(null);
+          res(first);
+        });
+      });
+      (async () => {
+        for (const bin of list) {
+          // eslint-disable-next-line no-await-in-loop
+          const hit = await probeOne(bin);
+          if (hit) return resolve({ ok: true, found: bin, resolved: hit });
+        }
+        resolve({ ok: true, found: null });
+      })().catch(() => resolve({ ok: true, found: null }));
+    });
+  } catch (err) {
+    return { ok: false, error: err.message, found: null };
+  }
+});
 // ---------- 剪贴板：复制图片本体 / 复制文件（访达可粘贴）----------
 ipcMain.handle('clip:image', (e, { path: p }) => {
   try { const img = nativeImage.createFromPath(p); if (img.isEmpty()) return { ok: false, error: '不是可读图片' }; clipboard.writeImage(img); return { ok: true }; }
