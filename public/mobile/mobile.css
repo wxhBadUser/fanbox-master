@@ -1222,14 +1222,15 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 8px;
+  padding: 10px 10px;
   border: 0;
   background: transparent;
   text-align: left;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   color: var(--fg);
   font-family: inherit;
+  min-height: 48px;  /* >= 44px touch target */
   transition: background 0.1s;
   width: 100%;
   position: relative;
@@ -1468,8 +1469,32 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   color: var(--fg-2);
   flex: 1;
   min-width: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
+.home-composer-meta > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+#home-cwd.is-clickable {
+  color: var(--blue);
+  cursor: pointer;
+  text-decoration: none;
+  border-bottom: 1px dashed transparent;
+  transition: border-color 0.1s;
+}
+#home-cwd.is-clickable:hover { border-bottom-color: var(--blue); }
+#home-cwd.is-clickable:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 2px; }
+#agent-cwd {
+  cursor: pointer;
+  text-decoration: none;
+  border-bottom: 1px dashed transparent;
+  transition: border-color 0.1s;
+}
+#agent-cwd:hover { border-bottom-color: currentColor; }
+#agent-cwd:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 2px; }
 .home-composer-cwd,
 .home-composer-model,
 .home-composer-effort {
@@ -1499,32 +1524,46 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 /* ---- Home cards（4 张，简洁） ---- */
 .home-cards {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
   max-width: 760px;
   margin: 4px auto 0;
   width: 100%;
 }
-@media (min-width: 600px) {
-  .home-cards { grid-template-columns: 1fr 1fr; }
+@media (min-width: 720px) {
+  .home-cards { grid-template-columns: repeat(4, 1fr); }
 }
 .home-card {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 12px 12px;
+  min-height: 48px;  /* 44px+ touch target */
   border: 1px solid var(--line, #E5E7EB);
-  border-radius: 10px;
+  border-radius: 12px;
   background: #fff;
   cursor: pointer;
   text-align: left;
   font-family: inherit;
   transition: background 0.12s, border-color 0.12s;
   color: var(--fg);
-  font-size: 13px;
+  font-size: 12px;
+  line-height: 1.3;
 }
 .home-card:hover { background: #F8FAFC; border-color: #CBD5E1; }
-.home-card-text { line-height: 1.4; }
+.home-card-text {
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.home-card-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  color: var(--blue);
+}
 
 /* ---- 安全提示（保留 3 条） ---- */
 .home-safety {
@@ -1653,7 +1692,26 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 .agent-header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+.agent-header-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #0F172A;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.agent-header-icon.has-icon svg { width: 20px; height: 20px; stroke: #fff; }
+.agent-header-name-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
   flex: 1;
 }
@@ -1662,6 +1720,9 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   font-weight: 700;
   color: var(--fg);
   letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .agent-header-status {
   font-size: 11px;
@@ -1879,17 +1940,27 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 .card-cta .card-h { color: var(--blue); }
 .card-cta .btn-primary { margin: 0; }
 
+.files-manager-list .skill-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: var(--s-2);
+}
+/* Phase UI-A5：手机文件管理器竖向布局 */
 .files-manager-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin-top: var(--s-2);
+  gap: 4px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 .fm-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 12px 12px;
+  min-height: 56px;  /* 44px+ touch target with comfortable spacing */
   border-radius: 10px;
   background: transparent;
   border: 1px solid transparent;
@@ -1901,6 +1972,8 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   color: inherit;
 }
 .fm-row:hover { background: var(--bg-2); border-color: var(--border-soft); }
+.fm-row:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.fm-row:active { background: var(--bg-2); }
 .fm-row-dir .fm-name { color: var(--blue); font-weight: 600; }
 .fm-icon {
   display: inline-flex;
@@ -1932,7 +2005,11 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   margin-top: 2px;
   display: flex;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .card-preview { background: var(--card); }
@@ -1971,6 +2048,33 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 
 /* skills list - 已被 paintSkills 渲染到 #skills-list */
 .skills-list { display: flex; flex-direction: column; gap: var(--s-3); }
+.skills-filter {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  border-top: 1px solid var(--line, #E5E7EB);
+  padding-top: 10px;
+}
+.skills-filter-btn {
+  flex: 1 1 0;
+  min-height: 36px;  /* 4px above tap-target minimum */
+  padding: 6px 8px;
+  border: 1px solid var(--line, #E5E7EB);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--fg-2);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.skills-filter-btn:hover { background: #F8FAFC; }
+.skills-filter-btn.is-active {
+  background: #0F172A;
+  color: #fff;
+  border-color: #0F172A;
+}
 .skill-card {
   background: var(--card);
   border: 1px solid var(--border);

@@ -619,9 +619,125 @@ function req(opts, body) {
   ok('paintSkills 显示 No description fallback', /No description/.test(js));
   ok('paintSkills 包含 search 过滤', /paintSkills[\s\S]{0,1500}skills-q|skills-q[\s\S]{0,500}paintSkills/.test(js));
 
+  // ============================================================
+  // [L] Phase UI-A5 · Polish AionUi-like Home / ChatGPT-like Agent / Mobile File Manager
+  //     59 项验收点（Home 13 / Agent 11 / Session 6 / Files 11 / Skills 8 / 安全 10）
+  // ============================================================
+  section('L) Phase UI-A5 Polish (59 项验收)');
+
+  // ---- L1. Home (13) ----
+  ok('L1.1 配对成功默认 Home (UI-A3b)', /doPair[\s\S]{0,2500}setToken[\s\S]{0,200}showApp/.test(js));
+  ok('L1.2 Home 手机端单列 (CSS display: block, no grid on mobile)', /\.home-workspace\s*\{[^}]*display:\s*block/.test(css));
+  ok('L1.3 Home 桌面端 >=1024 才两栏 (UI-A3b)', /@media\s*\(min-width:\s*1024px\)\s*\{[^}]*\.home-workspace[\s\S]{0,500}grid-template-columns:\s*280px/.test(css));
+  ok('L1.4 Home 不出现窄竖条 (.home-main width 100% + min-width: 0)', /\.home-main\s*\{[^}]*width:\s*100%/.test(css) && /\.home-main\s*\{[^}]*min-width:\s*0/.test(css));
+  ok('L1.5 Home 有 New Chat 按钮', /id="home-new-chat"/.test(html));
+  ok('L1.6 Home 有历史 sessions 容器', /id="home-sessions"/.test(html));
+  ok('L1.7 Home 有 Agent Quick Chat 区', /id="home-quickchat"/.test(html));
+  ok('L1.8 Home 有 Claude Code / Codex / OpenCode / Qoder 4 agent',
+    /Claude Code/.test(html) && /Codex/.test(html) && /OpenCode/.test(html) && /Qoder/.test(html));
+  ok('L1.9 4 个 agent 都带 SVG 图标 (AGENT_ICONS 4 份内联)',
+    /AGENT_ICONS\s*=\s*\{[\s\S]{0,2000}claude[\s\S]{0,500}codex[\s\S]{0,500}opencode[\s\S]{0,500}qoder/.test(js));
+  ok('L1.10 Home 输入框宽度正常 (CSS width: 100% / max-width: 760px)',
+    /\.home-composer\s*\{[^}]*width:\s*100%/.test(css) && /\.home-composer\s*\{[^}]*max-width:\s*760px/.test(css));
+  ok('L1.11 Home 显示 cwd / model / effort 三段',
+    /id="home-cwd"/.test(html) && /id="home-model"/.test(html) && /id="home-effort"/.test(html));
+  ok('L1.12 Home Send 触发 draft session (onSendMessage 调 /api/mobile/sessions/draft)',
+    /onSendMessage[\s\S]{0,2500}apiPost\(['"]\/api\/mobile\/sessions\/draft['"]\s*,/.test(js));
+  ok('L1.13 Home 发消息跳 Agent (onSendMessage 调 showTab(\'agent\'))',
+    /onSendMessage[\s\S]{0,2500}showTab\(['"]agent['"]\)/.test(js));
+
+  // ---- L2. Agent (11) ----
+  ok('L2.1 Agent 左上角显示当前 agent 名称 (#agent-header-name)', /id="agent-header-name"/.test(html));
+  ok('L2.2 Agent 左上角 agent 图标 (#agent-header-icon, Phase UI-A5)', /id="agent-header-icon"/.test(html));
+  ok('L2.3 Agent 显示 cwd (#agent-meta-cwd)', /id="agent-meta-cwd"/.test(html));
+  ok('L2.4 Agent 显示 model (#agent-meta-model)', /id="agent-meta-model"/.test(html));
+  ok('L2.5 Agent 显示 effort (#agent-meta-effort)', /id="agent-meta-effort"/.test(html));
+  ok('L2.6 Agent 有 messages 容器 (#agent-messages)', /id="agent-messages"/.test(html));
+  ok('L2.7 Agent 有底部输入框 (#agent-input)', /id="agent-input"/.test(html));
+  ok('L2.8 Agent messages 不像终端 (ChatGPT-like 气泡样式)', /\.chat-bubble[\s\S]{0,500}border-radius:/.test(css) || /\.chat-bubble-user/.test(css));
+  ok('L2.9 Agent 不显示 raw stdout (无 .stdout / .jsonl path / .appendStdout)',
+    !/appendStdout|raw stdout|stdout-pipe/.test(js) && !/home[\s\S]{0,8000}\.jsonl/.test(html));
+  ok('L2.10 Agent 不暴露 token / cookie / API key / claudeSession / codexSession',
+    !/claudeSession|codexSession/.test(html) && !/getToken\s*\(\s*\)\s*\+\s*['"]\s/.test(js));
+  ok('L2.11 Agent 不显示 Request approval / Waiting for desktop approval',
+    !/Request approval|Waiting for desktop approval/.test(html));
+
+  // ---- L3. Session (6) ----
+  ok('L3.1 Home 点击历史 session 进入 Agent (onPickHomeSession 调 showTab(\'agent\'))',
+    /onPickHomeSession[\s\S]{0,1000}showTab\(['"]agent['"]\)/.test(js));
+  ok('L3.2 onPickHomeSession 同步 sessionId', /onPickHomeSession[\s\S]{0,1000}sessionId\s*=\s*s\.id|sessionId\s*=\s*[^=]+/.test(js));
+  ok('L3.3 onPickHomeSession 同步 agentId (不创建新 agent)', /onPickHomeSession[\s\S]{0,1000}agentId\s*=\s*s\.agentId|agentId\s*=\s*[^=]+/.test(js));
+  ok('L3.4 onPickHomeSession 同步 cwd (不丢 cwd)', /onPickHomeSession[\s\S]{0,1000}cwd\s*=\s*s\.cwd|cwd\s*=\s*[^=]+/.test(js));
+  ok('L3.5 Agent 页根据 sessionId 拉取 messages (paintAgentMessages 调用 messages API)',
+    /paintAgentMessages[\s\S]{0,2000}api\(['"]\/api\/mobile\/sessions\/[^'"]+\/messages['"]/.test(js) ||
+    /api\(['"]\/api\/mobile\/sessions\/\$\{[^}]+\}\/messages['"]/.test(js) ||
+    /loadSessionMessages[\s\S]{0,1000}\/messages/.test(js));
+  ok('L3.6 不误新建 session (onPickHomeSession 不调 /sessions/draft)', (function () {
+    // 提取 onPickHomeSession 函数体（找 function ... { ... } 第一个匹配的闭合大括号）
+    var startIdx = js.indexOf('function onPickHomeSession(');
+    if (startIdx < 0) return true; // 函数不存在 = 没创建 = pass
+    var braceIdx = js.indexOf('{', startIdx);
+    if (braceIdx < 0) return true;
+    var depth = 0;
+    var endIdx = -1;
+    for (var i = braceIdx; i < js.length; i++) {
+      var c = js[i];
+      if (c === '{') depth++;
+      else if (c === '}') { depth--; if (depth === 0) { endIdx = i; break; } }
+    }
+    if (endIdx < 0) return true;
+    var body = js.slice(braceIdx, endIdx);
+    return !/apiPost\(['"]\/api\/mobile\/sessions\/draft['"]\s*,/.test(body);
+  })());
+
+  // ---- L4. Files (11) ----
+  ok('L4.1 Files 是竖向列表 (CSS .files-manager-list flex column)', /\.files-manager-list\s*\{[^}]*flex-direction:\s*column/.test(css));
+  ok('L4.2 文件夹优先 (mobile.js 排序 folders first)',
+    /renderFiles[\s\S]{0,2000}isFolder|foldersFirst|sortFiles|sortBy/.test(js) ||
+    /refreshFilesList[\s\S]{0,2000}isDir|isFolder|folders/.test(js));
+  ok('L4.3 文件 row 高度适合手机点击 (CSS .fm-row min-height: 56px)', /\.fm-row\s*\{[^}]*min-height:\s*56px/.test(css));
+  ok('L4.4 点击文件夹进入 (cdInto 函数存在)', /cdInto\s*\(/.test(js));
+  ok('L4.5 点击文件预览 (previewFile / openFile 存在)', /previewFile\s*\(|openFile\s*\(|onPickFile\s*\(/.test(js));
+  ok('L4.6 Ask AI in this folder 跳 Agent (#files-open-agent 调用 onFilesOpenAgent)', /id="files-open-agent"/.test(html) && /onFilesOpenAgent\s*\(/.test(js));
+  ok('L4.7 onFilesOpenAgent 更新 cwd (调用 /api/mobile/context/cwd)', /onFilesOpenAgent[\s\S]{0,1000}context\/cwd/.test(js));
+  ok('L4.8 Files UI 不含 Delete File', !/Delete File/.test(html));
+  ok('L4.9 Files UI 不含 Move File', !/Move File/.test(html));
+  ok('L4.10 Files UI 不含 Rename File', !/Rename File/.test(html));
+  ok('L4.11 Files UI 不含 Upload File', !/Upload File/.test(html));
+
+  // ---- L5. Skills (8) ----
+  ok('L5.1 Skills 能显示 name (.skill-name)',
+    /class="skill-name"/.test(html) || /\.skill-name/.test(js) || /class:\s*['"]skill-name['"]/.test(js));
+  ok('L5.2 Skills 能显示 description (.skill-desc)',
+    /class="skill-desc"/.test(html) || /\.skill-desc/.test(js) || /class:\s*['"]skill-desc['"]/.test(js));
+  ok('L5.3 Skills 无简介显示 "No description" fallback', /No description/.test(js));
+  ok('L5.4 Skills 能 search (#skills-q 绑 input 事件)', /id="skills-q"/.test(html) && /skills-q[\s\S]{0,500}addEventListener/.test(js));
+  ok('L5.5 Skills 能 filter (skills-filter-btn All/Enabled/Disabled)',
+    /data-filter="all"/.test(html) && /data-filter="enabled"/.test(html) && /data-filter="disabled"/.test(html));
+  ok('L5.6 Skills 能 toggle (.skill-card 包含 button[data-skill-id])',
+    /data-skill-id/.test(js) && /onToggleSkill\s*\(/.test(js));
+  ok('L5.7 toggle 只写 mobile state (onToggleSkill 调用 /api/mobile/skills-state, 不写 .claude/skills)',
+    /onToggleSkill[\s\S]{0,1000}\/api\/mobile\/skills-state/.test(js));
+  ok('L5.8 Skills 不显示 skill 文件路径 (无 ~/.claude/skills 暴露)',
+    !/home[\s\S]{0,8000}~?\/?\.claude\/skills/.test(html) && !/display.*~\/\.claude\/skills/.test(html));
+
+  // ---- L6. 安全 (10) ----
+  ok('L6.1 token + LAN 相关逻辑未改 (mobile.js 仍用 getToken/setToken/clearToken)', /getToken\s*\(/.test(js) && /setToken\s*\(/.test(js) && /clearToken\s*\(/.test(js));
+  ok('L6.2 UI 不暴露 raw stdout (无 .stdout / .appendStdout)', !/appendStdout|raw stdout|stdout-pipe/.test(html));
+  ok('L6.3 UI 不暴露 .jsonl 路径', !/home[\s\S]{0,8000}\.jsonl/.test(html));
+  ok('L6.4 UI 不暴露 token / cookie / API key (无 getToken() 拼接展示)', !/textContent\s*=\s*getToken\s*\(\s*\)/.test(html));
+  ok('L6.5 UI 不暴露 claudeSession / codexSession 字段', !/claudeSession|codexSession/.test(html));
+  ok('L6.6 不新增 upload / delete / move / rename 按钮 (UI 扫描通过)',
+    !/Upload File|Delete File|Move File|Rename File/.test(html));
+  ok('L6.7 不新增 pty / shell (UI 不含 "Execute Shell" / "Terminal Input")',
+    !/Execute Shell|Terminal Input|PTY|pty\.spawn/.test(html));
+  ok('L6.8 UI 不出现 YOLO', !/YOLO/.test(html));
+  ok('L6.9 UI 不出现 Full-auto', !/Full-auto/.test(html));
+  ok('L6.10 UI 不出现 Team Mode', !/Team Mode/.test(html));
+
   // 收尾
   await new Promise((r) => server.close(r));
-  console.log('\n===== UI-A3 总结 =====');
+  console.log('\n===== UI-A5 总结 =====');
   console.log('PASS:', passed);
   console.log('FAIL:', failed);
   if (failed > 0) process.exit(1);

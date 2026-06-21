@@ -1600,6 +1600,36 @@ async function handleMobileApiV2A(req, res, url) {
     return sendJson(res, 200, r), true;
   }
 
+  // -------- GET /api/mobile/sessions/:id/messages --------
+  // Phase UI-A5：scrubbed messages（走 mobile-sessions.js safeStr 安全过滤）
+  if (req.method === 'GET' && /^\/api\/mobile\/sessions\/[A-Za-z0-9._\-+]{1,128}\/messages$/.test(pathOnly)) {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    const m = pathOnly.match(/^\/api\/mobile\/sessions\/([A-Za-z0-9._\-+]{1,128})\/messages$/);
+    const sessionId = m ? m[1] : '';
+    const u = new URL(url, 'http://x');
+    const limit = Math.max(1, Math.min(50, parseInt(u.searchParams.get('limit') || '20', 10) || 20));
+    const sess = await mobileSessions.getSessionById(sessionId);
+    if (!sess) return sendJson(res, 404, { ok: false, error: 'session_not_found' }), true;
+    const msgs = await mobileSessions.getSessionMessages(sessionId, limit);
+    const cleanMsgs = (msgs && Array.isArray(msgs.messages) ? msgs.messages : []).map(function (mm) {
+      return {
+        role: mm.role,
+        text: mobileSessions.safeStr(mm.text || '', 2000),
+        status: mm.status,
+        ts: mm.ts,
+        agentId: mm.agentId || ''
+      };
+    });
+    return sendJson(res, 200, {
+      ok: true,
+      sessionId: sess.sessionId,
+      status: sess.status,
+      agentId: sess.agentId,
+      cwdLabel: sess.cwdLabel,
+      messages: cleanMsgs
+    }), true;
+  }
+
   // -------- GET /api/mobile/sessions/:id/events --------
   // Phase 2A-2.1：scrubbed messages + session status（无 raw stdout / jsonl / token）
   if (req.method === 'GET' && /^\/api\/mobile\/sessions\/[A-Za-z0-9._\-+]{1,128}\/events$/.test(pathOnly)) {

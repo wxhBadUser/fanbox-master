@@ -178,8 +178,11 @@
         <div class="agent-header card">
           <div class="agent-header-top">
             <div class="agent-header-left">
-              <div id="agent-header-name" class="agent-header-name">Claude Code</div>
-              <span id="agent-header-status" class="agent-header-status">ready</span>
+              <div class="agent-header-icon" id="agent-header-icon" aria-hidden="true"></div>
+              <div class="agent-header-name-block">
+                <div id="agent-header-name" class="agent-header-name">Claude Code</div>
+                <span id="agent-header-status" class="agent-header-status">ready</span>
+              </div>
             </div>
             <button id="agent-header-back" class="btn-ghost" type="button">Back to Home</button>
           </div>
@@ -294,12 +297,18 @@
       </section>
 
       <!-- ============================================================== -->
-      <!-- Skills Tab                                                      -->
+      <!-- Skills Tab  (Phase UI-A5 · Skill Library)                     -->
+      <!-- search + filter (All/Enabled/Disabled) + toggle                -->
       <!-- ============================================================== -->
       <section class="tab-pane" data-tab="skills" hidden>
         <div class="card">
           <div class="field-row">
-            <input id="skills-q" class="field field-input" type="search" placeholder="搜索 skill 名称或简介…" maxlength="60" autocomplete="off">
+            <input id="skills-q" class="field field-input" type="search" placeholder="Search skill name or description…" maxlength="60" autocomplete="off">
+          </div>
+          <div class="skills-filter" role="tablist" aria-label="Filter">
+            <button class="skills-filter-btn is-active" data-filter="all" type="button" role="tab" aria-selected="true">All</button>
+            <button class="skills-filter-btn" data-filter="enabled" type="button" role="tab" aria-selected="false">Enabled</button>
+            <button class="skills-filter-btn" data-filter="disabled" type="button" role="tab" aria-selected="false">Disabled</button>
           </div>
         </div>
         <div id="skills-list" class="skills-list">

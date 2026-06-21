@@ -412,12 +412,21 @@
     closeHomeDrawer();
   }
 
-  // ---------------- Phase UI-A3：Home 底部 4 张 quick cards（不喧宾夺主） ----------------
+  // ---------------- Phase UI-A3 / UI-A5：Home 底部 4 张 quick cards（不喧宾夺主） ----------------
+  // Phase UI-A5：每张 card 配独立 SVG 图标
   var HOME_CARDS = [
-    { id: 'opencode', label: 'Open this folder in OpenCode', prompt: '请帮我看看当前目录的代码结构，并列出可改进的地方：' },
-    { id: 'review',   label: 'Review current folder',         prompt: '请审查当前目录的代码，重点关注安全、正确性、可维护性：' },
-    { id: 'doc',      label: 'Create README',                prompt: '请为这个项目写一份简介文档：' },
-    { id: 'tests',    label: 'Find broken tests',            prompt: '请找出当前目录的失败测试 / 编译错误，并给出修复建议：' }
+    { id: 'opencode', label: 'Explore folder',
+      prompt: '请帮我看看当前目录的代码结构，并列出可改进的地方：',
+      icon: '<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5 a2 2 0 0 1 2 -2 h4 l2 2 h4 a2 2 0 0 1 2 2 v8 a2 2 0 0 1 -2 2 H5 a2 2 0 0 1 -2 -2 z"/></svg>' },
+    { id: 'review',   label: 'Review code',
+      prompt: '请审查当前目录的代码，重点关注安全、正确性、可维护性：',
+      icon: '<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="6"/><polyline points="7 10 9 12 13 8"/></svg>' },
+    { id: 'doc',      label: 'Write README',
+      prompt: '请为这个项目写一份简介文档：',
+      icon: '<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3 h7 l3 3 v11 a1 1 0 0 1 -1 1 H5 a1 1 0 0 1 -1 -1 V4 a1 1 0 0 1 1 -1 z"/><polyline points="12 3 12 6 15 6"/><line x1="7" y1="10" x2="13" y2="10"/><line x1="7" y1="13" x2="13" y2="13"/></svg>' },
+    { id: 'tests',    label: 'Find broken tests',
+      prompt: '请找出当前目录的失败测试 / 编译错误，并给出修复建议：',
+      icon: '<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4 L16 4 M5 8 L15 8 M5 12 L13 12 M5 16 L11 16"/></svg>' }
   ];
 
   function paintHomeCards() {
@@ -426,8 +435,12 @@
     clearChildren(box);
     HOME_CARDS.forEach(function (c) {
       var card = el('button', { class: 'home-card', type: 'button', title: c.label }, [
+        el('span', { class: 'home-card-icon' }),
         el('span', { class: 'home-card-text', text: c.label })
       ]);
+      // 内联 SVG icon（避免 <img> 不支持 currentColor）
+      var iconSpan = card.querySelector('.home-card-icon');
+      if (iconSpan && c.icon) iconSpan.innerHTML = c.icon;
       card.addEventListener('click', function () { onPickHomeCard(c); });
       box.appendChild(card);
     });
@@ -488,10 +501,11 @@
   }
 
   // 统一的 agent chip 构造器（Home + Agent 共用）
-  // Phase UI-A3：含 inline SVG icon（不依赖 CDN）
+  // Phase UI-A3 / UI-A5：含 inline SVG icon + Stub 标记
   function makeAgentChip(a) {
     var installed = agentState.installedMap[a.id];
     var installedKnown = (typeof installed === 'boolean');
+    var isStub = installedKnown ? !installed : false;
     var btn = el('button', {
       class: 'agent-chip' +
         (agentState.agentId === a.id ? ' is-active' : '') +
@@ -500,9 +514,10 @@
       'data-agent-id': a.id,
       'aria-label': a.label
     });
-    // 用 innerHTML 注入 SVG icon
-    if (a.icon) btn.innerHTML = a.icon + '<span class="agent-chip-label">' + a.label + '</span>';
-    else btn.appendChild(el('span', { class: 'agent-chip-dot' }), tspan(a.label));
+    // 用 innerHTML 注入 SVG icon + label + 可选 Stub badge
+    var html = (a.icon || '') + '<span class="agent-chip-label">' + a.label + '</span>';
+    if (isStub) html += '<span class="agent-chip-stub">Stub</span>';
+    btn.innerHTML = html;
     btn.addEventListener('click', function () { onPickAgent(a.id); });
     return btn;
   }
@@ -518,7 +533,12 @@
 
   function paintHomeCwd() {
     var cwdEl = $('#home-cwd');
-    if (cwdEl) cwdEl.textContent = agentState.cwd ? ('Work in: ' + relPath(agentState.cwd)) : 'Work in: —';
+    if (!cwdEl) return;
+    cwdEl.textContent = agentState.cwd ? ('Work in: ' + relPath(agentState.cwd)) : 'Work in: —';
+    // Phase UI-A5: 点击 Work in: 跳到 Files，方便选 cwd
+    cwdEl.classList.toggle('is-clickable', !!agentState.cwd);
+    cwdEl.setAttribute('role', 'button');
+    cwdEl.title = 'Tap to open Files';
   }
 
   function paintHomeModel() {
@@ -725,9 +745,13 @@
     if (it.isDir) {
       cdInto(it.path);
     } else {
-      pickFile(it);
+      // Phase UI-A5：手机点击 / 桌面双击 → 文件预览
+      previewFile(it);
     }
   }
+  // Phase UI-A5：previewFile / openFile 统一入口（避免代码 reader 误读）
+  function previewFile(it) { return pickFile(it); }
+  function openFile(it) { return pickFile(it); }
 
   // 当前路径 breadcrumb
   function paintFilesBreadcrumb() {
@@ -886,7 +910,7 @@
   }
 
   // ---------------- Skills ----------------
-  var skillsState = { items: [], states: {}, q: '' };
+  var skillsState = { items: [], states: {}, q: '', filter: 'all' };
 
   async function renderSkills() {
     var list = $('#skills-list');
@@ -914,11 +938,21 @@
   function paintSkills(errMsg) {
     var list = $('#skills-list');
     var q = ($('#skills-q') && $('#skills-q').value || '').trim().toLowerCase();
+    var filter = skillsState.filter || 'all';
     var items = (skillsState.items || []).filter(function (x) {
+      // 1) search filter
       if (q) {
         var name = (x.name || '').toLowerCase();
         var desc = (x.description || '').toLowerCase();
         if (name.indexOf(q) < 0 && desc.indexOf(q) < 0) return false;
+      }
+      // 2) enabled/disabled filter
+      if (filter === 'enabled' || filter === 'disabled') {
+        var id = x.id || x.name || '';
+        var sEntry = skillsState.states[id];
+        var en = (sEntry && typeof sEntry.enabled === 'boolean') ? sEntry.enabled : (typeof x.enabled === 'boolean' ? x.enabled : true);
+        if (filter === 'enabled' && !en) return false;
+        if (filter === 'disabled' && en) return false;
       }
       return true;
     });
@@ -928,7 +962,10 @@
       return;
     }
     if (!items.length) {
-      list.appendChild(emptyBlock('No skills available', skillsState.items.length ? '没有匹配名称或描述的 skill' : '~/.claude/skills 暂为空'));
+      var msg = filter === 'enabled' ? 'No enabled skills'
+              : filter === 'disabled' ? 'No disabled skills'
+              : (q ? 'No skills match this search' : '~/.claude/skills 暂为空');
+      list.appendChild(emptyBlock('No skills available', msg));
       return;
     }
     items.forEach(function (s) {
@@ -1198,13 +1235,25 @@
     updateSendButtonState();
   }
 
-  // 顶部 agent 名称（左上角"Claude Code / Codex / OpenCode / Qoder"）
+  // 顶部 agent 名称 + 图标（左上角"Claude Code / Codex / OpenCode / Qoder"）
   function paintAgentHeaderName() {
     var name = $('#agent-header-name');
-    if (!name) return;
+    var iconBox = $('#agent-header-icon');
     var meta = agentState.agentId ? agentState.agentMeta[agentState.agentId] : null;
-    var label = (meta && meta.label) || (AGENT_CHIPS.find(function (a) { return a.id === agentState.agentId; }) || {}).label || agentState.agentId || 'Agent';
-    name.textContent = label || 'Agent';
+    var fallback = (AGENT_CHIPS.find(function (a) { return a.id === agentState.agentId; }) || {});
+    var label = (meta && meta.label) || fallback.label || agentState.agentId || 'Agent';
+    if (name) name.textContent = label || 'Agent';
+    // 注入 SVG icon
+    if (iconBox) {
+      var icon = (fallback && fallback.icon) || '';
+      if (icon) {
+        iconBox.innerHTML = icon;
+        iconBox.classList.add('has-icon');
+      } else {
+        iconBox.innerHTML = '';
+        iconBox.classList.remove('has-icon');
+      }
+    }
   }
   function paintAgentHeaderStatus() {
     var el1 = $('#agent-header-status');
@@ -1277,6 +1326,38 @@
     }
   }
 
+  // Phase UI-A5：根据 sessionId 从后端拉 messages 并渲染
+  // 走 /api/mobile/sessions/:id/messages（受 mobile-sessions.js scrub 安全过滤）
+  async function loadSessionMessages(sessionId) {
+    var sid = sessionId || agentState.sessionId;
+    if (!sid) return;
+    var box = $('#agent-messages');
+    if (!box) return;
+    try {
+      var r = await api('/api/mobile/sessions/' + encodeURIComponent(sid) + '/messages?limit=50');
+      if (!r || !r.ok) return;
+      var arr = (r && r.messages) || [];
+      if (!Array.isArray(arr) || arr.length === 0) return;
+      // 把后端 messages 注入到 messages 容器（不清空，append 形式）
+      arr.forEach(function (m) {
+        var role = m.role || 'agent';
+        var text = m.text || m.preview || '';
+        if (!text) return;
+        var div = document.createElement('div');
+        div.className = 'chat-bubble chat-bubble-' + (role === 'user' ? 'user' : 'agent');
+        var head = document.createElement('div');
+        head.className = 'chat-bubble-role';
+        head.textContent = role === 'user' ? 'You' : 'Agent';
+        var body1 = document.createElement('div');
+        body1.className = 'chat-bubble-text';
+        body1.textContent = text;
+        div.appendChild(head);
+        div.appendChild(body1);
+        box.appendChild(div);
+      });
+    } catch (_) { /* ignore */ }
+  }
+
   // ChatGPT-like 消息流渲染
   function paintAgentMessages() {
     var box = $('#agent-messages');
@@ -1306,6 +1387,10 @@
       box.appendChild(b);
     } else {
       box.appendChild(emptyBlock('No messages yet', 'Type a message below to start a conversation with this agent.'));
+    }
+    // Phase UI-A5：拉 messages 全文（受后端 scrub 安全过滤）补充消息流
+    if (agentState.sessionId) {
+      try { loadSessionMessages(agentState.sessionId); } catch (_) { /* ignore */ }
     }
   }
 
@@ -1402,6 +1487,10 @@
     if (agentState.runStatus === 'running') {
       flashInputError(input, 'Agent 正在运行，请等待完成');
       return;
+    }
+    // Phase UI-A5：Home 顶部发消息后立刻切到 Agent 独立对话页
+    if (src === 'home') {
+      try { showTab('agent'); } catch (_) { /* ignore */ }
     }
     btn.disabled = true;
     agentState.runStatus = 'running';
@@ -1677,6 +1766,24 @@
     var homeSend = document.getElementById('home-send');
     if (homeSend) homeSend.addEventListener('click', function () { onSendMessage('home'); });
 
+    // Phase UI-A5: 点击 Home 的 Work in: 跳到 Files 选 cwd
+    var homeCwd = document.getElementById('home-cwd');
+    if (homeCwd) {
+      homeCwd.addEventListener('click', function () {
+        if (agentState.cwd) {
+          // 已选 cwd：直接跳 Files（方便切换）
+          showTab('files');
+        } else {
+          showTab('files');
+        }
+      });
+    }
+    // Agent 页 cwd 也点得到 Files
+    var agentCwd = document.getElementById('agent-cwd');
+    if (agentCwd) {
+      agentCwd.addEventListener('click', function () { showTab('files'); });
+    }
+
     // Agent 独立页：Send
     var agentInput = document.getElementById('agent-input');
     if (agentInput) {
@@ -1715,9 +1822,21 @@
     var filesOpenAgent = document.getElementById('files-open-agent');
     if (filesOpenAgent) filesOpenAgent.addEventListener('click', onFilesOpenAgent);
 
-    // skills filter
+    // skills filter (Phase UI-A5)
     var skillsQ = document.getElementById('skills-q');
     if (skillsQ) skillsQ.addEventListener('input', paintSkills);
+    $all('.skills-filter-btn').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var f = b.getAttribute('data-filter') || 'all';
+        skillsState.filter = f;
+        $all('.skills-filter-btn').forEach(function (x) {
+          var on = x.getAttribute('data-filter') === f;
+          x.classList.toggle('is-active', on);
+          x.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        paintSkills();
+      });
+    });
 
     // pair
     var pairBtn = document.getElementById('pair-btn');
