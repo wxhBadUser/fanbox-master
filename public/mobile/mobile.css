@@ -967,3 +967,119 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* ====================================================================== */
+/* Phase UI-A1 · AionUi-like Command Agent Workspace                       */
+/* ====================================================================== */
+
+/* Desktop layout：sidebar + main */
+@media (min-width: 900px) {
+  .app { display: grid; grid-template-columns: 240px 1fr; grid-template-areas: "side top" "side main"; }
+  .app-sidebar { display: flex !important; grid-area: side; }
+  .app-topbar { grid-area: top; }
+  .app-main { grid-area: main; padding-bottom: var(--s-4); }
+  .app-bottom-nav { display: none !important; }
+}
+.app-sidebar {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--bg-1, #F9FAFB);
+  border-right: 1px solid var(--line, #E5E7EB);
+  padding: 14px 10px 14px 14px;
+  min-height: 100vh;
+  position: sticky;
+  top: 0;
+  overflow-y: auto;
+}
+.sidebar-brand { display: flex; align-items: center; gap: 8px; padding: 4px 6px 14px; }
+.sidebar-logo { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: #111827; color: #fff; border-radius: 6px; font-size: 14px; }
+.sidebar-brand-text { font-weight: 600; font-size: 16px; color: #111827; }
+.sidebar-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; background: transparent; border-radius: 8px; text-align: left; font: inherit; color: #111827; cursor: pointer; }
+.sidebar-item:hover { background: rgba(0,0,0,0.04); }
+.sidebar-item-cta { background: #111827; color: #fff; margin-bottom: 6px; }
+.sidebar-item-cta:hover { background: #1F2937; }
+.sidebar-icon { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; opacity: 0.85; }
+.sidebar-h { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #6B7280; padding: 14px 10px 6px; }
+.sidebar-recent { display: flex; flex-direction: column; gap: 2px; }
+.sidebar-recent .sidebar-recent-item { padding: 6px 10px; border-radius: 6px; font-size: 13px; cursor: pointer; color: #374151; }
+.sidebar-recent .sidebar-recent-item:hover { background: rgba(0,0,0,0.04); }
+.sidebar-recent .sidebar-recent-meta { font-size: 11px; color: #6B7280; }
+.sidebar-foot { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line, #E5E7EB); }
+
+/* Agent hero（AionUi-like 大标题） */
+.agent-hero { text-align: center; padding: 24px 12px 8px; }
+.agent-hero-greet { font-size: 22px; font-weight: 600; color: #111827; letter-spacing: -0.01em; }
+.agent-hero-sub { font-size: 13px; color: #6B7280; margin-top: 6px; }
+
+/* Agent chips（顶部 agent switcher） */
+.agent-chips { display: flex; gap: 8px; padding: 8px 4px 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.agent-chips::-webkit-scrollbar { display: none; }
+.agent-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--line, #E5E7EB); background: #fff; color: #111827; border-radius: 999px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.agent-chip.is-active { background: #111827; color: #fff; border-color: #111827; }
+.agent-chip .agent-chip-stub { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: rgba(0,0,0,0.06); color: #6B7280; }
+.agent-chip.is-active .agent-chip-stub { background: rgba(255,255,255,0.18); color: #E5E7EB; }
+
+/* 大输入框（AionUi-like） */
+.agent-composer { padding: 14px 14px 10px; border-radius: 14px; }
+.agent-composer-input {
+  width: 100%;
+  border: 0;
+  outline: none;
+  resize: vertical;
+  min-height: 88px;
+  max-height: 240px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #111827;
+  background: transparent;
+  padding: 0;
+  box-sizing: border-box;
+}
+.agent-composer-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; gap: 8px; flex-wrap: wrap; }
+.agent-composer-meta { display: flex; align-items: center; gap: 10px; font-size: 11px; color: #6B7280; flex: 1; min-width: 0; flex-wrap: wrap; }
+.agent-composer-cwd { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 50%; }
+.agent-composer-session { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+.agent-composer-send { width: 32px; height: 32px; border: 0; background: #111827; color: #fff; border-radius: 999px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.agent-composer-send:disabled { background: #9CA3AF; cursor: not-allowed; }
+.agent-composer-send:hover:not(:disabled) { background: #1F2937; }
+
+/* Assistant cards（AionUi-like） */
+.agent-assistants { margin-top: 12px; }
+.agent-assistants-h { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #6B7280; padding: 4px 4px 8px; }
+.agent-assistant-cards { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
+.agent-assistant-cards::-webkit-scrollbar { display: none; }
+.agent-assistant-card {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--line, #E5E7EB);
+  background: #fff;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #111827;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.agent-assistant-card:hover { background: #F3F4F6; }
+.agent-assistant-card-icon { width: 14px; height: 14px; opacity: 0.7; }
+
+/* Agent runs 小摘要（today mobile runs） */
+.agent-runs { margin-top: 12px; }
+.agent-runs-h { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #6B7280; padding-bottom: 6px; }
+.agent-runs-summary { font-size: 12px; color: #374151; display: flex; flex-direction: column; gap: 4px; }
+.agent-runs-summary .agent-runs-row { display: flex; justify-content: space-between; gap: 8px; }
+
+/* Agent safety 提示 */
+.agent-safety { margin-top: 12px; }
+.agent-safety .card-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+
+/* Home · sessions 列表（复用 sessions-list） */
+#home-running-sessions, #home-recent-sessions { min-height: 16px; }
+
+/* Settings 页面（如触发）— 简洁 fallback */
+.settings-card { padding: 14px; }
+.settings-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line, #E5E7EB); }
+.settings-row:last-child { border-bottom: 0; }

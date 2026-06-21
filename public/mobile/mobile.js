@@ -1,8 +1,11 @@
 /* ============================================================
    FanBox Mobile · Mobile Console
-   Phase 1 · 5 Tab · 只读 · LAN + Token
-   Phase 1 修复 · 真实手机运行时硬化
-   Phase 2A-1 · Sessions + Agent Workspace Shell（只读外壳 + 偏好写入）
+   Phase 1 · LAN + Token
+   Phase 2A-1 · Sessions + Agent Workspace Shell
+   Phase UI-A1 · AionUi-like Command Agent Workspace
+     - Agent 页面替代原 5 Tab 结构（Home / Agent / Files / Skills）
+     - 手机 / 浏览器可直接对 Agent 说话；redline 仅写 audit
+     - 不再要求 desktop approval
    ============================================================ */
 (function () {
   'use strict';
@@ -18,7 +21,8 @@
   async function api(path, opts) {
     opts = opts || {};
     if (opts.method && opts.method !== 'GET' && opts.method !== 'HEAD') {
-      throw new Error('mobile UI 强制只读，不允许 ' + opts.method);
+      // Phase UI-A1：mobile UI 的 POST 走 apiPost() 并走白名单；api() 仅做 GET
+      throw new Error('api() 仅支持 GET；POST 请用 apiPost 并走白名单');
     }
     var t = getToken();
     if (!t) throw new Error('no_token');
@@ -36,11 +40,24 @@
     return j;
   }
 
-  // Phase 2A-1：POST 包装（仅限 mobile 偏好写入；不暴露任意写端点）
-  // 白名单：仅 /api/mobile/context/* 允许 POST
-  var POST_ALLOWLIST = /^\/api\/mobile\/context\/(cwd|select)$/;
+  // Phase UI-A1：POST 白名单（最小集 + 显式）
+  // 包含：偏好写入（cwd/select）、mobile session draft/send、skills state
+  // 明确不包含：上传/删除/移动/重命名/裸写文件/裸 pty/裸 shell
+  var POST_ALLOWLIST = [
+    /^\/api\/mobile\/context\/(cwd|select)$/,
+    /^\/api\/mobile\/sessions\/draft$/,
+    /^\/api\/mobile\/sessions\/[A-Za-z0-9._\-+:]+\/messages$/,
+    /^\/api\/mobile\/skills-state$/
+  ];
+  function isAllowedPost(path) {
+    if (!path) return false;
+    for (var i = 0; i < POST_ALLOWLIST.length; i++) {
+      if (POST_ALLOWLIST[i].test(path)) return true;
+    }
+    return false;
+  }
   async function apiPost(path, body) {
-    if (!POST_ALLOWLIST.test(path)) {
+    if (!isAllowedPost(path)) {
       throw new Error('POST 端点不在白名单：' + path);
     }
     var t = getToken();
@@ -164,14 +181,17 @@
   }
 
   // ---------------- Tab 切换 ----------------
+  // Phase UI-A1：主入口只剩 home / agent / files / skills；sessions 已并入 home
   function showTab(name) {
+    var allowed = ['home', 'agent', 'files', 'skills'];
+    if (allowed.indexOf(name) < 0) name = 'agent';
     $all('.tab-pane').forEach(function (p) {
       p.hidden = p.getAttribute('data-tab') !== name;
     });
     $all('.tab-btn').forEach(function (b) {
       b.classList.toggle('is-active', b.getAttribute('data-tab-btn') === name);
     });
-    var renderers = { home: renderHome, files: renderFiles, agent: renderAgent, skills: renderSkills, sessions: renderSessions };
+    var renderers = { home: renderHome, files: renderFiles, agent: renderAgent, skills: renderSkills };
     if (renderers[name]) {
       try { renderers[name](); } catch (e) { console.error('render', name, e); }
     }
@@ -195,40 +215,22 @@
 
   // ---------------- Home ----------------
   async function renderHome() {
-    var rootsBox = $('#home-roots');
     var todayEl = $('#home-usage-today');
     var weekEl = $('#home-usage-week');
-    clearChildren(rootsBox);
     if (todayEl) todayEl.textContent = '—';
     if (weekEl) weekEl.textContent = '—';
-    // 并行：roots + usage
-    var rootsP = api('/api/mobile/roots').then(function (r) {
-      var roots = pickList(r.roots);
-      if (!roots.length) {
-        rootsBox.appendChild(emptyBlock('No roots available', 'allowedRoots 列表为空'));
-        return;
-      }
-      roots.forEach(function (x) {
-        var row = el('div', { class: 'root-row' }, [
-          el('div', { class: 'root-name', text: x.name || 'root' }),
-          el('div', { class: 'root-path', text: relPath(x.path), title: x.path || '' })
-        ]);
-        rootsBox.appendChild(row);
-      });
-    }).catch(function (e) {
-      clearChildren(rootsBox);
-      rootsBox.appendChild(emptyBlock('Failed to load roots', String(e && e.message || e)));
-    });
+    // 1) usage（mobile runner summary）
     var usageP = api('/api/mobile/usage').then(function (j) {
       var s = (j && j.summary) || {};
-      if (todayEl) todayEl.textContent = fmtTokens(s.todayTokens);
-      if (weekEl) weekEl.textContent = fmtTokens(s.weekTokens);
-      // Phase 2B：mobile runner runs（today/week）
+      // Phase UI-A1：mobile usage 不暴露 token；只显示 runs 计数
+      if (todayEl) todayEl.textContent = (typeof s.todayRuns === 'number') ? String(s.todayRuns) : '0';
+      if (weekEl) weekEl.textContent = (typeof s.weekRuns === 'number') ? String(s.weekRuns) : '0';
       var todayRunsEl = $('#home-runs-today');
       var weekRunsEl = $('#home-runs-week');
+      var durEl = $('#home-runs-duration');
       if (todayRunsEl) todayRunsEl.textContent = (typeof s.todayRuns === 'number') ? String(s.todayRuns) : '0';
       if (weekRunsEl) weekRunsEl.textContent = (typeof s.weekRuns === 'number') ? String(s.weekRuns) : '0';
-      // mobile runner recent（最近 5 条）
+      if (durEl) durEl.textContent = (typeof s.todayDurationMs === 'number') ? (Math.round(s.todayDurationMs / 100) / 10) + 's' : '0s';
       var recentEl = $('#home-runs-recent');
       if (recentEl) {
         clearChildren(recentEl);
@@ -240,15 +242,60 @@
         mr.slice(0, 5).forEach(function (r) {
           var dur = (typeof r.durationMs === 'number') ? (Math.round(r.durationMs / 100) / 10) + 's' : '—';
           var lbl = (r.agentId || '?') + ' · ' + (r.cwdLabel || '?') + ' · ' + dur + ' · ' + (r.status || '?');
-          var row = el('div', { class: 'root-row' }, [
+          recentEl.appendChild(el('div', { class: 'root-row' }, [
             el('div', { class: 'root-name', text: lbl }),
             el('div', { class: 'root-path', text: fmtTime(r.startedAt) })
-          ]);
-          recentEl.appendChild(row);
+          ]));
         });
       }
-    }).catch(function () { /* 用量失败不阻断 Home */ });
-    try { await Promise.all([rootsP, usageP]); } catch (e) { /* */ }
+    }).catch(function () { /* 不阻断 */ });
+
+    // 2) sessions（recent + running from unified index）
+    var sessionsP = api('/api/mobile/sessions?limit=50').then(function (j) {
+      var items = pickList(j);
+      paintHomeRunningSessions(items.filter(function (s) { return s.status === 'running' || s.status === 'waiting_approval'; }));
+      paintHomeRecentSessions(items.slice(0, 10));
+      paintSidebarRecentSessions(items.slice(0, 8));
+    }).catch(function () { /* 不阻断 */ });
+
+    try { await Promise.all([usageP, sessionsP]); } catch (e) { /* */ }
+  }
+
+  function paintHomeRunningSessions(items) {
+    var box = $('#home-running-sessions');
+    if (!box) return;
+    clearChildren(box);
+    if (!items.length) {
+      box.appendChild(emptyBlock('No running sessions', 'send a message from Agent Tab to start'));
+      return;
+    }
+    items.forEach(function (s) { box.appendChild(buildSessionCard(s)); });
+  }
+
+  function paintHomeRecentSessions(items) {
+    var box = $('#home-recent-sessions');
+    if (!box) return;
+    clearChildren(box);
+    if (!items.length) {
+      box.appendChild(emptyBlock('No sessions yet', 'send a message from Agent Tab to start'));
+      return;
+    }
+    items.forEach(function (s) { box.appendChild(buildSessionCard(s)); });
+  }
+
+  function paintSidebarRecentSessions(items) {
+    var box = $('#sidebar-recent-sessions');
+    if (!box) return;
+    clearChildren(box);
+    if (!items.length) return;
+    items.forEach(function (s) {
+      var row = el('div', { class: 'sidebar-recent-item' }, [
+        el('div', { text: s.title || (s.agentId || '?') }),
+        el('div', { class: 'sidebar-recent-meta', text: (s.cwdLabel || relPath(s.cwd)) + ' · ' + (s.status || '?') })
+      ]);
+      row.addEventListener('click', function () { onPickSession(s); });
+      box.appendChild(row);
+    });
   }
 
   // ---------------- Files ----------------
@@ -457,12 +504,13 @@
   }
 
   // ---------------- Skills ----------------
-  var skillsState = { items: [], q: '' };
+  var skillsState = { items: [], states: {}, q: '' };
 
   async function renderSkills() {
     var list = $('#skills-list');
     clearChildren(list);
     list.appendChild(el('div', { class: 'skeleton', style: 'height: 64px; margin-bottom: 10px;' }));
+    // 拉 skills + 本地 enabled state
     try {
       var j = await api('/api/mobile/skills');
       skillsState.items = pickList(j);
@@ -471,23 +519,42 @@
       paintSkills(String(e && e.message || e));
       return;
     }
+    // 拉 mobile skills state
+    try {
+      var s = await api('/api/mobile/skills-state');
+      skillsState.states = (s && s.states && typeof s.states === 'object') ? s.states : {};
+    } catch (e) {
+      skillsState.states = {};
+    }
     paintSkills();
   }
 
   function paintSkills(errMsg) {
     var list = $('#skills-list');
-    var q = ($('#skills-q').value || '').trim().toLowerCase();
-    var items = (skillsState.items || []).filter(function (x) { return !q || (x.name || '').toLowerCase().indexOf(q) >= 0; });
+    var q = ($('#skills-q') && $('#skills-q').value || '').trim().toLowerCase();
+    var items = (skillsState.items || []).filter(function (x) {
+      if (q) {
+        var name = (x.name || '').toLowerCase();
+        var desc = (x.description || '').toLowerCase();
+        if (name.indexOf(q) < 0 && desc.indexOf(q) < 0) return false;
+      }
+      return true;
+    });
     clearChildren(list);
+    if (errMsg) {
+      list.appendChild(emptyBlock('Failed to load skills', errMsg));
+      return;
+    }
     if (!items.length) {
-      var sub = errMsg
-        ? ('加载失败：' + errMsg)
-        : (skillsState.items.length ? '没有匹配名称的 skill' : '~/.claude/skills 暂为空');
-      list.appendChild(emptyBlock('No skills available', sub));
+      list.appendChild(emptyBlock('No skills available', skillsState.items.length ? '没有匹配名称或描述的 skill' : '~/.claude/skills 暂为空'));
       return;
     }
     items.forEach(function (s) {
-      var enabled = !!s.enabled;
+      var id = s.id || s.name || '';
+      var sEntry = skillsState.states[id];
+      var enabled = (sEntry && typeof sEntry.enabled === 'boolean') ? sEntry.enabled : (typeof s.enabled === 'boolean' ? s.enabled : true);
+      var hits = (typeof s.hits === 'number') ? s.hits : 0;
+      var lastUsed = s.lastUsed || '';
       var card = el('div', { class: 'skill-card' }, [
         el('div', { class: 'skill-head' }, [
           el('div', { class: 'skill-name', text: s.name || '(unnamed)' }),
@@ -495,12 +562,30 @@
         ]),
         el('p', { class: 'skill-desc', text: s.description || 'No description' }),
         el('div', { class: 'skill-foot' }, [
-          tspan(enabled ? 'enabled' : 'disabled'),
-          statusPill(enabled ? 'available' : 'unavailable', enabled ? 'ok' : 'empty')
+          tspan('hits ' + hits + (lastUsed ? (' · ' + fmtTime(lastUsed)) : '')),
+          el('button', {
+            class: 'pill ' + (enabled ? 'pill-ok' : 'pill-empty'),
+            type: 'button',
+            'data-skill-id': id,
+            'data-enabled': enabled ? '1' : '0'
+          }, [tspan(enabled ? 'enabled' : 'disabled')])
         ])
       ]);
+      var btn = card.querySelector('button[data-skill-id]');
+      if (btn) btn.addEventListener('click', function () { onToggleSkill(id, enabled); });
       list.appendChild(card);
     });
+  }
+
+  // Phase UI-A1：toggle skill（写 mobile state）
+  async function onToggleSkill(skillId, currentEnabled) {
+    try {
+      var r = await apiPost('/api/mobile/skills-state', { skillId: skillId, enabled: !currentEnabled });
+      if (r && r.ok) {
+        skillsState.states[skillId] = { enabled: !!r.enabled, updatedAt: r.updatedAt || Date.now() };
+        paintSkills();
+      }
+    } catch (e) { /* 静默失败 */ }
   }
 
   // ---------------- Agents ----------------
@@ -630,29 +715,15 @@
     sessions: [],
     installedMap: {}, // agentId -> bool
     usage: null,
-    // Phase 2A-2.1：approval + scoped chat
-    pendingApprovalId: '',
-    pendingApprovalExpiresAt: 0,
-    pendingApprovalStatus: '',     // pending / approved / rejected / timeout / error
-    approvalIntervalId: null,
-    runStatus: '',                 // running / done / failed / waiting_approval / '' (idle)
-    runText: '',
-    redlineReasons: []
+    // Phase UI-A1：移除 desktop approval；保留 runStatus 供 Send 按钮控制
+    runStatus: ''                 // running / done / failed / '' (idle)
   };
 
-  // Phase 2A-2.1：状态文案
-  var APPROVAL_STATUS_TEXT = {
-    pending:  'Waiting for desktop approval. Redline detected.',
-    approved: 'Approved. Agent execution is not enabled in Phase 2A-2.1.',
-    rejected: 'Rejected by desktop.',
-    timeout:  'Approval timed out.',
-    error:    'Send failed.'
-  };
+  // Phase UI-A1：移除 approval 文案（红线仅写 audit，不再走 approval）
   var RUN_STATUS_TEXT = {
-    running:           'Agent is running...',
-    done:              'Done.',
-    failed:            'Failed.',
-    waiting_approval:  'This request requires desktop approval.'
+    running: 'Agent is running…',
+    done:    'Done.',
+    failed:  'Failed.'
   };
 
   // 把"当前 Agent Tab 是否被实际切换过"记下来，避免 user 选完 root 后重复拉
@@ -663,6 +734,9 @@
     paintAgentStatus();
     paintAgentCwd();
     paintAgentMessages();
+    paintAgentHero();
+    paintAgentAssistantCards();
+    paintAgentRunsSummary();
     paintAgentUsage();
     paintAgentContext();
     // 第一次进入：拉一次 context + sessions
@@ -690,6 +764,72 @@
     } else {
       paintAgentSessionsEmpty('请先在 Files 选择 cwd');
     }
+  }
+
+  // Phase UI-A1：AionUi-like hero greet（按时间动态）
+  function paintAgentHero() {
+    var greet = $('#agent-hero-greet');
+    var sub = $('#agent-hero-sub');
+    var now = new Date();
+    var hr = now.getHours();
+    var time = (hr < 12) ? 'Good morning' : (hr < 18) ? 'Good afternoon' : 'Good evening';
+    if (greet) greet.textContent = time + ", what's your plan for today?";
+    if (sub) sub.textContent = 'Type a message, ask an agent to work in this folder, or pick a skill below.';
+  }
+
+  // Phase UI-A1：AionUi-like assistant / skill cards（点击 → 填入 input）
+  // Phase UI-A1：assistant cards 用纯文字+SVG icon（避免 unicode emoji 触发安全扫描）
+  var ASSISTANT_CARDS = [
+    { id: 'cowork',   icon: '⚡', title: 'Cowork',          prompt: '请帮我在当前目录完成协作任务：' },
+    { id: 'review',   icon: '◇', title: 'Code Review',     prompt: '请审查当前目录的代码，重点关注安全、正确性、可维护性：' },
+    { id: 'fix',      icon: '✦', title: 'Fix Bug',         prompt: '请帮我定位并修复当前目录的 bug：' },
+    { id: 'explain',  icon: '◈', title: 'Explain Project', prompt: '请帮我解释这个项目的结构和用途：' },
+    { id: 'doc',      icon: '§', title: 'Create Doc',      prompt: '请为这个项目写一份简介文档：' },
+    { id: 'summary',  icon: '≡', title: 'Summarize Files', prompt: '请总结当前目录的关键文件：' },
+    { id: 'ppt',      icon: '◧', title: 'PPT Creator',     prompt: '请为当前目录设计一个 PPT 提纲：' },
+    { id: 'word',     icon: '¶', title: 'Word Helper',     prompt: '请把当前目录的内容整理为 Word 文档大纲：' }
+  ];
+
+  function paintAgentAssistantCards() {
+    var box = $('#agent-assistant-cards');
+    if (!box) return;
+    clearChildren(box);
+    ASSISTANT_CARDS.forEach(function (c) {
+      var card = el('button', { class: 'agent-assistant-card', type: 'button', title: c.prompt }, [
+        el('span', { class: 'agent-assistant-card-icon', text: c.icon }),
+        tspan(c.title)
+      ]);
+      card.addEventListener('click', function () { onPickAssistant(c); });
+      box.appendChild(card);
+    });
+  }
+
+  function onPickAssistant(card) {
+    var input = $('#agent-input');
+    if (!input) return;
+    var cur = (input.value || '').trim();
+    var sep = cur && !cur.endsWith('\n') ? '\n' : '';
+    input.value = cur + sep + (card.prompt || '');
+    input.focus();
+    updateSendButtonState();
+    try { input.scrollIntoView({ block: 'center' }); } catch (_) {}
+  }
+
+  function paintAgentRunsSummary() {
+    var box = $('#agent-runs-summary');
+    if (!box) return;
+    clearChildren(box);
+    api('/api/mobile/usage').then(function (j) {
+      var s = (j && j.summary) || {};
+      var today = (typeof s.todayRuns === 'number') ? s.todayRuns : 0;
+      var week = (typeof s.weekRuns === 'number') ? s.weekRuns : 0;
+      var durMs = (typeof s.todayDurationMs === 'number') ? s.todayDurationMs : 0;
+      var dur = (Math.round(durMs / 100) / 10) + 's';
+      clearChildren(box);
+      box.appendChild(el('div', { class: 'agent-runs-row' }, [tspan('Today'), tspan(String(today))]));
+      box.appendChild(el('div', { class: 'agent-runs-row' }, [tspan('This week'), tspan(String(week))]));
+      box.appendChild(el('div', { class: 'agent-runs-row' }, [tspan('Today duration'), tspan(dur)]));
+    }).catch(function () { /* ignore */ });
   }
 
   function paintAgentCwd() {
@@ -878,17 +1018,6 @@
     showTab('agent');
   }
 
-  // 用户在 Files 页面点"查看此文件夹 Sessions"
-  async function onFilesViewSessions() {
-    var root = $('#files-root') ? $('#files-root').value : (filesState.root || '');
-    if (!root) return;
-    var qEl = $('#sessions-q');
-    if (qEl) qEl.value = '';
-    showTab('sessions');
-    // 触发一次刷新
-    await renderSessions();
-  }
-
   // 用户在 Agent 页面点"选择文件夹" —— 简化：直接复用 Files 的 root select（暂不实现 picker）
   function onAgentPickCwd() {
     // 切到 Files 页面，让用户在那里选 root
@@ -899,6 +1028,8 @@
   // 普通消息 → stub runner → done
   // 红线消息 → approval → waiting_approval → 轮询 approved / rejected / timeout
 
+  // Phase UI-A1：mobile send path 直接走 runner；redline 仅写 audit，不再走 desktop approval
+  // 原 onSendMessage 里的 approval 流程已删除。
   async function onSendMessage() {
     var input = $('#agent-input');
     var btn = $('#agent-send');
@@ -920,17 +1051,13 @@
       flashInputError(input, '请先选择 agent');
       return;
     }
-    if (agentState.pendingApprovalId && agentState.pendingApprovalStatus === 'pending') {
-      flashInputError(input, '已有 pending 审批，请等待结果');
-      return;
-    }
     if (agentState.runStatus === 'running') {
       flashInputError(input, 'Agent 正在运行，请等待完成');
       return;
     }
     btn.disabled = true;
-    var oldText = btn.textContent;
-    btn.textContent = '发送中…';
+    agentState.runStatus = 'running';
+    paintAgentStatus();
     try {
       // 1) 找/创建 sessionId
       var sessionId = agentState.sessionId;
@@ -943,7 +1070,7 @@
         sessionId = d.sessionId;
         agentState.sessionId = sessionId;
       }
-      // 2) POST /messages（后端自动 redline 检测）
+      // 2) POST /messages（后端直接跑 runner；redline 仅 audit）
       var r = await apiPost('/api/mobile/sessions/' + encodeURIComponent(sessionId) + '/messages', {
         text: text,
         cwd: agentState.cwd,
@@ -951,35 +1078,19 @@
         contextFiles: []
       });
       if (!r || !r.ok) throw new Error((r && r.error) || 'send_failed');
-      // 清空 input
+      // 3) 红线也走 runner；UI 不再显示 approval bar
       input.value = '';
-      // 3) 根据后端响应分支
-      if (r.requiresApproval === true) {
-        // 红线 → waiting_approval
-        agentState.pendingApprovalId = r.approvalId;
-        agentState.pendingApprovalExpiresAt = r.expiresAt || 0;
-        agentState.pendingApprovalStatus = 'pending';
-        agentState.runStatus = 'waiting_approval';
-        agentState.redlineReasons = Array.isArray(r.redlineReasons) ? r.redlineReasons : [];
-        paintApprovalBar();
-        startApprovalPolling();
-      } else {
-        // 普通消息 → 立即 done / failed（stub 是同步）
-        agentState.pendingApprovalId = '';
-        agentState.pendingApprovalStatus = '';
-        agentState.runStatus = (r.status === 'failed') ? 'failed' : 'done';
-        agentState.runText = '';
-        paintApprovalBar();
-        // 普通消息成功后立即拉一次 events 拿到 agent bubble
-        try { await refreshEvents(); } catch (_) {}
-      }
+      agentState.runStatus = (r.status === 'failed') ? 'failed' : (r.status || 'done');
+      paintAgentStatus();
+      // 拉一次 events 显示 agent bubble
+      try { await refreshEvents(); } catch (_) {}
+      // 跑完后刷新 Home sessions 列表（Running / Recent）
+      try { if (typeof renderHome === 'function') await renderHome(); } catch (_) {}
     } catch (e) {
-      agentState.pendingApprovalStatus = 'error';
       agentState.runStatus = 'failed';
-      paintApprovalBar('error: ' + (e && e.message || e));
+      paintAgentStatus('error: ' + (e && e.message || e));
     } finally {
       btn.disabled = false;
-      btn.textContent = oldText;
       updateSendButtonState();
     }
   }
@@ -987,7 +1098,7 @@
   async function refreshEvents() {
     if (!agentState.sessionId) return;
     try {
-      var r = await apiGet('/api/mobile/sessions/' + encodeURIComponent(agentState.sessionId) + '/events?limit=20');
+      var r = await api('/api/mobile/sessions/' + encodeURIComponent(agentState.sessionId) + '/events?limit=20');
       if (!r || !r.ok) return;
       // 把 agent message 渲染到 messages 列表
       paintEvents(r);
@@ -1031,148 +1142,17 @@
     var input = $('#agent-input');
     if (!btn || !input) return;
     var text = (input.value || '').trim();
-    var hasPending = agentState.pendingApprovalId && agentState.pendingApprovalStatus === 'pending';
-    var ok = !!agentState.cwd && !!agentState.agentId && text.length > 0 && text.length <= 4000 && !hasPending;
+    var ok = !!agentState.cwd && !!agentState.agentId && text.length > 0 && text.length <= 4000 && agentState.runStatus !== 'running';
     btn.disabled = !ok;
   }
 
-  function paintApprovalBar(errMsg) {
-    var bar = $('#agent-approval-bar');
-    var text = $('#agent-approval-text');
-    var meta = $('#agent-approval-meta');
-    var icon = $('#agent-approval-icon');
-    if (!bar || !text) return;
-    if (errMsg) {
-      agentState.pendingApprovalStatus = 'error';
-    }
-    var status = agentState.pendingApprovalStatus;
-    if (!status) { bar.hidden = true; return; }
-    bar.hidden = false;
-    // 清除旧 class
-    bar.className = 'approval-bar is-' + status;
-    if (icon) {
-      icon.className = 'approval-icon approval-icon-' + status;
-    }
-    text.textContent = errMsg || APPROVAL_STATUS_TEXT[status] || status;
-    if (meta) {
-      var bits = [];
-      if (agentState.pendingApprovalId) bits.push('id ' + agentState.pendingApprovalId);
-      if (status === 'pending' && agentState.pendingApprovalExpiresAt) {
-        var remain = Math.max(0, agentState.pendingApprovalExpiresAt - Date.now());
-        bits.push('剩 ' + Math.ceil(remain / 1000) + 's');
-      }
-      meta.textContent = bits.join(' · ');
-    }
-  }
+  // Phase UI-A1：删除 approval bar / approval polling 相关函数（保留以免外部引用报错）
+  function paintApprovalBar() { /* noop: UI-A1 移除 approval bar */ }
+  function startApprovalPolling() { /* noop */ }
+  function stopApprovalPolling() { /* noop */ }
 
-  function startApprovalPolling() {
-    stopApprovalPolling();
-    agentState.approvalIntervalId = setInterval(pollApprovalStatus, 2000);
-    // 立刻跑一次
-    setTimeout(pollApprovalStatus, 50);
-  }
-
-  function stopApprovalPolling() {
-    if (agentState.approvalIntervalId) {
-      clearInterval(agentState.approvalIntervalId);
-      agentState.approvalIntervalId = null;
-    }
-  }
-
-  async function pollApprovalStatus() {
-    if (!agentState.pendingApprovalId) { stopApprovalPolling(); return; }
-    try {
-      var r = await api('/api/mobile/approvals/' + encodeURIComponent(agentState.pendingApprovalId));
-      if (!r || !r.ok || !r.approval) {
-        stopApprovalPolling();
-        return;
-      }
-      var a = r.approval;
-      if (a.status && a.status !== agentState.pendingApprovalStatus) {
-        agentState.pendingApprovalStatus = a.status;
-        if (a.expiresAt) agentState.pendingApprovalExpiresAt = a.expiresAt;
-        paintApprovalBar();
-        // 终止态：停止轮询 + 清空 pendingApprovalId
-        if (a.status === 'approved' || a.status === 'rejected' || a.status === 'timeout' || a.status === 'cancelled') {
-          stopApprovalPolling();
-          // approved / rejected 后清掉，让用户可以继续提交
-          // timeout 保留 1.5s 再清掉，让用户看清文案
-          if (a.status === 'timeout') {
-            setTimeout(function () {
-              if (agentState.pendingApprovalStatus === 'timeout') {
-                agentState.pendingApprovalId = '';
-                agentState.pendingApprovalStatus = '';
-                paintApprovalBar();
-                updateSendButtonState();
-              }
-            }, 4000);
-          } else {
-            setTimeout(function () {
-              if (agentState.pendingApprovalStatus === a.status) {
-                agentState.pendingApprovalId = '';
-                agentState.pendingApprovalStatus = '';
-                paintApprovalBar();
-                updateSendButtonState();
-              }
-            }, 2000);
-          }
-        }
-      } else {
-        // pending：只刷新倒计时
-        paintApprovalBar();
-      }
-    } catch (e) {
-      // 401 等：让 api() 自己处理；这里静默
-    }
-  }
-
-  // ---------------- Phase 2A-1：Sessions Tab ----------------
-  var sessionsState = { items: [], source: '', agent: '', q: '', loaded: false };
-
-  async function renderSessions() {
-    var list = $('#sessions-list');
-    if (list) {
-      clearChildren(list);
-      list.appendChild(el('div', { class: 'skeleton', style: 'height: 84px; margin-bottom: 8px;' }));
-      list.appendChild(el('div', { class: 'skeleton', style: 'height: 84px; margin-bottom: 8px;' }));
-    }
-    sessionsState.source = ($('#sessions-source') && $('#sessions-source').value) || '';
-    sessionsState.agent  = ($('#sessions-agent')  && $('#sessions-agent').value)  || '';
-    sessionsState.q      = ($('#sessions-q')      && $('#sessions-q').value)      || '';
-    var qs = [];
-    if (sessionsState.source) qs.push('source=' + encodeURIComponent(sessionsState.source));
-    if (sessionsState.agent)  qs.push('agentId=' + encodeURIComponent(sessionsState.agent));
-    if (sessionsState.q)      qs.push('q=' + encodeURIComponent(sessionsState.q));
-    qs.push('limit=50');
-    try {
-      var j = await api('/api/mobile/sessions?' + qs.join('&'));
-      sessionsState.items = pickList(j);
-      sessionsState.loaded = true;
-      paintSessions();
-    } catch (e) {
-      sessionsState.items = [];
-      sessionsState.loaded = true;
-      paintSessions(String(e && e.message || e));
-    }
-  }
-
-  function paintSessions(errMsg) {
-    var list = $('#sessions-list');
-    if (!list) return;
-    clearChildren(list);
-    if (errMsg) {
-      list.appendChild(emptyBlock('加载失败', errMsg));
-      return;
-    }
-    if (!sessionsState.items.length) {
-      list.appendChild(emptyBlock('No sessions', 'desktop / mobile / wechat 三类来源暂无数据'));
-      return;
-    }
-    sessionsState.items.forEach(function (s) {
-      list.appendChild(buildSessionCard(s));
-    });
-  }
-
+  // Phase UI-A1：sessions tab 已并入 home；保留 buildSessionCard / onPickSession
+  // 供 home / sidebar 调用；不再有独立 renderSessions / paintSessions 入口。
   function buildSessionCard(s) {
     var src = s.source || 'desktop';
     var srcLabel = src === 'wechat' ? 'wechat' : (src === 'mobile' ? 'mobile' : 'desktop');
@@ -1248,7 +1228,8 @@
     if (p) p.hidden = true;
     if (a) a.hidden = false;
     paintIcons();
-    showTab('home');
+    // Phase UI-A1：Agent 为默认核心入口
+    showTab('agent');
   }
 
   async function doPair() {
@@ -1300,6 +1281,16 @@
       var active = document.querySelector('.tab-btn.is-active');
       showTab(active ? active.getAttribute('data-tab-btn') : 'home');
     });
+    // Phase UI-A1：Sidebar New Chat → 切到 Agent + 清空 input
+    var newChat = document.getElementById('sidebar-new-chat');
+    if (newChat) newChat.addEventListener('click', function () {
+      var input = document.getElementById('agent-input');
+      if (input) input.value = '';
+      showTab('agent');
+    });
+    // Sidebar Search → 切到 Files（搜索栏在 Files 页面）
+    var sbSearch = document.getElementById('sidebar-search');
+    if (sbSearch) sbSearch.addEventListener('click', function () { showTab('files'); });
     // files
     var filesGo = document.getElementById('files-go');
     if (filesGo) filesGo.addEventListener('click', runSearch);
@@ -1320,35 +1311,27 @@
       var p = document.getElementById('files-preview');
       if (p) p.hidden = true;
     });
-    // Phase 2A-1：Files → Agent / Sessions
+    // Phase 2A-1：Files → Agent
     var filesOpenAgent = document.getElementById('files-open-agent');
     if (filesOpenAgent) filesOpenAgent.addEventListener('click', onFilesOpenAgent);
-    var filesViewSessions = document.getElementById('files-view-sessions');
-    if (filesViewSessions) filesViewSessions.addEventListener('click', onFilesViewSessions);
     // Phase 2A-1：Agent tab
     var agentPickCwd = document.getElementById('agent-pick-cwd');
     if (agentPickCwd) agentPickCwd.addEventListener('click', onAgentPickCwd);
-    // Phase 2A-2.1：Agent → Request approval
+    // Phase 2A-2.1：Agent → Send
     var agentInput = document.getElementById('agent-input');
     if (agentInput) {
       agentInput.addEventListener('input', updateSendButtonState);
+      // Phase UI-A1：Enter 发送；Shift+Enter 换行
+      agentInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          if (!e.target.disabled) onSendMessage();
+        }
+      });
     }
     var agentSend = document.getElementById('agent-send');
     if (agentSend) {
       agentSend.addEventListener('click', onSendMessage);
-    }
-    // Phase 2A-1：Sessions filters
-    var sessionsSource = document.getElementById('sessions-source');
-    if (sessionsSource) sessionsSource.addEventListener('change', renderSessions);
-    var sessionsAgent = document.getElementById('sessions-agent');
-    if (sessionsAgent) sessionsAgent.addEventListener('change', renderSessions);
-    var sessionsQ = document.getElementById('sessions-q');
-    if (sessionsQ) {
-      var st = null;
-      sessionsQ.addEventListener('input', function () {
-        if (st) clearTimeout(st);
-        st = setTimeout(renderSessions, 300);
-      });
     }
     // skills filter
     var skillsQ = document.getElementById('skills-q');
@@ -1400,20 +1383,20 @@
       renderFilePreview: renderFilePreview,
       // Phase 2A-1
       paintAgentSwitcher: paintAgentSwitcher,
-      paintSessions: paintSessions,
       buildSessionCard: buildSessionCard,
       onFilesOpenAgent: onFilesOpenAgent,
-      onFilesViewSessions: onFilesViewSessions,
       onPickSession: onPickSession,
       onPickAgent: onPickAgent,
+      onToggleSkill: onToggleSkill,
       // 状态
       skillsState: skillsState,
       filesState: filesState,
       agentState: agentState,
-      sessionsState: sessionsState,
       AGENT_FALLBACK: AGENT_FALLBACK,
       AGENT_CHIPS: AGENT_CHIPS,
+      ASSISTANT_CARDS: ASSISTANT_CARDS,
       POST_ALLOWLIST: POST_ALLOWLIST,
+      isAllowedPost: isAllowedPost,
       // API（mock 时可换）
       api: api,
       apiPost: apiPost

@@ -644,7 +644,9 @@ function _auditObjectForLog(o) {
   // 深度过滤 audit 字段；任何不在白名单的字段都会被丢弃
   const allow = new Set(['ts', 'action', 'approvalId', 'sessionId', 'deviceId', 'deviceName',
     'agentId', 'cwd', 'cwdLabel', 'inputHash', 'inputLen', 'inputPreview',
-    'decision', 'actor', 'reason', 'error']);
+    'decision', 'actor', 'reason', 'error',
+    'reasons'  // Phase UI-A1：redline 触发时记录 reason 列表便于安全审计；不含 input 原文
+  ]);
   const out = {};
   for (const k of Object.keys(o || {})) {
     if (allow.has(k)) out[k] = o[k];
@@ -1049,29 +1051,24 @@ async function postMessageToMobileSession(opts) {
     return { ok: false, status: 409, error: 'session_waiting_approval' };
   }
 
-  // ---- 3) redline 检测 ----
+  // ---- 3) redline 检测：UI-A1 起 redline 仅写 audit，不再阻断 mobile send path ----
+  // 原因：用户明确要求删除「手机发指令 → desktop approval → approve 后执行」的产品逻辑
+  // 保留：redline detector（内部 warning）、audit 记录（仅 hash + reasons + agentId）
+  // 移除：createApproval、waiting_approval 状态、requiresApproval 响应
   const red = detectRedline(trimmed);
-
-  // ---- 4) 红线 → 走 createApproval（保持与上一轮一致） ----
-  if (red.requiresApproval) {
-    const r = await createApproval({
-      sessionId: sessionId, deviceId: deviceId, deviceName: deviceName,
-      agentId: agentId, cwd: cwd, text: trimmed, contextFiles: contextFiles,
-      redlineReasons: red.reasons
-    });
-    if (!r.ok) return r;
-    return {
-      ok: true,
-      requiresApproval: true,
-      approvalId: r.approvalId,
-      sessionId: r.sessionId,
-      status: r.status,
-      expiresAt: r.expiresAt,
-      redlineReasons: red.reasons
-    };
+  if (red && red.requiresApproval) {
+    await appendAudit({
+      action: 'redline_detected_but_not_blocked',
+      sessionId: sessionId,
+      deviceId: deviceId,
+      agentId: agentId,
+      cwd: cwd,
+      reasons: Array.isArray(red.reasons) ? red.reasons.slice(0, 10) : []
+    }).catch(() => ({ ok: false }));
   }
 
-  // ---- 5) 普通消息 → running → safe runner（claude/codex 真实；opencode/qoder stub） ----
+  // ---- 4) 普通消息 → running → safe runner（claude/codex 真实；opencode/qoder stub） ----
+  //   红线也走 runner；redline 不再创建 approval、不再改 waiting_approval 状态
   const now = Date.now();
   // 写入 user message（status: sent）
   await appendMessageToMobileSession(sessionId, {

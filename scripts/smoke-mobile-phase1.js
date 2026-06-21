@@ -77,14 +77,17 @@ function req(opts, body) {
   const rIdx = await req({ path: '/mobile', method: 'GET', headers: auth });
   ok('GET /mobile 200', rIdx.status === 200, rIdx.body.slice(0, 120));
   ok('GET /mobile content-type text/html', /^text\/html/.test(rIdx.headers['content-type'] || ''));
-  // Phase 2A-1 后 tab 名改成 Home / Files / Agent / Skills / Sessions；
-  // 兼容：tab pane 必须 5 个，且必须包含 home + files
+  // Phase UI-A1：tab 改为 4 个 Home / Files / Agent / Skills（移除 Sessions / Usage）
   const tabPaneMatch = (rIdx.body.match(/data-tab="[a-z]+"/g) || []).map(s => s.match(/"([^"]+)"/)[1]);
-  ok('GET /mobile 含 5 tab pane', tabPaneMatch.length === 5 && tabPaneMatch.indexOf('home') >= 0 && tabPaneMatch.indexOf('files') >= 0, 'tabs=' + tabPaneMatch.join(','));
+  ok('GET /mobile 含 4 tab pane (UI-A1)',
+    tabPaneMatch.length === 4 && tabPaneMatch.indexOf('home') >= 0 && tabPaneMatch.indexOf('files') >= 0 && tabPaneMatch.indexOf('agent') >= 0 && tabPaneMatch.indexOf('skills') >= 0,
+    'tabs=' + tabPaneMatch.join(','));
   const tabBtnMatch = (rIdx.body.match(/data-tab-btn="[a-z]+"/g) || []).map(s => s.match(/"([^"]+)"/)[1]);
-  ok('GET /mobile 含 5 tab-btn', tabBtnMatch.length === 5 && tabBtnBtnSafety(tabBtnMatch), 'btns=' + tabBtnMatch.join(','));
+  ok('GET /mobile 含 4 tab-btn (UI-A1)',
+    tabBtnMatch.length === 4 && tabBtnBtnSafety(tabBtnMatch),
+    'btns=' + tabBtnMatch.join(','));
   function tabBtnBtnSafety(arr) {
-    return arr.indexOf('home') >= 0 && arr.indexOf('files') >= 0;
+    return arr.indexOf('home') >= 0 && arr.indexOf('files') >= 0 && arr.indexOf('agent') >= 0 && arr.indexOf('skills') >= 0;
   }
   ok('GET /mobile 含 css link', /\/mobile\/mobile\.css/.test(rIdx.body));
   ok('GET /mobile 含 js script', /\/mobile\/mobile\.js/.test(rIdx.body));
@@ -289,21 +292,23 @@ function req(opts, body) {
   ok('mobile.js verb mentions are limited (refuse / error text only)', jsDangerMentions.every(m => m.count <= 3), JSON.stringify(jsDangerMentions));
 
   // ============================================================
-  // [9] UI 自检：5 Tab 元素 / 底部 nav / flow / 卡片结构
+  // [9] UI 自检：4 Tab 元素 / 底部 nav / flow / 卡片结构（UI-A1：移除独立 Sessions / Usage Tab）
   // ============================================================
-  section('9) UI 自检：5 Tab / 底部 nav / flow / 卡片');
-  // 兼容 Phase 2A-1：tab 名集合
+  section('9) UI 自检：4 Tab / 底部 nav / flow / 卡片');
+  // 兼容 Phase UI-A1：tab 名集合
   const tabRegex = /data-tab="(home|files|agent|agents|skills|sessions|usage)"/g;
   const tabBtnRegex = /data-tab-btn="(home|files|agent|agents|skills|sessions|usage)"/g;
   const tabCount = (html.match(tabRegex) || []).length;
   const tabBtnCount = (html.match(tabBtnRegex) || []).length;
-  ok('HTML 含 5 data-tab pane', tabCount === 5, 'count=' + tabCount);
-  ok('HTML 含 5 data-tab-btn', tabBtnCount === 5, 'count=' + tabBtnCount);
+  ok('HTML 含 4 data-tab pane (UI-A1)', tabCount === 4, 'count=' + tabCount);
+  ok('HTML 含 4 data-tab-btn (UI-A1)', tabBtnCount === 4, 'count=' + tabBtnCount);
   ok('HTML 含 flow-node (Home)', /flow-node/.test(html) && /Phone|LAN/.test(html));
   ok('HTML 含 flow-node (Files)', /Root/.test(html) && /Search/.test(html));
   // Phase 2A-1 后 Agent tab 是 Files → cwd → Agent Shell；Usage tab 合并到 Home
   ok('HTML 含 Agent 或 Usage 标签 (Phase 1+2A-1 兼容)', /Agent|Sessions|Usage/.test(html));
-  ok('HTML 含 Read-only/LAN/Token 安全文案', /Read-only/.test(html) && /LAN protected/.test(html) && /Token required/.test(html));
+  // Phase UI-A1：去掉 Read-only 文案（手机端不再是只读）；保留 LAN protected + Token required
+  ok('HTML 含 LAN protected + Token required 安全文案',
+    /LAN protected/i.test(html) && /Token required/i.test(html));
   ok('HTML 含 pair/confirm endpoint 调用', /\/api\/mobile\/pair\/confirm/.test(js));
   ok('HTML 不暴露真实 token 到 DOM', !/textContent\s*=\s*getToken\s*\(\s*\)/.test(html)); // 仅 js 内部用
   ok('js 不写入 localStorage 搜索历史', !/localStorage\.setItem\(\s*['"][^'"]*history/i.test(js));
@@ -317,9 +322,10 @@ function req(opts, body) {
   ok('public/mobile/index.html 存在', fs.existsSync(HTML_PATH));
   ok('public/mobile/mobile.css 存在', fs.existsSync(CSS_PATH));
   ok('public/mobile/mobile.js 存在', fs.existsSync(JS_PATH));
-  ok('index.html < 32KB', fs.statSync(HTML_PATH).size < 32 * 1024);
-  ok('mobile.css < 32KB', fs.statSync(CSS_PATH).size < 32 * 1024);
-  ok('mobile.js < 64KB', fs.statSync(JS_PATH).size < 64 * 1024);
+  // Phase UI-A1：mobile.css 因 sidebar + AionUi-like styles 增加，放宽到 64KB
+  ok('index.html < 64KB', fs.statSync(HTML_PATH).size < 64 * 1024);
+  ok('mobile.css < 64KB', fs.statSync(CSS_PATH).size < 64 * 1024);
+  ok('mobile.js < 96KB', fs.statSync(JS_PATH).size < 96 * 1024);
   // 无 emoji（仅 inline SVG）
   ok('HTML 无 emoji (unicode 1F300+)', !/[\u{1F300}-\u{1FAFF}]/u.test(html));
   ok('mobile.js 无 emoji', !/[\u{1F300}-\u{1FAFF}]/u.test(js));

@@ -367,27 +367,31 @@ function req(opts, body) {
   ok('select 流程无 spawn 调用（mobile-sessions.js）', !/spawn\(|exec\(|execFile\(/i.test(fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8')));
 
   // ============================================================
-  // [10] UI 改动：5 Tab = Home / Files / Agent / Skills / Sessions（不再有 Usage Tab）
+  // [10] UI 改动：4 Tab = Home / Files / Agent / Skills（UI-A1 移除独立 Sessions / Usage Tab）
   // ============================================================
-  section('10) UI 改动：5 Tab');
+  section('10) UI 改动：4 Tab（UI-A1）');
   const html = fs.readFileSync(HTML_PATH, 'utf8');
+  const JS_PATH = path.join(PUBLIC_MOBILE, 'mobile.js');
+  const CSS_PATH = path.join(PUBLIC_MOBILE, 'mobile.css');
+  const js = fs.readFileSync(JS_PATH, 'utf8');
+  const css = fs.readFileSync(CSS_PATH, 'utf8');
   ok('HTML 含 Home tab-pane', /data-tab="home"/.test(html));
   ok('HTML 含 Files tab-pane', /data-tab="files"/.test(html));
   ok('HTML 含 Agent tab-pane', /data-tab="agent"/.test(html));
   ok('HTML 含 Skills tab-pane', /data-tab="skills"/.test(html));
-  ok('HTML 含 Sessions tab-pane', /data-tab="sessions"/.test(html));
   ok('HTML 含 Home tab-btn', /data-tab-btn="home"/.test(html));
   ok('HTML 含 Files tab-btn', /data-tab-btn="files"/.test(html));
   ok('HTML 含 Agent tab-btn', /data-tab-btn="agent"/.test(html));
   ok('HTML 含 Skills tab-btn', /data-tab-btn="skills"/.test(html));
-  ok('HTML 含 Sessions tab-btn', /data-tab-btn="sessions"/.test(html));
+  ok('HTML 不再含 Sessions tab-pane（UI-A1 并入 Home）', !/data-tab="sessions"/.test(html));
+  ok('HTML 不再含 Sessions tab-btn（UI-A1 并入 Home）', !/data-tab-btn="sessions"/.test(html));
   ok('HTML 不再含 Usage tab-pane', !/data-tab="usage"/.test(html));
   ok('HTML 不再含 Usage tab-btn', !/data-tab-btn="usage"/.test(html));
-  // 5 个 tab-pane
-  const paneMatches = html.match(/data-tab="(home|files|agent|skills|sessions)"/g) || [];
-  ok('HTML 恰好 5 个 data-tab pane', paneMatches.length === 5, 'count=' + paneMatches.length);
-  const btnMatches = html.match(/data-tab-btn="(home|files|agent|skills|sessions)"/g) || [];
-  ok('HTML 恰好 5 个 data-tab-btn', btnMatches.length === 5, 'count=' + btnMatches.length);
+  // 4 个 tab-pane
+  const paneMatches = html.match(/data-tab="(home|files|agent|skills)"/g) || [];
+  ok('HTML 恰好 4 个 data-tab pane', paneMatches.length === 4, 'count=' + paneMatches.length);
+  const btnMatches = html.match(/data-tab-btn="(home|files|agent|skills)"/g) || [];
+  ok('HTML 恰好 4 个 data-tab-btn', btnMatches.length === 4, 'count=' + btnMatches.length);
 
   // Home 含 usage 摘要
   ok('Home 含 home-usage-today', /id="home-usage-today"/.test(html));
@@ -396,32 +400,39 @@ function req(opts, body) {
   // Files 顶部 CTA
   ok('Files 含 files-cwd-label', /id="files-cwd-label"/.test(html));
   ok('Files 含 files-open-agent 按钮', /id="files-open-agent"/.test(html));
-  ok('Files 含 files-view-sessions 按钮', /id="files-view-sessions"/.test(html));
+  // UI-A1：Files 不再有独立 "view sessions" 按钮
+  ok('Files 不再含 files-view-sessions 按钮', !/id="files-view-sessions"/.test(html));
 
-  // Agent tab 内容
+  // Agent tab 内容（UI-A1 AionUi-like）
   ok('Agent tab 含 cwd 显示 (agent-cwd)', /id="agent-cwd"/.test(html));
   ok('Agent tab 含 agent-switcher', /id="agent-switcher"/.test(html));
-  ok('Agent tab 含 4 个 agent chip 数据 (claude/codex/opencode/qoder)', ['claude', 'codex', 'opencode', 'qoder'].every(a => html.includes('data-agent-id="' + a + '"') || html.includes("'" + a + "'") || html.includes(a)));
+  // 4 agent chip 由 mobile.js paintAgentSwitcher 动态生成（含 data-agent-id）
+  ok('Agent switcher 4 个 agent (mobile.js AGENT_CHIPS)',
+    /AGENT_CHIPS\s*=\s*\[[\s\S]*?claude[\s\S]*?codex[\s\S]*?opencode[\s\S]*?qoder[\s\S]*?\]/.test(js));
   ok('Agent tab 含 input (textarea)', /id="agent-input"/.test(html));
   ok('Agent tab 含 send 按钮（Send）', /id="agent-send"/.test(html) && /Send/i.test(html));
-  ok('Agent tab 含 approval 提示', /Desktop approval/i.test(html));
-  ok('Agent tab 含 "No raw terminal"', /No raw terminal/i.test(html));
-  ok('Agent tab 含 "No direct shell"', /No direct shell/i.test(html));
-  ok('Agent tab 含 "Phase 2A-2" 占位', /Phase 2A-2/.test(html));
+  // UI-A1：Agent 不再含 approval 提示
+  ok('Agent tab 不再含 "Desktop approval" 提示', !/Desktop approval/i.test(html));
+  // UI-A1：新文案
+  ok('Agent tab 含 "Running on your paired desktop"', /Running on your paired desktop/i.test(html));
+  ok('Agent tab 含 "Scoped to the selected folder"', /Scoped to the selected folder/i.test(html));
+  ok('Agent tab 含 "Logged locally in FanBox"', /Logged locally in FanBox/i.test(html));
+  // Agent tab 包含 assistant cards
+  ok('Agent tab 含 #agent-assistant-cards', /id="agent-assistant-cards"/.test(html));
+  // Agent tab 包含 agent-hero（用 class）
+  ok('Agent tab 含 .agent-hero (AionUi-like)', /class="agent-hero"/i.test(html));
 
-  // Sessions tab 内容
-  ok('Sessions tab 含 sessions-source filter', /id="sessions-source"/.test(html));
-  ok('Sessions tab 含 sessions-agent filter', /id="sessions-agent"/.test(html));
-  ok('Sessions tab 含 sessions-q search', /id="sessions-q"/.test(html));
-  ok('Sessions tab 含 sessions-list 容器', /id="sessions-list"/.test(html));
-  ok('Sessions tab 含隐私保护文案', /隐私保护/.test(html) || /token|cookie|API key/i.test(html));
+  // Home 包含 recent / running sessions
+  ok('Home 含 #home-running-sessions', /id="home-running-sessions"/.test(html));
+  ok('Home 含 #home-recent-sessions', /id="home-recent-sessions"/.test(html));
+  // Sidebar
+  ok('Sidebar 含 #sidebar-recent-sessions', /id="sidebar-recent-sessions"/.test(html));
 
   // ============================================================
   // [11] UI 危险文案扫描
   // ============================================================
   section('11) UI 危险文案扫描');
-  const js = fs.readFileSync(JS_PATH, 'utf8');
-  const css = fs.readFileSync(CSS_PATH, 'utf8');
+  // js / css 已在 [10] 末尾初始化
   const all = html + '\n' + js + '\n' + css;
   // 完整短语（来自用户要求）
   const fullPhrases = [
@@ -500,36 +511,42 @@ function req(opts, body) {
   // 12) #files-cwd-label 在 Files Tab 中（保证 Files UI 真有 cwd 展示）
   ok('HTML 含 #files-cwd-label', /id="files-cwd-label"/.test(html));
   ok('HTML 含 #files-open-agent', /id="files-open-agent"/.test(html));
-  ok('HTML 含 #files-view-sessions', /id="files-view-sessions"/.test(html));
+  // UI-A1：Files 不再有 #files-view-sessions
+  ok('HTML 不再含 #files-view-sessions（UI-A1 移除）', !/id="files-view-sessions"/.test(html));
   // 13) Agent input 仍存在（Phase 2A-2.1 启用 textarea，但受 button 状态控制）
   ok('HTML 含 #agent-input', /id="agent-input"/.test(html));
   ok('HTML 含 #agent-send', /id="agent-send"/.test(html));
-  // 14) 5 Tab 顺序：home / files / agent / skills / sessions
-  const orderMatch = html.match(/data-tab-btn="(home|files|agent|skills|sessions)"/g) || [];
+  // 14) 4 Tab 顺序：home / agent / files / skills
+  const orderMatch = html.match(/data-tab-btn="(home|agent|files|skills)"/g) || [];
   const order = orderMatch.map(s => s.match(/"([^"]+)"/)[1]);
-  ok('Tab 顺序: home / files / agent / skills / sessions',
-    order.length === 5 && order[0] === 'home' && order[1] === 'files' && order[2] === 'agent' && order[3] === 'skills' && order[4] === 'sessions',
+  ok('Tab 顺序: home / agent / files / skills',
+    order.length === 4 && order[0] === 'home' && order[1] === 'agent' && order[2] === 'files' && order[3] === 'skills',
     'order=' + order.join(','));
   // 15) Home 含 usage 摘要（id 存在）
   ok('HTML #home-usage-today', /id="home-usage-today"/.test(html));
   ok('HTML #home-usage-week', /id="home-usage-week"/.test(html));
-  // 16) mobile.js apiPost 白名单仍只放行 context/*
-  ok('js POST_ALLOWLIST 仅匹配 /api/mobile/context/(cwd|select)', /POST_ALLOWLIST\s*=\s*\/\\^\\\/\?api\\\/\?mobile\\\/\?context\\\/\?(cwd\|select)\$/.test(js) || /POST_ALLOWLIST\s*=\s*\/[^\n]*context[^\n]*\//.test(js));
+  // 16) mobile.js apiPost 白名单扩展（UI-A1：包含 sessions/draft、sessions/:id/messages、skills-state）
+  // js / css 已在 [10] 开头初始化
+  ok('js POST_ALLOWLIST 包含 context/(cwd|select)', /POST_ALLOWLIST[\s\S]{0,1500}?context\\\/\(cwd\|select\)/.test(js));
+  ok('js POST_ALLOWLIST 包含 sessions/draft', /POST_ALLOWLIST[\s\S]{0,2000}?sessions\\?\/draft/.test(js));
+  ok('js POST_ALLOWLIST 包含 sessions/:id/messages', /POST_ALLOWLIST[\s\S]{0,2500}?sessions\\?\/[\S\s]{0,30}?\\?\/messages/.test(js));
+  ok('js POST_ALLOWLIST 包含 skills-state', /POST_ALLOWLIST[\s\S]{0,3000}?skills-state/.test(js));
   // 17) electron/mobile.js handleApi 内部对 POST context 用 pathInAllowed 校验
   const mobileJsCode = fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile.js'), 'utf8');
   ok('electron/mobile.js POST context 走 pathInAllowed 校验', /pathInAllowed/.test(mobileJsCode) && /isForbiddenPath/.test(mobileJsCode));
   // 没有 /api/mobile/pty/input 端点（永远禁止）
   ok('mobile.js 不暴露 /api/mobile/pty/input 字符串', !/api\/mobile\/pty\/input/.test(js) && !/api\/mobile\/pty\/input/.test(html));
-  // Phase 2A-2.1：messages POST 端点允许存在，但 mobile.js 前端 POST_ALLOWLIST 必须仍只放行 context
+  // Phase 2A-2.1：messages POST 端点允许存在
   ok('mobile.js 暴露 /api/mobile/sessions/*/messages POST 端点', /api\/mobile\/sessions\/.*?\/messages/.test(mobileJsCode));
-  // POST_ALLOWLIST 仍只允许 context/(cwd|select)
-  const allowMatch = (js.match(/POST_ALLOWLIST\s*=\s*([^\n;]+)/) || ['', ''])[1];
-  ok('POST_ALLOWLIST 仍仅放行 context/(cwd|select)', /context\\\/\(cwd\|select\)/.test(allowMatch) && !/messages/.test(allowMatch));
+  // UI-A1：mobile.js 前端 POST_ALLOWLIST 扩展为 4 个模式（context + draft + messages + skills-state）
+  // 不再用 regex 提取（容易在字符类内的 ] 处提前截断），直接检查全文
+  ok('POST_ALLOWLIST 包含 4 类端点',
+    /context\\\/\(cwd\|select\)/.test(js) && /sessions\\?\/draft/.test(js) && /sessions\\?\/[\S\s]{0,30}?\\?\/messages/.test(js) && /skills-state/.test(js));
 
   // ============================================================
-  // [11.7] Phase 2A-2.1：Mobile Approval Request Loop
+  // [11.7] Phase UI-A1：Mobile Send Direct Execution（红线也走 runner）
   // ============================================================
-  section('11.7) Phase 2A-2.1: Mobile Approval Loop');
+  section('11.7) Phase UI-A1: Mobile Send Direct Execution');
 
   // ---- 1) Auth / LAN 边界 ----
   // POST messages no token → 401
@@ -540,15 +557,12 @@ function req(opts, body) {
   const rMsgsBadTok = await req({ path: '/api/mobile/sessions/whatever/messages', method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer wrong' } },
     JSON.stringify({ text: 't', cwd: cwdMock, agentId: 'claude' }));
   ok('POST messages bad token → 401', rMsgsBadTok.status === 401, rMsgsBadTok.status);
-  // GET approval no token → 401
+  // UI-A1：/api/mobile/approvals 端点已不暴露在 mobile send path（保留为内部状态）
+  // 但 /api/mobile/approvals/* 仍可被读（不强制删除）
   const rGetApvNoTok = await req({ path: '/api/mobile/approvals/apr_xxx', method: 'GET' });
   ok('GET /api/mobile/approvals/:id no token → 401', rGetApvNoTok.status === 401, rGetApvNoTok.status);
-  // GET approvals list no token → 401
   const rApvListNoTok = await req({ path: '/api/mobile/approvals', method: 'GET' });
   ok('GET /api/mobile/approvals no token → 401', rApvListNoTok.status === 401, rApvListNoTok.status);
-  // Note: 127.0.0.1 is loopback, so it passes isLoopback test for control API.
-  // Control API loopback-only: simulate non-loopback via X-Forwarded-For or just test that it works on 127.0.0.1.
-  // The control API endpoint check is: if non-loopback → 403. We hit on 127.0.0.1 (loopback), so 200.
   const rCtrlOk = await req({ path: '/api/mobile-control/approvals', method: 'GET' });
   ok('control approvals 127.0.0.1 (loopback) 200', rCtrlOk.status === 200, rCtrlOk.status);
 
@@ -593,31 +607,28 @@ function req(opts, body) {
   // mobile-sessions.js createMobileDraftSession 不能 spawn / exec
   ok('mobile-sessions.js draft 流程无 spawn 调用', !/function\s+createMobileDraftSession[\s\S]{0,2000}?spawn\s*\(/.test(fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8')));
 
-  // ---- 3) Approval create (redline) ----
-  // Phase 2A-2.1：发送命中红线的 text → 必须走 approval
+  // ---- 3) UI-A1 红线消息也走 runner（不创建 approval） ----
   const rApv1 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
     JSON.stringify({ text: '请帮我 git push 到 origin', cwd: cwdMock, agentId: 'claude', contextFiles: [] }));
   const jApv1 = JSON.parse(rApv1.body);
-  ok('redline message creates approval 200', rApv1.status === 200, rApv1.status);
-  ok('approvalId 返回', typeof jApv1.approvalId === 'string' && jApv1.approvalId.startsWith('apr_'));
-  ok('requiresApproval=true', jApv1.requiresApproval === true);
-  ok('redlineReasons 包含 git_history_overwrite', Array.isArray(jApv1.redlineReasons) && jApv1.redlineReasons.indexOf('git_history_overwrite') >= 0);
-  ok('status === waiting_approval', jApv1.status === 'waiting_approval', jApv1.status);
-  ok('expiresAt 存在且为未来', typeof jApv1.expiresAt === 'number' && jApv1.expiresAt > Date.now());
-  const approval1 = jApv1.approvalId;
-  // 不启动 agent (mobile-sessions.js postMessageToMobileSession 无 spawn/exec)
+  ok('红线消息 POST 200', rApv1.status === 200, rApv1.status);
+  ok('红线消息 requiresApproval 不为 true（UI-A1 移除 approval）', jApv1.requiresApproval !== true, 'requiresApproval=' + jApv1.requiresApproval);
+  ok('红线消息 status === done（直接走 runner）', jApv1.status === 'done', 'status=' + jApv1.status);
+  ok('红线消息无 approvalId（不创建 approval）', !jApv1.approvalId);
+  // 不启动 agent via pty/exec
   ok('postMessageToMobileSession 无 spawn 调用', !/function\s+postMessageToMobileSession[\s\S]{0,5000}?spawn\s*\(/.test(fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8')));
-  // 不调用 pty
   ok('mobile.js 不暴露 pty:spawn / pty:input', !/pty:spawn|pty:input/.test(mobileJsCode));
-  // 不执行 shell
   ok('mobile-sessions.js postMessageToMobileSession 不调用 child_process.exec', !/postMessageToMobileSession[\s\S]{0,5000}?child_process\.exec/.test(fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8')));
 
-  // session 状态变为 waiting_approval
+  // session 状态变为 done
   const rSess = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId), method: 'GET', headers: auth });
   const jSess = JSON.parse(rSess.body);
-  ok('session status === waiting_approval', jSess.session && jSess.session.status === 'waiting_approval', 'status=' + (jSess.session && jSess.session.status));
-  // message status === pending_approval
-  ok('message status === pending_approval', jSess.session && jSess.session.messages && jSess.session.messages.some(m => m.status === 'pending_approval'));
+  ok('session status === done（不走 waiting_approval）', jSess.session && jSess.session.status === 'done', 'status=' + (jSess.session && jSess.session.status));
+  ok('session 无 pending_approval message', jSess.session && jSess.session.messages && !jSess.session.messages.some(m => m.status === 'pending_approval'));
+  // user message 状态是 sent
+  ok('user message 状态 === sent', jSess.session && jSess.session.messages && jSess.session.messages.some(m => m.role === 'user' && m.status === 'sent'));
+  // agent message 存在
+  ok('agent message 存在', jSess.session && jSess.session.messages && jSess.session.messages.some(m => m.role === 'agent' && m.status === 'done'));
 
   // text > 4000 → 400
   const longText = 'a'.repeat(4001);
@@ -636,151 +647,23 @@ function req(opts, body) {
   const rApvCfOOB = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
     JSON.stringify({ text: 't', cwd: cwdMock, agentId: 'claude', contextFiles: ['C:\\Windows\\System32\\evil.exe'] }));
   ok('contextFiles OOB → 403', rApvCfOOB.status === 403, rApvCfOOB.status);
-  // 同一 session 已有 pending → 409
-  const rApvDup = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
-    JSON.stringify({ text: 't2', cwd: cwdMock, agentId: 'claude' }));
-  ok('同 session 已 pending → 409', rApvDup.status === 409, rApvDup.status);
   // sessionId 不存在 → 404
   const rApv404 = await req({ path: '/api/mobile/sessions/no-such-session-9999/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
     JSON.stringify({ text: 't', cwd: cwdMock, agentId: 'claude' }));
   ok('session 不存在 → 404', rApv404.status === 404, rApv404.status);
 
-  // ---- 4) Approval decide (loopback control API) ----
-  // unknown approvalId → 404
-  const rDec404 = await req({ path: '/api/mobile-control/approvals/apr_nope/decide', method: 'POST', headers: { 'Content-Type': 'application/json' } },
-    JSON.stringify({ decision: 'approved' }));
-  ok('decide unknown id → 404', rDec404.status === 404, rDec404.status);
-  // invalid decision → 400
-  const rDecBad = await req({ path: '/api/mobile-control/approvals/' + approval1 + '/decide', method: 'POST', headers: { 'Content-Type': 'application/json' } },
-    JSON.stringify({ decision: 'maybe' }));
-  ok('decide invalid decision → 400', rDecBad.status === 400, rDecBad.status);
-  // approve
-  const rDecOk = await req({ path: '/api/mobile-control/approvals/' + approval1 + '/decide', method: 'POST', headers: { 'Content-Type': 'application/json' } },
-    JSON.stringify({ decision: 'approved' }));
-  const jDecOk = JSON.parse(rDecOk.body);
-  ok('approve 200', rDecOk.status === 200, rDecOk.status);
-  ok('approve status === approved', jDecOk.status === 'approved', jDecOk.status);
-  ok('approve 返回 note (Agent execution is not enabled)', /Agent execution is not enabled/.test(jDecOk.note || ''));
-  // approve 后不启动 agent (mobile-sessions.js decideApproval 无 spawn)
-  ok('decideApproval 无 spawn 调用', !/function\s+decideApproval[\s\S]{0,3000}?spawn\s*\(/.test(fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8')));
-  // GET approval 状态为 approved
-  const rGet1 = await req({ path: '/api/mobile/approvals/' + approval1, method: 'GET', headers: auth });
-  const jGet1 = JSON.parse(rGet1.body);
-  ok('GET approval → status === approved', jGet1.approval && jGet1.approval.status === 'approved', 'status=' + (jGet1.approval && jGet1.approval.status));
-  // session 状态变为 approved
-  const rSess2 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId), method: 'GET', headers: auth });
-  const jSess2 = JSON.parse(rSess2.body);
-  ok('session status === approved', jSess2.session && jSess2.session.status === 'approved');
-
-  // 再发一次（命中红线：删除）→ reject
-  const rApv2 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
-    JSON.stringify({ text: '请帮我 delete file 旧测试用例', cwd: cwdMock, agentId: 'claude' }));
-  const jApv2 = JSON.parse(rApv2.body);
-  ok('redline2 approval 200', rApv2.status === 200, rApv2.status);
-  ok('redline2 requiresApproval=true', jApv2.requiresApproval === true);
-  const approval2 = jApv2.approvalId;
-  const rDecRej = await req({ path: '/api/mobile-control/approvals/' + approval2 + '/decide', method: 'POST', headers: { 'Content-Type': 'application/json' } },
-    JSON.stringify({ decision: 'rejected' }));
-  const jDecRej = JSON.parse(rDecRej.body);
-  ok('reject 200', rDecRej.status === 200, rDecRej.status);
-  ok('reject status === rejected', jDecRej.status === 'rejected', jDecRej.status);
-
-  // ---- 5) Timeout ----
-  // 创建一个 approval（命中红线），然后手动改 expiresAt 让其过期
-  const rApv3 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(draftSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
-    JSON.stringify({ text: '请帮忙 reset --hard HEAD~1 撤销测试', cwd: cwdMock, agentId: 'claude' }));
-  const jApv3 = JSON.parse(rApv3.body);
-  const approval3 = jApv3.approvalId;
-  // 手动修改 approvals.json 让 approval3 过期
-  const approvalsPath = path.join(process.env.FANBOX_MOBILE_DIR, 'approvals.json');
-  const aRaw = JSON.parse(fs.readFileSync(approvalsPath, 'utf8'));
-  if (aRaw.approvals[approval3]) {
-    aRaw.approvals[approval3].expiresAt = Date.now() - 5000;
-    fs.writeFileSync(approvalsPath, JSON.stringify(aRaw, null, 2), 'utf8');
-  }
-  // 触发 expireApprovals（通过 GET /api/mobile/approvals/:id）
-  const rGet3 = await req({ path: '/api/mobile/approvals/' + approval3, method: 'GET', headers: auth });
-  const jGet3 = JSON.parse(rGet3.body);
-  ok('expired approval → status === timeout', jGet3.approval && jGet3.approval.status === 'timeout', 'status=' + (jGet3.approval && jGet3.approval.status));
-  // audit 包含 timeout
+  // ---- 4) UI-A1 audit 写入但不阻断 ----
   const auditPath = path.join(process.env.FANBOX_MOBILE_DIR, 'audit.jsonl');
   let auditTxt = '';
   try { auditTxt = fs.readFileSync(auditPath, 'utf8'); } catch (e) { auditTxt = ''; }
   ok('audit.jsonl 存在', auditTxt.length > 0);
-  ok('audit 包含 approval_created', /"action":"approval_created"/.test(auditTxt));
-  ok('audit 包含 approval_decided', /"action":"approval_decided"/.test(auditTxt));
-  ok('audit 包含 approval_timeout', /"action":"approval_timeout"/.test(auditTxt));
-  // timeout 不启动 agent
-  ok('expireApprovals 无 spawn 调用', !/function\s+expireApprovals[\s\S]{0,2000}?spawn\s*\(/.test(fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8')));
-
-  // ---- 6) Sensitive data ----
-  // 创建一些带敏感字段的 approval 并 list
-  // 先在 approvals.json 注入一个带敏感字段的
-  const aRaw2 = JSON.parse(fs.readFileSync(approvalsPath, 'utf8'));
-  aRaw2.approvals['apr_dirty'] = {
-    approvalId: 'apr_dirty',
-    sessionId: draftSessionId,
-    deviceId: deviceId,
-    deviceName: 'Android Phone',
-    agentId: 'claude',
-    cwd: cwdMock,
-    cwdLabel: 'fanbox-master',
-    inputPreview: '帮我检查 mobile 页面',
-    inputHash: 'fnv64:0123456789abcdef',
-    inputLen: 12,
-    contextFiles: [],
-    status: 'pending',
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    expiresAt: Date.now() + 60000,
-    decidedAt: 0,
-    decision: '',
-    // 故意包含敏感字段
-    token: 'should-not-leak-token-1234',
-    cookie: 'session-cookie-LEAK',
-    apiKey: 'AKIA-LIVE-LEAK',
-    api_key: 'AKIA-SECOND',
-    secret: 'super-secret',
-    password: 'p4ssw0rd',
-    claudeSession: 'cs-uuid-LEAK',
-    codexSession: 'cx-uuid-LEAK'
-  };
-  fs.writeFileSync(approvalsPath, JSON.stringify(aRaw2, null, 2), 'utf8');
-  // GET 列表
-  const rListApv = await req({ path: '/api/mobile/approvals', method: 'GET', headers: auth });
-  const jListApv = JSON.parse(rListApv.body);
-  const listApvStr = JSON.stringify(jListApv);
-  ok('approval list 不含 token', !/should-not-leak-token-1234/.test(listApvStr));
-  ok('approval list 不含 cookie', !/session-cookie-LEAK/.test(listApvStr));
-  ok('approval list 不含 apiKey', !/AKIA-LIVE-LEAK/.test(listApvStr));
-  ok('approval list 不含 api_key', !/AKIA-SECOND/.test(listApvStr));
-  ok('approval list 不含 secret', !/super-secret/.test(listApvStr));
-  ok('approval list 不含 password', !/p4ssw0rd/.test(listApvStr));
-  ok('approval list 不含 claudeSession', !/cs-uuid-LEAK/.test(listApvStr));
-  ok('approval list 不含 codexSession', !/cx-uuid-LEAK/.test(listApvStr));
-  // GET 单个
-  const rGetDirty = await req({ path: '/api/mobile/approvals/apr_dirty', method: 'GET', headers: auth });
-  const jGetDirty = JSON.parse(rGetDirty.body);
-  const dirtyStr = JSON.stringify(jGetDirty);
-  ok('approval detail 不含 token', !/should-not-leak-token-1234/.test(dirtyStr));
-  ok('approval detail 不含 cookie', !/session-cookie-LEAK/.test(dirtyStr));
-  ok('approval detail 不含 apiKey', !/AKIA-LIVE-LEAK/.test(dirtyStr));
-  ok('approval detail 不含 secret/password', !/super-secret|p4ssw0rd/.test(dirtyStr));
-  ok('approval detail 不含 claudeSession/codexSession', !/cs-uuid-LEAK|cx-uuid-LEAK/.test(dirtyStr));
-  ok('approval detail 不含完整 input（仅 preview）', !/帮我检查 mobile 页面完整原文（假设很长）/.test(dirtyStr));
-  ok('approval detail 含 inputPreview 截断', jGetDirty.approval && typeof jGetDirty.approval.inputPreview === 'string' && jGetDirty.approval.inputPreview.length <= 80);
-  // control list
-  const rCtrlList = await req({ path: '/api/mobile-control/approvals', method: 'GET' });
-  const jCtrlList = JSON.parse(rCtrlList.body);
-  const ctrlStr = JSON.stringify(jCtrlList);
-  ok('control approvals 不含 token/cookie/apiKey', !/should-not-leak-token-1234|session-cookie-LEAK|AKIA-LIVE-LEAK/.test(ctrlStr));
-  ok('control approvals 不含完整 input 原文', !/帮我检查 mobile 页面完整原文（假设很长）/.test(ctrlStr));
-  // audit
-  ok('audit 不含完整 input 原文', !/帮我检查这个文件夹的 mobile 页面问题/.test(auditTxt));
-  ok('audit 不含 token/cookie/apiKey', !/should-not-leak-token-1234|session-cookie-LEAK|AKIA-LIVE-LEAK|p4ssw0rd/.test(auditTxt));
-  // 清理 dirty
-  delete aRaw2.approvals['apr_dirty'];
-  fs.writeFileSync(approvalsPath, JSON.stringify(aRaw2, null, 2), 'utf8');
+  ok('audit 含 redline_detected_but_not_blocked', /"action":"redline_detected_but_not_blocked"/.test(auditTxt));
+  ok('audit 含 reasons: git_history_overwrite', /"reasons":\s*\[[\s\S]*?"git_history_overwrite"[\s\S]*?\]/.test(auditTxt));
+  ok('audit 不含完整 input 原文', !/帮我 git push 到 origin/.test(auditTxt));
+  ok('audit 不含 token/cookie/apiKey', !/should-not-leak-token|session-cookie-LEAK|AKIA-LIVE-LEAK|p4ssw0rd/.test(auditTxt));
+  // ---- 5) UI-A1 approval 列表接口仍可读（不强制 404） ----
+  const rApvList = await req({ path: '/api/mobile/approvals', method: 'GET', headers: auth });
+  ok('GET /api/mobile/approvals 200（保留接口）', rApvList.status === 200, rApvList.status);
 
   // ============================================================
   // [11.8] Phase 2A-2.1：Redline detector + 普通消息走 stub runner + events
@@ -897,50 +780,58 @@ function req(opts, body) {
   // events 不带 cwd 路径
   ok('events 不暴露完整 cwd', !jEvt.cwd || jEvt.cwdLabel);
 
-  // ---- 5) 红线后 waiting_approval 状态下第二条消息 409 ----
+  // ---- 5) UI-A1：红线后第二次再发直接 200，done（不卡 waiting_approval） ----
   const rApv2nd = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(normalSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
     JSON.stringify({ text: 'git push 一下', cwd: cwdMock, agentId: 'claude' }));
   const jApv2nd = JSON.parse(rApv2nd.body);
-  ok('第二次发红线 200 (waiting_approval)', rApv2nd.status === 200 && jApv2nd.requiresApproval === true, 'status=' + rApv2nd.status);
-  // 此时再发普通消息应 409
+  ok('第二次发红线 200 (UI-A1 直接执行)', rApv2nd.status === 200, 'status=' + rApv2nd.status);
+  ok('第二次红线 requiresApproval 不为 true', jApv2nd.requiresApproval !== true, 'requiresApproval=' + jApv2nd.requiresApproval);
+  ok('第二次红线 status === done', jApv2nd.status === 'done', 'status=' + jApv2nd.status);
+  // UI-A1：第二次发普通消息也 200（不卡 waiting_approval）
   const r409 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(normalSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
     JSON.stringify({ text: '再次普通消息', cwd: cwdMock, agentId: 'claude' }));
-  ok('waiting_approval 状态下再发 → 409', r409.status === 409, r409.status);
-  // approve 后再发普通消息应 200
-  await req({ path: '/api/mobile-control/approvals/' + jApv2nd.approvalId + '/decide', method: 'POST', headers: { 'Content-Type': 'application/json' } },
-    JSON.stringify({ decision: 'approved' }));
-  const rNorm2 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(normalSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
-    JSON.stringify({ text: '继续普通消息', cwd: cwdMock, agentId: 'claude' }));
-  ok('approve 后再发普通消息 → 200', rNorm2.status === 200, 'status=' + rNorm2.status);
-  const jNorm2 = JSON.parse(rNorm2.body);
-  ok('approve 后普通消息 requiresApproval=false', jNorm2.requiresApproval === false);
-  ok('approve 后普通消息 status === done', jNorm2.status === 'done', 'status=' + jNorm2.status);
+  ok('UI-A1 连续发送无需 approval', r409.status === 200, 'status=' + r409.status);
+  // UI-A1：approval 接口保留作 audit，但 mobile send path 不调用
+  // 不再调 decide（无 pending approval 可批）
 
   // ---- 7) UI ----
   // Mobile UI 必含 / 必不含
   ok('Mobile UI 包含 Send 按钮 (data-i="send")', /data-i="send"|id="agent-send"/.test(html) && /Send/.test(html));
-  ok('Mobile UI 包含 "Redline actions require desktop approval"', /Redline actions require desktop approval/i.test(html));
-  ok('Mobile UI 包含 "Scoped to this folder"', /Scoped to this folder/i.test(html));
-  ok('Mobile UI 包含 "No raw terminal"', /No raw terminal/i.test(html));
-  ok('Mobile UI 包含 "No direct shell"', /No direct shell/i.test(html));
-  ok('Mobile UI 不包含 YOLO', !/\bYOLO\b/.test(all));
-  ok('Mobile UI 不包含 Full-auto', !/Full-?auto/i.test(all));
-  ok('Mobile UI 不包含 Start all agents', !/Start all agents/i.test(all));
-  ok('Mobile UI 不包含 Start Agent', !/Start Agent/.test(all));
-  ok('Mobile UI 不包含 Run Agent', !/Run Agent/.test(all));
-  ok('Mobile UI 不包含 Send Task', !/Send Task/.test(all));
-  ok('Mobile UI 不包含 Execute Shell', !/Execute Shell/i.test(all));
-  ok('Mobile UI 不包含 Terminal Input', !/Terminal Input/.test(all));
-  ok('Mobile UI 不包含 Delete File', !/Delete File/i.test(all));
-  ok('Mobile UI 不包含 Move File', !/Move File/i.test(all));
-  ok('Mobile UI 不包含 Rename File', !/Rename File/i.test(all));
-  ok('Mobile UI 不包含 Upload File', !/Upload File/i.test(all));
-  // approval polling text
-  ok('Mobile UI 含 polling 提示', /approval|polling|wait/i.test(js));
-  ok('Mobile UI 含 approval-bar 元素', /id="agent-approval-bar"/.test(html));
-  ok('Mobile UI 含 approved 文案分支', /Approved/i.test(js));
-  ok('Mobile UI 含 rejected by desktop 文案分支', /Rejected by desktop\./i.test(js));
-  ok('Mobile UI 含 approval timed out 文案分支', /Approval timed out\./i.test(js));
+  // UI-A1：替换旧 approval 提示文案为新文案
+  ok('Mobile UI 含 "Running on your paired desktop"', /Running on your paired desktop/i.test(html));
+  ok('Mobile UI 含 "Scoped to the selected folder"', /Scoped to the selected folder/i.test(html));
+  ok('Mobile UI 含 "Logged locally in FanBox"', /Logged locally in FanBox/i.test(html));
+  // UI-A1：移除旧 approval 文案（这些应已经不存在）
+  ok('Mobile UI 不再含 "Redline actions require desktop approval"', !/Redline actions require desktop approval/i.test(html));
+  ok('Mobile UI 不再含 "Desktop approval required"', !/Desktop approval required/i.test(html));
+  ok('Mobile UI 不再含 "Request approval"', !/Request approval/i.test(html));
+  ok('Mobile UI 不再含 "No raw terminal"', !/No raw terminal/i.test(html));
+  ok('Mobile UI 不再含 "No direct shell"', !/No direct shell/i.test(html));
+  ok('Mobile UI 不含 YOLO', !/\bYOLO\b/.test(all));
+  ok('Mobile UI 不含 Full-auto', !/Full-?auto/i.test(all));
+  ok('Mobile UI 不含 Start all agents', !/Start all agents/i.test(all));
+  ok('Mobile UI 不含 Start Agent', !/Start Agent/.test(all));
+  ok('Mobile UI 不含 Run Agent', !/Run Agent/.test(all));
+  ok('Mobile UI 不含 Send Task', !/Send Task/.test(all));
+  ok('Mobile UI 不含 Execute Shell', !/Execute Shell/i.test(all));
+  ok('Mobile UI 不含 Terminal Input', !/Terminal Input/.test(all));
+  ok('Mobile UI 不含 Delete File', !/Delete File/i.test(all));
+  ok('Mobile UI 不含 Move File', !/Move File/i.test(all));
+  ok('Mobile UI 不含 Rename File', !/Rename File/i.test(all));
+  ok('Mobile UI 不含 Upload File', !/Upload File/i.test(all));
+  // UI-A1：mobile.js 不再含 approved / rejected / timed out 文案分支
+  ok('Mobile UI 不再含 approval-bar 元素', !/id="agent-approval-bar"/.test(html));
+  ok('Mobile UI 不再含 "Approved by desktop" 文案分支', !/Approved by desktop\./i.test(js));
+  ok('Mobile UI 不再含 "Rejected by desktop" 文案分支', !/Rejected by desktop\./i.test(js));
+  ok('Mobile UI 不再含 "Approval timed out" 文案分支', !/Approval timed out\./i.test(js));
+  ok('Mobile UI 不再含 "Waiting for desktop approval" 文案', !/Waiting for desktop approval/i.test(js));
+  // polling text — UI-A1 不再需要轮询 approval
+  // 注：mobile.js 仍保留 startApprovalPolling/stopApprovalPolling 作为 noop 防止外部引用报错
+  // 验证它们是 noop（不实际 setInterval）
+  ok('startApprovalPolling / stopApprovalPolling 是 noop',
+    /function\s+startApprovalPolling\s*\(\s*\)\s*\{[\s\S]{0,200}?\/\*\s*noop[\s\S]*?\}/.test(js) &&
+    /function\s+stopApprovalPolling\s*\(\s*\)\s*\{[\s\S]{0,200}?\/\*\s*noop[\s\S]*?\}/.test(js));
+  ok('mobile.js 不再实际调用 setInterval 做 approval polling', !/setInterval\s*\(\s*[^,]+,\s*\d+\s*\)/.test(js));
   // agent-send button is interactive, not disabled by default
   const sendBtnMatch = html.match(/<button[^>]*\bid="agent-send"[^>]*>/);
   ok('agent-send 按钮存在且可点击（非 disabled）', sendBtnMatch && !/\bdisabled\b/.test(sendBtnMatch[0]));
@@ -1052,9 +943,12 @@ function req(opts, body) {
   // ---- 8) postMessageToMobileSession 已切换到 runMobileAgent（不再用 runStubAgent sync） ----
   const sessSrc = fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8');
   ok('postMessageToMobileSession 调 runMobileAgent', /runMobileAgent\(/.test(sessSrc));
-  // 红线后走 createApproval，**不**调 runner
-  const postFn = sessSrc.match(/postMessageToMobileSession[\s\S]*?\n\}/);
-  ok('红线分支在 runner 调用前', postFn && /requiresApproval[\s\S]*?createApproval[\s\S]*?return[\s\S]*?runMobileAgent/.test(postFn.join(' ')));
+  // UI-A1：postMessageToMobileSession 直接调 runner（无 createApproval 分支）
+  const postFn = sessSrc.match(/async function postMessageToMobileSession[\s\S]*?(?=\nasync function\s)/);
+  ok('postMessageToMobileSession 不再调 createApproval',
+    postFn && !/createApproval\s*\(/.test(postFn[0]));
+  ok('postMessageToMobileSession 顺序：redline detect → appendAudit → runMobileAgent',
+    postFn && /redline[\s\S]{0,500}appendAudit[\s\S]{0,1500}runMobileAgent/.test(postFn[0]));
 
   // ---- 9) events 端点不暴露 _internalSessionId / claudeSession / codexSession ----
   // 抓最新一次普通消息的 sessionId，触发真实 runner 路径
@@ -1380,7 +1274,11 @@ function req(opts, body) {
   ok('UI 不包含 Move File', !/Move File/i.test(uiAll));
   ok('UI 不包含 Rename File', !/Rename File/i.test(uiAll));
   ok('UI 不包含 Upload File', !/Upload File/i.test(uiAll));
-  ok('UI 包含 Redline actions require desktop approval', /Redline actions require desktop approval/i.test(uiAll));
+  // UI-A1：Redline actions 文案已移除（红线不再走 approval）
+  ok('UI 不再包含 "Redline actions require desktop approval"', !/Redline actions require desktop approval/i.test(uiAll));
+  // UI-A1：新文案
+  ok('UI 包含 "Running on your paired desktop"', /Running on your paired desktop/i.test(uiAll));
+  ok('UI 包含 "Scoped to the selected folder"', /Scoped to the selected folder/i.test(uiAll));
 
   // ============================================================
   // 收尾

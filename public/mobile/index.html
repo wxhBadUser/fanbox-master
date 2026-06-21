@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#F9FAFB">
-  <title>FanBox Mobile · Mobile Console</title>
+  <title>FanBox · Command Agent Workspace</title>
   <link rel="stylesheet" href="/mobile/mobile.css">
 </head>
 <body>
@@ -21,15 +21,51 @@
       <button id="pair-btn" class="btn-primary" type="button">配对</button>
       <div id="pair-msg" class="msg" role="status"></div>
     </div>
-    <p class="pair-foot">当前移动端只提供只读访问。所有请求都需要 LAN + Token。</p>
+    <p class="pair-foot">移动端通过 LAN + Token 安全访问 FanBox。Agent 命令直接执行，audit 写入本地日志。</p>
   </section>
 
   <!-- 主应用（配对成功后显示） -->
   <div id="app" class="app" hidden>
+    <!-- Sidebar（仅 desktop 宽度可见；mobile 隐藏） -->
+    <aside class="app-sidebar" aria-label="Sidebar">
+      <div class="sidebar-brand">
+        <div class="sidebar-logo" aria-hidden="true">◆</div>
+        <div class="sidebar-brand-text">FanBox</div>
+      </div>
+      <button class="sidebar-item sidebar-item-cta" id="sidebar-new-chat" type="button">
+        <span class="sidebar-icon" data-i="newchat"></span>
+        <span>New Chat</span>
+      </button>
+      <button class="sidebar-item" id="sidebar-search" type="button" data-go="search">
+        <span class="sidebar-icon" data-i="search"></span>
+        <span>Search</span>
+      </button>
+      <button class="sidebar-item" type="button" data-go="agent">
+        <span class="sidebar-icon" data-i="agents"></span>
+        <span>Agents</span>
+      </button>
+      <button class="sidebar-item" type="button" data-go="files">
+        <span class="sidebar-icon" data-i="files"></span>
+        <span>Projects</span>
+      </button>
+      <button class="sidebar-item" type="button" data-go="skills">
+        <span class="sidebar-icon" data-i="skills"></span>
+        <span>Skills</span>
+      </button>
+      <div class="sidebar-h">Recent Sessions</div>
+      <div id="sidebar-recent-sessions" class="sidebar-recent"></div>
+      <div class="sidebar-foot">
+        <button class="sidebar-item" type="button" data-go="settings">
+          <span class="sidebar-icon" data-i="settings"></span>
+          <span>Settings</span>
+        </button>
+      </div>
+    </aside>
+
     <header class="app-topbar">
       <div class="app-topbar-left">
         <div class="app-title">Mobile Console</div>
-        <div id="app-sub" class="app-sub">FanBox · 只读</div>
+        <div id="app-sub" class="app-sub">FanBox · Agent workspace</div>
       </div>
       <button id="app-refresh" class="btn-icon" type="button" aria-label="刷新">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><polyline points="21 4 21 9 16 9"/></svg>
@@ -43,11 +79,11 @@
       <section class="tab-pane" data-tab="home" hidden>
         <div class="card flow-card">
           <div class="flow">
-            <div class="flow-node">手机</div>
+            <div class="flow-node">Phone / Browser</div>
             <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
             <div class="flow-node flow-node-active">LAN + Token</div>
             <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
-            <div class="flow-node">Desktop API</div>
+            <div class="flow-node">Agent runner</div>
           </div>
         </div>
 
@@ -55,9 +91,9 @@
           <div class="card card-stat">
             <div class="card-row">
               <span class="status-dot status-dot-ok"></span>
-              <div class="card-h">Read-only</div>
+              <div class="card-h">Agent chat</div>
             </div>
-            <p class="card-p">移动端仅返回只读数据</p>
+            <p class="card-p">手机/浏览器可直接对 Agent 说话，命令直接执行</p>
           </div>
           <div class="card card-stat">
             <div class="card-row">
@@ -98,46 +134,63 @@
               <span class="qa-icon" data-i="skills"></span>
               <span class="qa-label">Skills</span>
             </button>
-            <button class="qa-tile" data-go="sessions" type="button">
-              <span class="qa-icon" data-i="usage"></span>
-              <span class="qa-label">Sessions</span>
+            <button class="qa-tile" data-go="home" type="button">
+              <span class="qa-icon" data-i="home"></span>
+              <span class="qa-label">Home</span>
             </button>
           </div>
         </div>
 
         <div class="card">
-          <div class="card-h">Usage · Today / This week</div>
+          <div class="card-h">Today &amp; This week</div>
           <div class="card-grid card-grid-2" style="border: none; padding: 0;">
             <div>
-              <div class="card-meta">Today</div>
+              <div class="card-meta">Today runs</div>
               <div id="home-usage-today" class="card-big">—</div>
             </div>
             <div>
-              <div class="card-meta">This week</div>
+              <div class="card-meta">This week runs</div>
               <div id="home-usage-week" class="card-big">—</div>
             </div>
           </div>
         </div>
 
         <div class="card">
-          <div class="card-h">Mobile runs · today / week</div>
-          <div class="card-grid card-grid-2" style="border: none; padding: 0;">
+          <div class="card-h">Today Summary</div>
+          <div class="card-grid card-grid-3" style="border: none; padding: 0;">
             <div>
-              <div class="card-meta">Today</div>
+              <div class="card-meta">Today runs</div>
               <div id="home-runs-today" class="card-big">0</div>
             </div>
             <div>
-              <div class="card-meta">This week</div>
+              <div class="card-meta">Week runs</div>
               <div id="home-runs-week" class="card-big">0</div>
             </div>
+            <div>
+              <div class="card-meta">Today duration</div>
+              <div id="home-runs-duration" class="card-big">0s</div>
+            </div>
           </div>
-          <div class="card-h" style="margin-top: 12px;">Recent mobile runs</div>
+        </div>
+
+        <div class="card">
+          <div class="card-h">Running Sessions</div>
+          <div id="home-running-sessions" class="sessions-list"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-h">Recent Sessions</div>
+          <div id="home-recent-sessions" class="sessions-list"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-h">Recent mobile runs</div>
           <div id="home-runs-recent" class="roots-list"></div>
         </div>
 
         <div class="card card-tip">
-          <div class="card-h">No raw logs · No uploads · No writes</div>
-          <p class="card-p">移动端始终只读，绝不写入电脑端任何文件。</p>
+          <div class="card-h">Running on your paired desktop · Scoped to folder</div>
+          <p class="card-p">所有请求经过 LAN + Token；Agent 命令直接执行；audit 写入本地日志；不上传文件 / 不公开凭据。</p>
         </div>
       </section>
 
@@ -171,7 +224,6 @@
             </div>
             <div class="cta-row">
               <button id="files-open-agent" class="btn-primary" type="button" disabled>在此文件夹打开 Agent</button>
-              <button id="files-view-sessions" class="btn-ghost" type="button" disabled>查看此文件夹 Sessions</button>
             </div>
           </div>
         </div>
@@ -199,82 +251,62 @@
       </section>
 
       <!-- ============================== -->
-      <!-- Agent Tab (Phase 2A-1)         -->
+      <!-- Agent Tab (Phase UI-A1: AionUi-like) -->
       <!-- ============================== -->
-      <section class="tab-pane" data-tab="agent" hidden>
-        <div class="card flow-card">
-          <div class="flow">
-            <div class="flow-node">Files</div>
-            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
-            <div class="flow-node flow-node-active">cwd</div>
-            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
-            <div class="flow-node">Agent Shell</div>
+      <section class="tab-pane" data-tab="agent">
+        <!-- Hero title（类似 AionUi "Hi, what's your plan for today?"） -->
+        <div class="agent-hero">
+          <div id="agent-hero-greet" class="agent-hero-greet">Hi, what's your plan for today?</div>
+          <div id="agent-hero-sub" class="agent-hero-sub">Type a message, ask an agent to work in this folder, or pick a skill below.</div>
+        </div>
+
+        <!-- Agent switcher（顶部 chips） -->
+        <div class="agent-chips" id="agent-switcher" role="tablist" aria-label="Agent switcher"></div>
+
+        <!-- 大输入框（AionUi-like） -->
+        <div class="agent-composer card">
+          <textarea id="agent-input" class="agent-composer-input" rows="4" maxlength="4000"
+            placeholder="Send a message, open a folder, or ask an agent to work in this project..."></textarea>
+          <div class="agent-composer-foot">
+            <div class="agent-composer-meta">
+              <span id="agent-cwd" class="agent-composer-cwd">Work in: —</span>
+              <span id="agent-session-status" class="agent-composer-session">session: —</span>
+              <span id="agent-status-pill"></span>
+            </div>
+            <button id="agent-send" class="agent-composer-send" type="button" aria-label="Send">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="19" x2="12" y2="5"/>
+                <polyline points="5 12 12 5 19 12"/>
+              </svg>
+            </button>
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-row card-row-between">
-            <div>
-              <div class="card-h">cwd</div>
-              <div id="agent-cwd" class="card-meta">未选择</div>
-            </div>
-            <button id="agent-pick-cwd" class="btn-ghost" type="button">选择文件夹</button>
-          </div>
-          <div class="card-h" style="margin-top: var(--s-3);">Agent</div>
-          <div id="agent-switcher" class="agent-switcher"></div>
+        <!-- messages 列表（最新在底部） -->
+        <div id="agent-messages" class="agent-messages" hidden></div>
+
+        <!-- assistant / skill cards（AionUi-like） -->
+        <div class="agent-assistants">
+          <div class="agent-assistants-h">Skills &amp; Assistants</div>
+          <div id="agent-assistant-cards" class="agent-assistant-cards"></div>
         </div>
 
-        <div class="card">
-          <div class="card-row card-row-between">
-            <div>
-              <div class="card-h">Session</div>
-              <div id="agent-session-status" class="card-meta">未选择</div>
-            </div>
-            <span id="agent-status-pill"></span>
-          </div>
-          <!-- Phase 2A-2.1：messages bubble + approval status bar -->
-          <div id="agent-messages" class="agent-messages">
-            <div class="empty">请先选择 cwd + agent</div>
-          </div>
-          <div id="agent-approval-bar" class="approval-bar" hidden>
-            <div class="approval-bar-row">
-              <span id="agent-approval-icon" class="approval-icon approval-icon-pending"></span>
-              <span id="agent-approval-text" class="approval-text">Waiting for desktop approval</span>
-            </div>
-            <div id="agent-approval-meta" class="approval-meta"></div>
-          </div>
-          <div class="agent-input-row">
-            <textarea id="agent-input" class="agent-input" rows="2" maxlength="4000" placeholder="输入任务（最多 4000 字符）"></textarea>
-            <button id="agent-send" class="btn-primary" type="button" data-i="send">Send</button>
-          </div>
-          <div class="agent-input-note">普通消息立即发送；红线操作会要求 desktop 二次确认</div>
+        <!-- 底部：今日 runs 小摘要（仅 mobile source） -->
+        <div class="agent-runs card">
+          <div class="agent-runs-h">Today · Mobile runs</div>
+          <div id="agent-runs-summary" class="agent-runs-summary"></div>
         </div>
 
-        <div class="card-grid card-grid-2">
-          <div class="card card-stat">
-            <div class="card-h">Context files</div>
-            <div id="agent-context-files" class="card-p">—</div>
+        <!-- 安全提示（修改后的文案） -->
+        <div class="agent-safety card card-tip">
+          <div class="card-row">
+            <span class="status-dot status-dot-ok"></span><span class="card-p">Running on your paired desktop</span>
           </div>
-          <div class="card card-stat">
-            <div class="card-h">Skill suggestions</div>
-            <div id="agent-skill-suggestions" class="card-p">—</div>
+          <div class="card-row">
+            <span class="status-dot status-dot-ok"></span><span class="card-p">Scoped to the selected folder</span>
           </div>
-          <div class="card card-stat card-stat-wide">
-            <div class="card-h">Usage · Today / This week</div>
-            <div class="card-meta">
-              <span id="agent-usage-today">—</span> today · <span id="agent-usage-week">—</span> week
-            </div>
-          </div>
-        </div>
-
-        <div class="card card-tip">
-          <div class="card-h">Desktop approval required</div>
-          <p class="card-p">本轮 Phase 2A-2.1：普通消息立即发送；命中红线时要求 desktop 二次确认。Approve 之后不会启动 Agent。</p>
-          <div class="card-row" style="margin-top: var(--s-2);">
-            <span class="status-dot status-dot-ok"></span><span class="card-p">Scoped to this folder</span>
-            <span class="status-dot status-dot-ok" style="margin-left: 12px;"></span><span class="card-p">No raw terminal</span>
-            <span class="status-dot status-dot-ok" style="margin-left: 12px;"></span><span class="card-p">No direct shell</span>
-            <span class="status-dot status-dot-ok" style="margin-left: 12px;"></span><span class="card-p">Redline actions require desktop approval</span>
+          <div class="card-row">
+            <span class="status-dot status-dot-ok"></span><span class="card-p">Logged locally in FanBox</span>
           </div>
         </div>
       </section>
@@ -295,75 +327,26 @@
       </section>
 
       <!-- ============================== -->
-      <!-- Sessions Tab (Phase 2A-1)      -->
+      <!-- Sessions moved into Home (Phase UI-A1) -->
       <!-- ============================== -->
-      <section class="tab-pane" data-tab="sessions" hidden>
-        <div class="card flow-card">
-          <div class="flow">
-            <div class="flow-node">desktop</div>
-            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
-            <div class="flow-node flow-node-active">mobile</div>
-            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
-            <div class="flow-node">wechat</div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="field-row">
-            <select id="sessions-source" class="field field-select">
-              <option value="">所有来源</option>
-              <option value="desktop">desktop</option>
-              <option value="mobile">mobile</option>
-              <option value="wechat">wechat</option>
-            </select>
-            <select id="sessions-agent" class="field field-select">
-              <option value="">所有 agent</option>
-              <option value="claude">claude</option>
-              <option value="codex">codex</option>
-              <option value="opencode">opencode</option>
-              <option value="qoder">qoder</option>
-              <option value="shell">shell</option>
-              <option value="unknown">unknown</option>
-            </select>
-          </div>
-          <div class="field-row" style="margin-top: var(--s-2);">
-            <input id="sessions-q" class="field field-input" type="search" placeholder="搜索 title / preview / cwd…" maxlength="80" autocomplete="off">
-          </div>
-        </div>
-
-        <div class="card card-tip">
-          <div class="card-h">隐私保护</div>
-          <p class="card-p">只读摘要 · 不显示 raw stdout · 不显示 JSONL · 不显示 token/cookie/API key · 不显示 claudeSession/codexSession</p>
-        </div>
-
-        <div id="sessions-list" class="sessions-list">
-          <div class="skeleton" style="height: 84px; margin-bottom: 8px;"></div>
-          <div class="skeleton" style="height: 84px; margin-bottom: 8px;"></div>
-          <div class="skeleton" style="height: 84px; margin-bottom: 8px;"></div>
-        </div>
-      </section>
     </main>
 
     <nav class="app-bottom-nav" role="tablist">
-      <button class="tab-btn is-active" data-tab-btn="home" type="button" role="tab">
+      <button class="tab-btn" data-tab-btn="home" type="button" role="tab">
         <span class="tab-icon" data-i="home"></span>
         <span class="tab-label">Home</span>
+      </button>
+      <button class="tab-btn is-active" data-tab-btn="agent" type="button" role="tab">
+        <span class="tab-icon" data-i="agents"></span>
+        <span class="tab-label">Agent</span>
       </button>
       <button class="tab-btn" data-tab-btn="files" type="button" role="tab">
         <span class="tab-icon" data-i="files"></span>
         <span class="tab-label">Files</span>
       </button>
-      <button class="tab-btn" data-tab-btn="agent" type="button" role="tab">
-        <span class="tab-icon" data-i="agents"></span>
-        <span class="tab-label">Agent</span>
-      </button>
       <button class="tab-btn" data-tab-btn="skills" type="button" role="tab">
         <span class="tab-icon" data-i="skills"></span>
         <span class="tab-label">Skills</span>
-      </button>
-      <button class="tab-btn" data-tab-btn="sessions" type="button" role="tab">
-        <span class="tab-icon" data-i="usage"></span>
-        <span class="tab-label">Sessions</span>
       </button>
     </nav>
   </div>

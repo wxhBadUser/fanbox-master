@@ -28,6 +28,8 @@ const MOBILE_DIR = path.join(HOME, '.fanbox', 'mobile');
 const CONFIG_FILE = path.join(MOBILE_DIR, 'config.json');
 const TOKENS_FILE = path.join(MOBILE_DIR, 'tokens.json');
 const THUMB_CACHE_DIR = path.join(MOBILE_DIR, 'thumbs');
+// Phase UI-A1：mobile 端 skills enable/disable 状态（只写 mobile 自己的 state，不改真实 skill 文件）
+const SKILLS_STATE_FILE = path.join(MOBILE_DIR, 'skills-state.json');
 
 const DEFAULT_PORT = 4580;
 const PAIR_TTL_MS = 60_000;
@@ -1655,6 +1657,27 @@ async function handleMobileApiV2A(req, res, url) {
     return sendJson(res, 200, { ok: true, items: r }), true;
   }
 
+  // -------- GET /api/mobile/skills-state --------
+  // Phase UI-A1：mobile 端 skills toggle。读 ~/.fanbox/mobile/skills-state.json
+  if (req.method === 'GET' && pathOnly === '/api/mobile/skills-state') {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    return sendJson(res, 200, await readSkillsState()), true;
+  }
+
+  // -------- POST /api/mobile/skills-state --------
+  // body: { skillId, enabled } —— 写 ~/.fanbox/mobile/skills-state.json
+  // 绝不修改 ~/.claude / ~/.codex / ~/.agents 下的真实 skill 文件
+  if (req.method === 'POST' && pathOnly === '/api/mobile/skills-state') {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    let body;
+    try { body = await readJsonBody(req); } catch { return badReq(res, 400, 'bad_body'), true; }
+    const skillId = ((body && body.skillId) || '').toString().replace(/[^A-Za-z0-9._\-+:]/g, '').slice(0, 128);
+    const enabled = !!(body && body.enabled);
+    if (!skillId) return sendJson(res, 400, { ok: false, error: 'missing_skillId' }), true;
+    const r = await writeSkillsState(skillId, enabled);
+    return sendJson(res, r.ok ? 200 : 400, r), true;
+  }
+
   // -------- GET /api/mobile/context/current --------
   if (req.method === 'GET' && pathOnly === '/api/mobile/context/current') {
     const t = await requireMobileAuth(req, res); if (!t) return true;
@@ -1935,6 +1958,44 @@ function serveMobilePage(req, res, urlPath) {
   // 兼容：原有 handleRequest 中 if (pathOnly === '/mobile' || pathOnly === '/mobile/') 直接调它。
   // 这里直接走静态资源分发，'/' 落到 index.html。
   return serveMobileStatic(req, res, urlPath);
+}
+
+// ---------- Phase UI-A1：mobile skills state（仅 mobile 端 toggle，不改真实 skill 文件） ----------
+async function readSkillsState() {
+  try {
+    const txt = await fsp.readFile(SKILLS_STATE_FILE, 'utf8');
+    const j = JSON.parse(txt);
+    if (!j || typeof j !== 'object') return { ok: true, schemaVersion: 1, states: {}, updatedAt: 0 };
+    if (!j.states || typeof j.states !== 'object') j.states = {};
+    return { ok: true, schemaVersion: 1, states: j.states, updatedAt: j.updatedAt || 0 };
+  } catch {
+    return { ok: true, schemaVersion: 1, states: {}, updatedAt: 0 };
+  }
+}
+
+async function writeSkillsState(skillId, enabled) {
+  try {
+    if (!skillId) return { ok: false, error: 'missing_skillId' };
+    const id = String(skillId).replace(/[^A-Za-z0-9._\-+:]/g, '').slice(0, 128);
+    if (!id) return { ok: false, error: 'invalid_skillId' };
+    await fsp.mkdir(SKILLS_STATE_FILE.replace(/[\\\/][^\\\/]+$/, ''), { recursive: true });
+    let obj;
+    try {
+      const txt = await fsp.readFile(SKILLS_STATE_FILE, 'utf8');
+      obj = JSON.parse(txt);
+      if (!obj || typeof obj !== 'object') obj = { schemaVersion: 1, states: {} };
+      if (!obj.states || typeof obj.states !== 'object') obj.states = {};
+    } catch {
+      obj = { schemaVersion: 1, states: {} };
+    }
+    obj.states[id] = { enabled: !!enabled, updatedAt: Date.now() };
+    obj.updatedAt = Date.now();
+    obj.schemaVersion = 1;
+    await fsp.writeFile(SKILLS_STATE_FILE, JSON.stringify(obj, null, 2), 'utf8');
+    return { ok: true, skillId: id, enabled: !!enabled, updatedAt: obj.updatedAt };
+  } catch (e) {
+    return { ok: false, error: 'write_failed', detail: (e && e.message) || String(e) };
+  }
 }
 // ---------- Server lifecycle ----------
 
