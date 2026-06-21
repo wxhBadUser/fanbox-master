@@ -4,6 +4,7 @@
 > 状态：Phase R1A 实施完成（已落盘于 commit `32364a1` 系列）
 > Phase UI-A1 实施完成（已落盘于 UI-A1 commit）
 > **Phase UI-A2 实施完成（Home-first Agent Workspace）**
+> **Phase UI-A3 实施完成（Home 重构为 AionUi-like 工作台）**
 > 参考仓库：`I:\AI_weflow\AionUi-ref`（仅做研究，不修改、不复制代码）
 
 ---
@@ -505,4 +506,169 @@ var POST_ALLOWLIST = [
 - **UI-A3**（按需）：把 detail API 真正支持 messages 拉取；当前 v1 只显示 `summary.lastMessagePreview` 摘要气泡
 - **UI-A4**（按需）：session 卡片支持状态 chip、source chip、duration chip
 - **R3** 微信 Channel（保持暂停）
+
+---
+
+## 11. Phase UI-A3：Home 重构为 AionUi-like 工作台
+
+### 11.1 目标
+
+把配对成功后默认进入的 Home 首页，从「Top Quick Chat + Recent Sessions + Today Summary」仪表盘，
+改为「左 sidebar + 右主工作区」的两栏布局，借鉴 AionUi 的信息架构与视觉风格，但**不复制 AionUi 的代码**。
+
+**核心原则**：
+- 本轮**只改 Home 首页相关 UI** 和必要的数据接线。
+- 不改 Files / Skills / Agent 核心逻辑。
+- 不重新引入 approval gate。
+- 不加 pty / shell 输入能力。
+- 不暴露 token / cookie / apiKey / raw stdout / .jsonl 路径。
+
+### 11.2 新布局
+
+#### 桌面 / 平板（≥ 900px）
+
+```
+┌────────────────┬──────────────────────────────────────────┐
+│ FanBox Mobile  │  Hi, what's your plan for today?        │
+│ [+ New Chat]   │  Send a message, continue a session...   │
+│ ─────────────  │  [Claude] [Codex] [OpenCode] [Qoder]    │
+│ Today          │  ┌──────────────────────────────────┐   │
+│  • Fix bug ... │  │ 多行输入框（Enter 发送, ⇧↵ 换行） │   │
+│  • Refactor... │  └──────────────────────────────────┘   │
+│ Yesterday      │  Work in: fanbox-master · Model · Effort│
+│  • Old chat    │  [ Open this folder · Review · ... ]    │
+│ Last 7 Days    │  ⚠ 安全提示（3 条）                      │
+│ Older          │                                          │
+│ ─────────────  │                                          │
+│ Settings       │                                          │
+└────────────────┴──────────────────────────────────────────┘
+```
+
+左栏（260–300px）：FanBox Mobile 品牌 / New Chat 按钮 / 历史 sessions 列表 / Settings 入口。
+右栏（自适应）：欢迎标题 / 4 个 agent chip / 大输入框 / cwd·model·effort / 4 张 quick cards / 3 条安全提示。
+
+#### 手机（< 900px）
+
+左栏默认折叠为一个 drawer：
+
+- 顶部 topbar 出现「☰」按钮（`#app-menu`）
+- 点击后左栏以 80% 宽度 fixed drawer 形式展开
+- 背景出现 `.home-drawer-scrim` 遮罩
+- 点击遮罩 / close 按钮 / 按 Esc / 切换 tab 都关闭 drawer
+- 首次默认进入 Home 主区域，drawer 关闭
+
+### 11.3 Agent 图标资源
+
+为了让 chip 不是纯文字，在 `public/mobile/assets/agents/` 下新增 4 个独立 SVG：
+
+```
+public/mobile/assets/agents/
+├── claude.svg      # 六边形 + 中心点（currentColor 描边）
+├── codex.svg       # <> 括号
+├── opencode.svg    # </> 箭头
+└── qoder.svg       # 3 矩形 + 放大镜
+```
+
+每个 SVG：
+- `viewBox="0 0 20 20"`，`width=20 height=20`
+- 描边色 `currentColor`，跟随父元素 color
+- 不依赖在线 CDN
+
+mobile.js 顶部用 `AGENT_ICONS` 内联 4 份 SVG 字符串（避免 `<img>` 模式下 `currentColor` 不工作），
+`makeAgentChip(a)` 统一构造 chip：`<div class="agent-chip" data-agent-id=...><icon/> <label/></div>`。
+
+### 11.4 New Chat 行为
+
+点击 `#home-new-chat` → `onNewChat()`：
+
+1. 如 `agentState.cwd` 为空 → 提示用户去 Files
+2. 若 `agentState.agentId` 为空 → fallback 为 `claude`
+3. POST `/api/mobile/sessions/draft`（cwd + agentId）→ 拿到 `sessionId`
+4. POST `/api/mobile/context/select` 同步偏好
+5. 清空 `#home-input`
+6. **跳到 Agent 独立页**（`showTab('agent')`），由 Agent 页接管对话
+7. 关闭 drawer（mobile）
+
+### 11.5 历史 session 行为
+
+- 数据源：复用现有 `GET /api/mobile/sessions`（unified session index）
+- 渲染：左栏 `#home-sessions` 按时间分组：
+  - Today
+  - Yesterday
+  - Last 7 Days
+  - Older
+- 每条 session 项：
+  - agent 图标（按 agentId 选色 / 选 SVG）
+  - 标题（`title || autoSessionTitle(s)` 自动生成简短标题）
+  - meta：agent + 「最近更新」相对时间
+  - 状态小圆点（running / done / failed）
+- 点击 → `onPickHomeSession(s)`：
+  - 同步 `agentState.agentId / cwd / sessionId`
+  - 跳到 Agent 独立页（`showTab('agent')`）
+  - **不改历史 session 的 agent**（保持原值）
+
+### 11.6 Home 发消息的流向
+
+采用**「Home 跳到 Agent 独立页」**方案：
+
+- 用户在 Home 顶部输入框输消息 → 点 Send：
+  - 调 `onNewChat()` 创建 draft session
+  - 自动跳到 Agent 独立页
+  - 由 Agent 页 `#agent-input` 显示消息并发送
+- 用户在 Home 底部点 quick card：
+  - 把 prompt 写进 `#home-input` → 自动触发 Send
+- 用户在 Home 点已有 session：
+  - `onPickHomeSession(s)` → 跳 Agent 独立页
+  - Agent 页加载该 session 消息历史
+
+**为什么这样选**：
+- Home 是工作台入口，不是长对话容器
+- Agent 独立页已经具备 ChatGPT-like 完整对话 UI
+- 避免两套 messages 渲染逻辑、不一致状态
+- 保持「配对后第一屏简洁，详情后页完整」
+
+### 11.7 受影响文件
+
+| 文件 | 类型 | 范围 |
+| --- | --- | --- |
+| `public/mobile/index.html` | 改 | Home tab-pane 重写为两栏布局；新增 `#app-menu` |
+| `public/mobile/mobile.css` | 改 | 新增 home-* / agent-chip / drawer / scrim 样式；隐藏旧 `.app-sidebar` |
+| `public/mobile/mobile.js` | 改 | 新增 AGENT_ICONS / AGENT_CHIPS / makeAgentChip / paintHomeSessions / onNewChat / onPickHomeSession / drawer 切换 |
+| `public/mobile/assets/agents/*.svg` | 新增 | 4 个 agent 独立图标 |
+| `scripts/smoke-mobile-ui-aionlike.js` | 改 | 新增 K 段（UI-A3 专属） |
+| `scripts/smoke-mobile-phase2a.js` | 改 | 旧 `home-runs-*` 引用改为 `home-sessions / home-new-chat / home-cards` |
+| `docs/aionui-parity-plan.md` | 改 | 新增 §11 |
+
+**未改动**（保护边界）：
+- `electron/mobile.js`（不需要改）
+- Files 核心逻辑（`refreshFilesList / onFilesRowClick / cdInto / cdUp`）
+- Skills 核心逻辑（`renderSkills / onToggleSkill`）
+- runner 安全边界（`mobile-agent-runner.js`）
+- `electron/mobile-sessions.js`（postMessageToMobileSession）
+- `/api/mobile/agents` 接口（已有 model / effort 字段，UI-A2 已加）
+
+### 11.8 验收清单
+
+UI-A3 共 252/252 测试点通过：
+- Home 结构：`.home-workspace / .home-sidebar / .home-main / .home-new-chat / .home-sessions / .home-cards / #app-menu` 全部存在
+- Agent chip：4 个 agent 各带独立 SVG 图标（内联 + 静态文件）
+- New Chat：`onNewChat` 调 `/api/mobile/sessions/draft` + 跳 Agent tab
+- 历史 session：`groupSessionsByDate` 包含 Today / Yesterday / Last 7 Days / Older
+- Drawer：mobile 宽度下 `openHomeDrawer / closeHomeDrawer / toggleHomeDrawer` 完整；`showTab` 关闭 drawer
+- CSS：`.agent-chip.is-active` / `.home-drawer-scrim` / `@media (min-width: 900px)` 全部存在
+- 安全：Home UI 不含 "Request approval" / "Waiting for desktop approval" / YOLO / Full-auto / Team Mode / Delete / Move / Rename / Upload / Execute Shell / Terminal Input / .jsonl / token / cookie / API key
+- 旧 `.app-sidebar` 通过 `display: none !important` 隐藏
+
+### 11.9 测试结果
+
+| 测试 | 结果 |
+| --- | --- |
+| `node scripts/smoke-mobile-ui-aionlike.js` | ✅ 252/252（K 段 UI-A3 专属 30+ 项 + E 段改写） |
+| `node scripts/smoke-mobile-phase1.js` | ✅ 118/118 |
+| `node scripts/smoke-mobile-phase2a.js` | ✅ 435/435 |
+| `node scripts/smoke-mobile-phase0a.js` | ✅ 228/228 |
+| `node scripts/verify-agent-driver.js` | ✅ PASS |
+| `node scripts/verify-wechat-bridge.js` | ✅ PASS |
+| `npm run verify:build` | ✅ |
+| `npm run test:e2e:windows` | ✅ 35/35（watchdog timeout 是 pre-existing） |
 

@@ -1079,10 +1079,431 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 /* Home · sessions 列表（复用 sessions-list） */
 #home-running-sessions, #home-recent-sessions { min-height: 16px; }
 
-/* Settings 页面（如触发）— 简洁 fallback */
-.settings-card { padding: 14px; }
-.settings-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line, #E5E7EB); }
-.settings-row:last-child { border-bottom: 0; }
+/* ============================================================
+   Phase UI-A3 · AionUi-like Home Workspace
+   ------------------------------------------------------------
+   Home = 2-column layout:
+     - Left: home-sidebar (品牌 / New Chat / sessions)
+     - Right: home-main (greeting / agent chips / 大输入框 / cards)
+   Mobile (<900px): left 折叠为 drawer，由 topbar 菜单按钮展开
+   ============================================================ */
+
+/* 隐藏旧 .app-sidebar —— 新 Home 的左 sidebar 取代它 */
+.app-sidebar { display: none !important; }
+.app-bottom-nav .tab-label { font-size: 10px; }
+
+/* Home workspace 容器 */
+.home-workspace {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-areas: "main";
+  gap: 0;
+  min-height: calc(100vh - 56px - 60px);
+}
+@media (min-width: 900px) {
+  .home-workspace {
+    grid-template-columns: 280px 1fr;
+    grid-template-areas: "side main";
+    gap: 0;
+    min-height: calc(100vh - 64px);
+  }
+}
+
+/* ---- Left Sidebar ---- */
+.home-sidebar {
+  grid-area: side;
+  display: none;       /* mobile 默认折叠 */
+  flex-direction: column;
+  background: #FAFAFA;
+  border-right: 1px solid var(--line, #E5E7EB);
+  padding: 14px 12px 12px;
+  position: relative;
+  z-index: 5;
+}
+@media (min-width: 900px) {
+  .home-sidebar { display: flex !important; }
+}
+.home-sidebar.is-open { display: flex; }  /* mobile drawer 展开 */
+
+/* sidebar brand */
+.home-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 12px;
+  position: relative;
+}
+.home-sidebar-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: #0F172A;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.home-sidebar-logo svg { stroke: #fff; }
+.home-sidebar-brand-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: -0.01em;
+  flex: 1;
+  min-width: 0;
+}
+.home-sidebar-close {
+  display: none;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-2);
+  border-radius: 6px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+@media (max-width: 899px) {
+  .home-sidebar.is-open .home-sidebar-close { display: inline-flex; }
+  .home-sidebar.is-open { position: fixed; top: 0; left: 0; bottom: 0; width: 80%; max-width: 320px; box-shadow: 2px 0 16px rgba(0,0,0,0.08); }
+}
+
+/* New Chat 按钮 */
+.home-new-chat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  margin: 4px 0 12px;
+  border: 1px solid var(--line, #E5E7EB);
+  background: #fff;
+  color: var(--fg);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  font-family: inherit;
+}
+.home-new-chat:hover { background: #F1F5F9; border-color: #CBD5E1; }
+.home-new-chat-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--fg-2);
+}
+
+/* sidebar sessions 列表 */
+.home-sessions {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 0;
+  margin: 0 -4px;
+}
+.home-sidebar-h {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-3);
+  text-transform: none;
+  padding: 12px 8px 4px;
+  letter-spacing: 0.01em;
+}
+.home-session-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--fg);
+  font-family: inherit;
+  transition: background 0.1s;
+  width: 100%;
+  position: relative;
+}
+.home-session-item:hover { background: rgba(0,0,0,0.04); }
+.home-session-item.is-active { background: #EFF4FF; }
+.home-session-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-2);
+}
+.home-session-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.home-session-title {
+  font-size: 13px;
+  color: var(--fg);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-session-meta {
+  display: flex;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--fg-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-session-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--fg-3);
+  flex-shrink: 0;
+}
+.home-session-status.session-status-running,
+.home-session-status.session-status-waiting_approval { background: #3B82F6; }
+.home-session-status.session-status-done { background: #10B981; }
+.home-session-status.session-status-failed { background: #EF4444; }
+
+/* sidebar foot */
+.home-sidebar-foot {
+  border-top: 1px solid var(--line, #E5E7EB);
+  margin-top: 6px;
+  padding-top: 8px;
+}
+.home-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-2);
+  font-size: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+.home-sidebar-link:hover { background: rgba(0,0,0,0.04); color: var(--fg); }
+
+/* ---- Drawer scrim（手机 drawer 展开时的遮罩） ---- */
+.home-drawer-scrim {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.36);
+  z-index: 4;
+}
+.home-drawer-scrim.is-open { display: block; }
+
+/* ---- Right Main ---- */
+.home-main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 16px 24px;
+  gap: 16px;
+  background: #fff;
+  min-width: 0;
+}
+@media (min-width: 900px) {
+  .home-main { padding: 32px 48px 32px; max-width: 980px; }
+}
+
+.home-hero {
+  text-align: center;
+  padding: 18px 0 6px;
+}
+.home-hero-greet {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--fg);
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+@media (min-width: 900px) {
+  .home-hero-greet { font-size: 32px; }
+}
+.home-hero-sub {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--fg-2);
+  line-height: 1.5;
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ---- Agent chips（4 个，每个带 SVG icon） ---- */
+.home-agent-chips {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 0 6px;
+}
+.agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--line, #E5E7EB);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--fg-2);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.agent-chip:hover { background: #F1F5F9; color: var(--fg); }
+.agent-chip.is-active {
+  background: #0F172A;
+  color: #fff;
+  border-color: #0F172A;
+}
+.agent-chip.is-missing { opacity: 0.55; }
+.agent-chip svg { flex-shrink: 0; }
+.agent-chip-label { line-height: 1; }
+
+/* ---- 大输入框（Home 顶 / Agent 底 共用 .home-composer / .agent-composer） ---- */
+.home-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid var(--line, #E5E7EB);
+  border-radius: 14px;
+  padding: 10px 10px 8px;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
+  transition: border-color 0.12s, box-shadow 0.12s;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+.home-composer:focus-within {
+  border-color: #CBD5E1;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+}
+.home-composer-input {
+  width: 100%;
+  min-height: 84px;
+  border: 0;
+  background: transparent;
+  resize: vertical;
+  outline: none;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fg);
+  font-family: inherit;
+  padding: 4px 4px 2px;
+}
+.home-composer-input::placeholder { color: var(--fg-3); }
+.home-composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.home-composer-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--fg-2);
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.home-composer-cwd,
+.home-composer-model,
+.home-composer-effort {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.home-composer-send {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: #0F172A;
+  color: #fff;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.12s, transform 0.06s;
+}
+.home-composer-send:disabled { background: #CBD5E1; cursor: not-allowed; }
+.home-composer-send:hover:not(:disabled) { background: #1E293B; }
+.home-composer-send:active:not(:disabled) { transform: scale(0.96); }
+
+/* ---- Home cards（4 张，简洁） ---- */
+.home-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  max-width: 760px;
+  margin: 4px auto 0;
+  width: 100%;
+}
+@media (min-width: 600px) {
+  .home-cards { grid-template-columns: 1fr 1fr; }
+}
+.home-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line, #E5E7EB);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.12s, border-color 0.12s;
+  color: var(--fg);
+  font-size: 13px;
+}
+.home-card:hover { background: #F8FAFC; border-color: #CBD5E1; }
+.home-card-text { line-height: 1.4; }
+
+/* ---- 安全提示（保留 3 条） ---- */
+.home-safety {
+  max-width: 760px;
+  margin: 4px auto 0;
+  background: #FAFAFA;
+  border-color: var(--line, #E5E7EB);
+}
+
+/* ---- topbar menu button（mobile 触发 drawer） ---- */
+.btn-icon-menu { display: inline-flex; }
+@media (min-width: 900px) {
+  .btn-icon-menu { display: none !important; }
+}
 
 /* ============================================================
    Phase UI-A2：Home-first Agent Workspace

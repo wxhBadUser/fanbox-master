@@ -393,9 +393,10 @@ function req(opts, body) {
   const btnMatches = html.match(/data-tab-btn="(home|files|agent|skills)"/g) || [];
   ok('HTML 恰好 4 个 data-tab-btn', btnMatches.length === 4, 'count=' + btnMatches.length);
 
-  // Home 含 usage 摘要
-  ok('Home 含 home-runs-today', /id="home-runs-today"/.test(html));
-  ok('Home 含 home-runs-week', /id="home-runs-week"/.test(html));
+  // Home 含 sessions 摘要（UI-A3：home-sessions 替代旧的 home-runs-today / home-runs-week）
+  ok('Home 含 home-sessions (UI-A3 sessions 列表)', /id="home-sessions"/.test(html));
+  ok('Home 含 home-new-chat (UI-A3 New Chat 按钮)', /id="home-new-chat"/.test(html));
+  ok('Home 含 home-cards (UI-A3 quick cards)', /id="home-cards"/.test(html));
 
   // Files 顶部 CTA
   ok('Files 含 files-cwd-label', /id="files-cwd-label"/.test(html));
@@ -422,9 +423,9 @@ function req(opts, body) {
   ok('Agent tab 含 #agent-header-name（左上角 agent 名称）', /id="agent-header-name"/.test(html));
   ok('Agent tab 含 .agent-chat (ChatGPT-like 容器)', /class="agent-chat"/i.test(html));
 
-  // Home 包含 recent / running sessions
-  ok('Home 含 #home-running-sessions', /id="home-running-sessions"/.test(html));
-  ok('Home 含 #home-recent-sessions', /id="home-recent-sessions"/.test(html));
+  // Home sessions 列表（UI-A3：合并 running + recent 到 #home-sessions）
+  ok('Home 含 #home-sessions (合并 running+recent, UI-A3)', /id="home-sessions"/.test(html));
+  ok('Home session 行样式 home-session-item (UI-A3, 在 mobile.js)', /home-session-item/.test(js));
   // Sidebar
   ok('Sidebar 含 #sidebar-recent-sessions', /id="sidebar-recent-sessions"/.test(html));
 
@@ -522,9 +523,10 @@ function req(opts, body) {
   ok('Tab 顺序: home / agent / files / skills',
     order.length === 4 && order[0] === 'home' && order[1] === 'agent' && order[2] === 'files' && order[3] === 'skills',
     'order=' + order.join(','));
-  // 15) Home 含 usage 摘要（id 存在）
-  ok('HTML #home-runs-today', /id="home-runs-today"/.test(html));
-  ok('HTML #home-runs-week', /id="home-runs-week"/.test(html));
+  // 15) Home 含 sessions 摘要（UI-A3：home-sessions + home-new-chat + home-cards）
+  ok('HTML #home-sessions (UI-A3)', /id="home-sessions"/.test(html));
+  ok('HTML #home-new-chat (UI-A3)', /id="home-new-chat"/.test(html));
+  ok('HTML #home-cards (UI-A3)', /id="home-cards"/.test(html));
   // 16) mobile.js apiPost 白名单扩展（UI-A1：包含 sessions/draft、sessions/:id/messages、skills-state）
   // js / css 已在 [10] 开头初始化
   ok('js POST_ALLOWLIST 包含 context/(cwd|select)', /POST_ALLOWLIST[\s\S]{0,1500}?context\\\/\(cwd\|select\)/.test(js));
@@ -1263,8 +1265,8 @@ function req(opts, body) {
   const uiJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'mobile', 'mobile.js'), 'utf8');
   const uiCss = fs.readFileSync(path.join(__dirname, '..', 'public', 'mobile', 'mobile.css'), 'utf8');
   const uiAll = uiHtml + '\n' + uiJs + '\n' + uiCss;
-  // R2 新增约束：UI 包含 mobile runs 显示
-  ok('UI 含 mobile-runs / today-runs / week-runs 之一', /mobile-runs|today-runs|week-runs|home-runs/i.test(uiAll));
+  // R2 新增约束：UI 包含 sessions 显示（UI-A3：home-sessions 替代 mobile-runs / today-runs / week-runs）
+  ok('UI 含 home-sessions / new-chat / cards 之一 (UI-A3 sessions 入口)', /home-sessions|home-new-chat|home-cards/.test(uiAll));
   ok('UI 不包含 YOLO', !/\bYOLO\b/i.test(uiAll));
   ok('UI 不包含 Full-auto', !/Full-?auto/i.test(uiAll));
   ok('UI 不包含 Start all agents', !/Start all agents/i.test(uiAll));

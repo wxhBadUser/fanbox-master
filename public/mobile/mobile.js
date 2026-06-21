@@ -191,6 +191,8 @@
     $all('.tab-btn').forEach(function (b) {
       b.classList.toggle('is-active', b.getAttribute('data-tab-btn') === name);
     });
+    // Phase UI-A3：切 tab 时关闭手机 drawer
+    if (typeof closeHomeDrawer === 'function') closeHomeDrawer();
     var renderers = { home: renderHome, files: renderFiles, agent: renderAgent, skills: renderSkills };
     if (renderers[name]) {
       try { renderers[name](); } catch (e) { console.error('render', name, e); }
@@ -213,14 +215,9 @@
     ]);
   }
 
-  // ---------------- Home (Phase UI-A2) ----------------
-  // 顺序：
-  //   1) 顶部 Agent Quick Chat（输入框 + 4 agent switcher + cwd/model/effort）
-  //   2) Running Sessions
-  //   3) All Sessions（电脑+手机+微信）
-  //   4) Today Summary
-  //   5) Available Roots
-  //   6) 安全提示
+  // ---------------- Home (Phase UI-A3 · AionUi-like Home Workspace) ----------------
+  // 桌面（≥900px）：两栏 —— 左 sidebar（品牌 / New Chat / 历史 sessions） + 右 main（greeting / agent chips / 大输入框）
+  // 手机（<900px）：左 sidebar 折叠为 drawer，通过 topbar 菜单按钮展开
   async function renderHome() {
     paintHomeHeroGreet();
     paintHomeAgentChips();
@@ -228,21 +225,8 @@
     paintHomeModel();
     paintHomeEffort();
     paintHomeStatusPill();
-    // 1) usage（mobile runner summary）
-    var todayEl = $('#home-runs-today');
-    var weekEl = $('#home-runs-week');
-    var durEl = $('#home-runs-duration');
-    if (todayEl) todayEl.textContent = '0';
-    if (weekEl) weekEl.textContent = '0';
-    if (durEl) durEl.textContent = '0s';
-    var usageP = api('/api/mobile/usage').then(function (j) {
-      var s = (j && j.summary) || {};
-      if (todayEl) todayEl.textContent = (typeof s.todayRuns === 'number') ? String(s.todayRuns) : '0';
-      if (weekEl) weekEl.textContent = (typeof s.weekRuns === 'number') ? String(s.weekRuns) : '0';
-      if (durEl) durEl.textContent = (typeof s.todayDurationMs === 'number') ? (Math.round(s.todayDurationMs / 100) / 10) + 's' : '0s';
-    }).catch(function () { /* 不阻断 */ });
-
-    // 2) agents（获取每个 agent 的 model / effort）
+    paintHomeCards();
+    // 1) agents（获取每个 agent 的 model / effort）
     var agentsP = api('/api/mobile/agents').then(function (j) {
       var items = pickList(j);
       items.forEach(function (a) {
@@ -257,42 +241,240 @@
       paintHomeModel();
       paintHomeEffort();
     }).catch(function () { /* ignore */ });
-
-    // 3) sessions（recent + running from unified index）
+    // 2) sessions（电脑+手机+微信，统一 index）
     var sessionsP = api('/api/mobile/sessions?limit=50').then(function (j) {
       var items = pickList(j);
-      var running = items.filter(function (s) { return s.status === 'running' || s.status === 'waiting_approval'; });
-      var recent = items.slice(0, 20);
-      paintHomeRunningSessions(running);
-      paintHomeRecentSessions(recent);
-      paintSidebarRecentSessions(items.slice(0, 8));
-      var rc = $('#home-running-count'); if (rc) rc.textContent = String(running.length);
-      var nc = $('#home-recent-count'); if (nc) nc.textContent = String(recent.length);
-    }).catch(function () { /* 不阻断 */ });
-
-    // 4) available roots（用于提示用户切换工作目录）
-    var rootsP = api('/api/mobile/roots').then(function (j) {
-      var box = $('#home-roots');
-      if (!box) return;
-      var items = pickList(j && j.roots);
-      clearChildren(box);
-      if (!items.length) {
-        box.appendChild(emptyBlock('No roots available', '请在 desktop 端配置 allowedRoots'));
-        return;
-      }
-      items.forEach(function (r) {
-        var row = el('div', { class: 'root-row' }, [
-          el('div', { class: 'root-name', text: r.name || r.path }),
-          el('div', { class: 'root-path', text: r.path })
-        ]);
-        row.addEventListener('click', function () { onHomePickRoot(r); });
-        box.appendChild(row);
-      });
+      paintHomeSessions(items);
     }).catch(function () { /* ignore */ });
 
-    try { await Promise.all([usageP, agentsP, sessionsP, rootsP]); } catch (e) { /* */ }
-    // 拉完后刷新一次 send 按钮状态
+    try { await Promise.all([agentsP, sessionsP]); } catch (e) { /* */ }
     updateHomeSendButtonState();
+  }
+
+  // ---------------- Home sidebar：sessions 列表（按日期分组） ----------------
+  function paintHomeSessions(items) {
+    var box = $('#home-sessions');
+    if (!box) return;
+    clearChildren(box);
+    if (!items || !items.length) {
+      box.appendChild(emptyBlock('No sessions yet', '点击 New Chat 开始，或在 Files 选 cwd'));
+      return;
+    }
+    // 按日期分组
+    var groups = groupSessionsByDate(items);
+    var order = ['Today', 'Yesterday', 'Last 7 Days', 'Older'];
+    order.forEach(function (g) {
+      if (!groups[g] || !groups[g].length) return;
+      box.appendChild(el('div', { class: 'home-sidebar-h', text: g }));
+      groups[g].forEach(function (s) {
+        box.appendChild(buildHomeSessionItem(s));
+      });
+    });
+    if (groups['__other__'] && groups['__other__'].length) {
+      box.appendChild(el('div', { class: 'home-sidebar-h', text: 'Other' }));
+      groups['__other__'].forEach(function (s) { box.appendChild(buildHomeSessionItem(s)); });
+    }
+  }
+
+  // Phase UI-A3：单条 session row（左侧图标 + 标题 + meta + 状态 dot）
+  function buildHomeSessionItem(s) {
+    var title = (s.title || (s.summary && s.summary.title) || '').toString().trim() || autoSessionTitle(s);
+    var agent = (s.agentId || '').toString();
+    var agentLabel = (AGENT_CHIPS.find(function (a) { return a.id === agent; }) || {}).label || agent || 'agent';
+    var time = fmtTime(s.lastActiveAt || s.startedAt);
+    var status = (s.status || 'unknown').toString();
+    var isActive = agentState.sessionId && s.sessionId === agentState.sessionId;
+
+    var item = el('button', {
+      class: 'home-session-item' + (isActive ? ' is-active' : ''),
+      type: 'button',
+      role: 'listitem',
+      'data-session-id': s.sessionId || '',
+      'data-agent-id': agent,
+      'data-status': status
+    });
+    // icon (message bubble)
+    var iconSpan = el('span', { class: 'home-session-icon' });
+    iconSpan.innerHTML =
+      '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="M3 5 a2 2 0 0 1 2 -2 h10 a2 2 0 0 1 2 2 v7 a2 2 0 0 1 -2 2 H8 l-3 3 v-3 H5 a2 2 0 0 1 -2 -2 z"/>' +
+      '</svg>';
+    item.appendChild(iconSpan);
+    // body (title + meta)
+    var body = el('div', { class: 'home-session-body' });
+    body.appendChild(el('div', { class: 'home-session-title', text: title }));
+    var meta = el('div', { class: 'home-session-meta' });
+    meta.appendChild(tspan(agentLabel));
+    meta.appendChild(tspan('·'));
+    meta.appendChild(tspan(time));
+    body.appendChild(meta);
+    item.appendChild(body);
+    // status dot
+    item.appendChild(el('span', {
+      class: 'home-session-status session-status-' + status,
+      title: status
+    }));
+
+    item.addEventListener('click', function () { onPickHomeSession(s); });
+    return item;
+  }
+
+  // 自动生成简短标题（无 title 时用）
+  function autoSessionTitle(s) {
+    var preview = (s.summary && s.summary.lastMessagePreview) || (s.summary && s.summary.title) || '';
+    if (preview) {
+      var t = String(preview).replace(/\s+/g, ' ').trim();
+      if (t.length > 28) t = t.substring(0, 28) + '…';
+      return t;
+    }
+    var dt = new Date(s.startedAt || Date.now());
+    var hh = dt.getHours().toString().padStart(2, '0');
+    var mm = dt.getMinutes().toString().padStart(2, '0');
+    return 'Session ' + hh + ':' + mm;
+  }
+
+  // 按日期分组：Today / Yesterday / Last 7 Days / Older
+  function groupSessionsByDate(items) {
+    var groups = { 'Today': [], 'Yesterday': [], 'Last 7 Days': [], 'Older': [], '__other__': [] };
+    var now = Date.now();
+    var dayMs = 24 * 3600 * 1000;
+    items.forEach(function (s) {
+      var t = s.lastActiveAt || s.startedAt;
+      if (!t) { groups['__other__'].push(s); return; }
+      var d = new Date(t).getTime();
+      if (isNaN(d)) { groups['__other__'].push(s); return; }
+      var diff = now - d;
+      if (diff < dayMs) groups['Today'].push(s);
+      else if (diff < 2 * dayMs) groups['Yesterday'].push(s);
+      else if (diff < 7 * dayMs) groups['Last 7 Days'].push(s);
+      else groups['Older'].push(s);
+    });
+    return groups;
+  }
+
+  // Phase UI-A3：点击 Home sidebar 中的历史 session → 跳到 Agent 独立页
+  function onPickHomeSession(s) {
+    if (!s || !s.sessionId) return;
+    agentState.sessionId = s.sessionId;
+    if (s.agentId) agentState.agentId = s.agentId;
+    if (s.cwd) agentState.cwd = s.cwd;
+    agentLoadedOnce = true;
+    // 同步后端偏好（best effort）
+    try {
+      apiPost('/api/mobile/context/select', {
+        cwd: agentState.cwd || '',
+        agentId: agentState.agentId || '',
+        sessionId: agentState.sessionId || ''
+      });
+    } catch (e) { /* ignore */ }
+    // 跳到 Agent 独立页
+    showTab('agent');
+    // 关掉手机 drawer
+    closeHomeDrawer();
+  }
+
+  // ---------------- Phase UI-A3：New Chat ----------------
+  // 行为：创建 draft session（不发送任何 prompt），默认 agent = 当前选中 agent
+  //       → 跳到 Agent 独立页，由 Agent 页接管对话
+  async function onNewChat() {
+    if (!agentState.cwd) {
+      // 没选 cwd 时：先提示用户去 Files
+      showTab('files');
+      return;
+    }
+    if (!agentState.agentId) agentState.agentId = 'claude';
+    try {
+      var r = await apiPost('/api/mobile/sessions/draft', {
+        cwd: agentState.cwd,
+        agentId: agentState.agentId
+      });
+      if (r && r.ok && r.sessionId) {
+        agentState.sessionId = r.sessionId;
+      } else {
+        agentState.sessionId = '';
+      }
+    } catch (e) {
+      agentState.sessionId = '';
+    }
+    // 同步偏好
+    try {
+      await apiPost('/api/mobile/context/select', {
+        cwd: agentState.cwd || '',
+        agentId: agentState.agentId,
+        sessionId: agentState.sessionId || ''
+      });
+    } catch (e) { /* ignore */ }
+    // 清空 Home 输入框
+    var homeInput = $('#home-input');
+    if (homeInput) homeInput.value = '';
+    // 跳到 Agent 独立页
+    showTab('agent');
+    closeHomeDrawer();
+  }
+
+  // ---------------- Phase UI-A3：Home 底部 4 张 quick cards（不喧宾夺主） ----------------
+  var HOME_CARDS = [
+    { id: 'opencode', label: 'Open this folder in OpenCode', prompt: '请帮我看看当前目录的代码结构，并列出可改进的地方：' },
+    { id: 'review',   label: 'Review current folder',         prompt: '请审查当前目录的代码，重点关注安全、正确性、可维护性：' },
+    { id: 'doc',      label: 'Create README',                prompt: '请为这个项目写一份简介文档：' },
+    { id: 'tests',    label: 'Find broken tests',            prompt: '请找出当前目录的失败测试 / 编译错误，并给出修复建议：' }
+  ];
+
+  function paintHomeCards() {
+    var box = $('#home-cards');
+    if (!box) return;
+    clearChildren(box);
+    HOME_CARDS.forEach(function (c) {
+      var card = el('button', { class: 'home-card', type: 'button', title: c.label }, [
+        el('span', { class: 'home-card-text', text: c.label })
+      ]);
+      card.addEventListener('click', function () { onPickHomeCard(c); });
+      box.appendChild(card);
+    });
+  }
+
+  function onPickHomeCard(c) {
+    var input = $('#home-input');
+    if (!input) return;
+    var cur = (input.value || '').trim();
+    var sep = cur && !cur.endsWith('\n') ? '\n' : '';
+    input.value = cur + sep + (c.prompt || '');
+    input.focus();
+    updateHomeSendButtonState();
+    try { input.scrollIntoView({ block: 'center' }); } catch (_) {}
+  }
+
+  // ---------------- Phase UI-A3：手机 drawer 切换 ----------------
+  function isHomeDrawerOpen() {
+    var s = document.getElementById('home-sidebar');
+    return !!(s && s.classList.contains('is-open'));
+  }
+  function openHomeDrawer() {
+    var s = document.getElementById('home-sidebar');
+    if (s) s.classList.add('is-open');
+    ensureHomeDrawerScrim();
+    var ov = document.getElementById('home-drawer-scrim');
+    if (ov) ov.classList.add('is-open');
+  }
+  function closeHomeDrawer() {
+    var s = document.getElementById('home-sidebar');
+    if (s) s.classList.remove('is-open');
+    var ov = document.getElementById('home-drawer-scrim');
+    if (ov) ov.classList.remove('is-open');
+  }
+  function toggleHomeDrawer() {
+    if (isHomeDrawerOpen()) closeHomeDrawer();
+    else openHomeDrawer();
+  }
+  function ensureHomeDrawerScrim() {
+    var ov = document.getElementById('home-drawer-scrim');
+    if (ov) return ov;
+    ov = document.createElement('div');
+    ov.id = 'home-drawer-scrim';
+    ov.className = 'home-drawer-scrim';
+    ov.addEventListener('click', closeHomeDrawer);
+    document.body.appendChild(ov);
+    return ov;
   }
 
   function paintHomeHeroGreet() {
@@ -305,25 +487,32 @@
     if (sub) sub.textContent = 'Type a message below to start, or pick a recent session to continue.';
   }
 
+  // 统一的 agent chip 构造器（Home + Agent 共用）
+  // Phase UI-A3：含 inline SVG icon（不依赖 CDN）
+  function makeAgentChip(a) {
+    var installed = agentState.installedMap[a.id];
+    var installedKnown = (typeof installed === 'boolean');
+    var btn = el('button', {
+      class: 'agent-chip' +
+        (agentState.agentId === a.id ? ' is-active' : '') +
+        (installedKnown ? (installed ? ' is-installed' : ' is-missing') : ''),
+      type: 'button',
+      'data-agent-id': a.id,
+      'aria-label': a.label
+    });
+    // 用 innerHTML 注入 SVG icon
+    if (a.icon) btn.innerHTML = a.icon + '<span class="agent-chip-label">' + a.label + '</span>';
+    else btn.appendChild(el('span', { class: 'agent-chip-dot' }), tspan(a.label));
+    btn.addEventListener('click', function () { onPickAgent(a.id); });
+    return btn;
+  }
+
   function paintHomeAgentChips() {
     var box = $('#home-agent-chips');
     if (!box) return;
     clearChildren(box);
     AGENT_CHIPS.forEach(function (a) {
-      var installed = agentState.installedMap[a.id];
-      var installedKnown = (typeof installed === 'boolean');
-      var chip = el('button', {
-        class: 'agent-chip' +
-          (agentState.agentId === a.id ? ' is-active' : '') +
-          (installedKnown ? (installed ? ' is-installed' : ' is-missing') : ''),
-        type: 'button',
-        'data-agent-id': a.id
-      }, [
-        el('span', { class: 'agent-chip-dot' }),
-        tspan(a.label)
-      ]);
-      chip.addEventListener('click', function () { onPickAgent(a.id); });
-      box.appendChild(chip);
+      box.appendChild(makeAgentChip(a));
     });
   }
 
@@ -893,16 +1082,46 @@
     });
   }
 
-  // ---------------- Phase UI-A2：Agent 独立对话页（ChatGPT-like） ----------------
+  // ---------------- Phase UI-A3：4 agent SVG icons（inlined，便于 currentColor） ----------------
+  // 不依赖在线 CDN；SVG 与 public/mobile/assets/agents/*.svg 视觉一致
+  var AGENT_ICONS = {
+    claude:
+      '<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="M10 2 L17 6.5 L17 13.5 L10 18 L3 13.5 L3 6.5 Z" stroke-width="1.4"/>' +
+        '<circle cx="10" cy="10" r="2.2" fill="currentColor" stroke="none"/>' +
+        '<path d="M10 2 L10 7.5 M17 6.5 L12.5 9 M17 13.5 L12.5 11 M10 18 L10 12.5 M3 13.5 L7.5 11 M3 6.5 L7.5 9"/>' +
+      '</svg>',
+    codex:
+      '<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="M6.5 3.5 L3 6.5 L3 13.5 L6.5 16.5"/>' +
+        '<path d="M13.5 3.5 L17 6.5 L17 13.5 L13.5 16.5"/>' +
+        '<line x1="11" y1="6" x2="9" y2="14"/>' +
+      '</svg>',
+    opencode:
+      '<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<polyline points="5,7 2.5,10 5,13"/>' +
+        '<polyline points="15,7 17.5,10 15,13"/>' +
+        '<line x1="12" y1="5" x2="8" y2="15"/>' +
+      '</svg>',
+    qoder:
+      '<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<rect x="3" y="3" width="6" height="6" rx="1"/>' +
+        '<rect x="11" y="3" width="6" height="6" rx="1"/>' +
+        '<rect x="3" y="11" width="6" height="6" rx="1"/>' +
+        '<circle cx="14" cy="14" r="2.0" fill="#fff"/>' +
+        '<line x1="15.4" y1="15.4" x2="17.5" y2="17.5"/>' +
+      '</svg>'
+  };
+
   // 4 个固定 agent：claude / codex / opencode / qoder（fallback 占位）
   // 顶部：当前 agent label (Claude Code / Codex / OpenCode / Qoder) + cwd + model + effort
   // 中部：消息流（user / agent / system 气泡）
   // 底部：textarea + Send
   var AGENT_CHIPS = [
-    { id: 'claude',   label: 'Claude Code' },
-    { id: 'codex',    label: 'Codex' },
-    { id: 'opencode', label: 'OpenCode' },
-    { id: 'qoder',    label: 'Qoder' }
+    { id: 'claude',   label: 'Claude Code', icon: AGENT_ICONS.claude },
+    { id: 'codex',    label: 'Codex',       icon: AGENT_ICONS.codex },
+    { id: 'opencode', label: 'OpenCode',    icon: AGENT_ICONS.opencode },
+    { id: 'qoder',    label: 'Qoder',       icon: AGENT_ICONS.qoder }
   ];
   var agentState = {
     cwd: '',
@@ -1039,20 +1258,7 @@
     if (!box) return;
     clearChildren(box);
     AGENT_CHIPS.forEach(function (a) {
-      var installed = agentState.installedMap[a.id];
-      var installedKnown = (typeof installed === 'boolean');
-      var chip = el('button', {
-        class: 'agent-chip' +
-          (agentState.agentId === a.id ? ' is-active' : '') +
-          (installedKnown ? (installed ? ' is-installed' : ' is-missing') : ''),
-        type: 'button',
-        'data-agent-id': a.id
-      }, [
-        el('span', { class: 'agent-chip-dot' }),
-        tspan(a.label)
-      ]);
-      chip.addEventListener('click', function () { onPickAgent(a.id); });
-      box.appendChild(chip);
+      box.appendChild(makeAgentChip(a));
     });
   }
 
@@ -1423,7 +1629,7 @@
     }
   }
 
-  // ---------------- 事件绑定 (Phase UI-A2) ----------------
+  // ---------------- 事件绑定 (Phase UI-A3) ----------------
   function bind() {
     // bottom nav
     $all('.tab-btn').forEach(function (b) {
@@ -1435,19 +1641,25 @@
       var active = document.querySelector('.tab-btn.is-active');
       showTab(active ? active.getAttribute('data-tab-btn') : 'home');
     });
-    // sidebar: data-go nav
-    $all('[data-go]').forEach(function (b) {
-      b.addEventListener('click', function () { showTab(b.getAttribute('data-go')); });
+    // Phase UI-A3：topbar 菜单按钮（手机 drawer 开关）
+    var appMenu = document.getElementById('app-menu');
+    if (appMenu) appMenu.addEventListener('click', toggleHomeDrawer);
+    // Phase UI-A3：sidebar close 按钮（仅 mobile 显示）
+    var sidebarClose = document.getElementById('home-sidebar-close');
+    if (sidebarClose) sidebarClose.addEventListener('click', closeHomeDrawer);
+    // Phase UI-A3：sidebar Settings 链接
+    $all('.home-sidebar-link').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var go = b.getAttribute('data-go');
+        if (go) showTab(go);
+        closeHomeDrawer();
+      });
     });
-    // Sidebar New Chat → 切到 Agent + 清空 input
-    var newChat = document.getElementById('sidebar-new-chat');
-    if (newChat) newChat.addEventListener('click', function () {
-      var input = document.getElementById('agent-input');
-      if (input) input.value = '';
-      showTab('agent');
-    });
+    // Phase UI-A3：New Chat 按钮
+    var newChatBtn = document.getElementById('home-new-chat');
+    if (newChatBtn) newChatBtn.addEventListener('click', onNewChat);
 
-    // Phase UI-A2: Home 顶部对话框
+    // Phase UI-A3: Home 顶部对话框
     var homeInput = document.getElementById('home-input');
     if (homeInput) {
       homeInput.addEventListener('input', updateHomeSendButtonState);
@@ -1510,6 +1722,10 @@
     // 离开页面时回收所有 objectURL
     window.addEventListener('beforeunload', revokeAllObjectUrls);
     window.addEventListener('pagehide', revokeAllObjectUrls);
+    // Phase UI-A3：Esc 关 drawer
+    window.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && isHomeDrawerOpen()) closeHomeDrawer();
+    });
   }
 
   // ---------------- 启动 ----------------

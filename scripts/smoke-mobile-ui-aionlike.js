@@ -171,10 +171,8 @@ function req(opts, body) {
   ok('HTML 含 agent-switcher 节点（Agent 顶）', /id="agent-switcher"/i.test(html));
   ok('HTML 含 home-agent-chips 节点（Home 顶）', /id="home-agent-chips"/i.test(html));
   // data-agent-id 在 mobile.js 中由 paintAgentSwitcher / paintHomeAgentChips 动态设置
-  ok('mobile.js paintAgentSwitcher 设置 data-agent-id',
-    /paintAgentSwitcher[\s\S]{0,2000}'data-agent-id'/.test(js));
-  ok('mobile.js paintHomeAgentChips 设置 data-agent-id',
-    /paintHomeAgentChips[\s\S]{0,2000}'data-agent-id'/.test(js));
+  ok('mobile.js makeAgentChip 设置 data-agent-id',
+    /makeAgentChip[\s\S]{0,2000}'data-agent-id'/.test(js));
   for (const a of ['claude', 'codex', 'opencode', 'qoder']) {
     ok('agent switcher 含 ' + a,
       js.includes("id: '" + a + "'") || js.includes('id: "' + a + '"'));
@@ -393,7 +391,9 @@ function req(opts, body) {
   // [E] Home (Phase UI-A2 · Home-first Agent Workspace)
   // ============================================================
   section('E) Home');
-  ok('Home 含 #home-quickchat (Agent Quick Chat 顶部)', /id="home-quickchat"|class="home-quickchat[\s"a-z-]/.test(html));
+  ok('Home 含 .home-workspace (两栏布局容器)', /class="home-workspace"/.test(html));
+  ok('Home 含 .home-sidebar (左侧 sessions 栏)', /id="home-sidebar"|class="home-sidebar"/.test(html));
+  ok('Home 含 .home-main (右侧主工作区)', /class="home-main"/.test(html));
   ok('Home 含 #home-hero-greet (问候语)', /id="home-hero-greet"/.test(html));
   ok('Home 含 #home-input (顶部输入框)', /id="home-input"/.test(html));
   ok('Home 含 #home-send (顶部 send 按钮)', /id="home-send"/.test(html));
@@ -401,24 +401,21 @@ function req(opts, body) {
   ok('Home 含 #home-model (顶部 model)', /id="home-model"/.test(html));
   ok('Home 含 #home-effort (顶部 effort)', /id="home-effort"/.test(html));
   ok('Home 含 #home-agent-chips (4-agent switcher)', /id="home-agent-chips"/.test(html));
-  ok('Home 含 #home-runs-today (Today Summary)', /id="home-runs-today"/.test(html));
-  ok('Home 含 #home-runs-week (Week Summary)', /id="home-runs-week"/.test(html));
-  ok('Home 含 #home-runs-duration (Today duration)', /id="home-runs-duration"/.test(html));
-  ok('Home 含 #home-running-sessions', /id="home-running-sessions"/.test(html));
-  ok('Home 含 #home-recent-sessions', /id="home-recent-sessions"/.test(html));
-  ok('mobile.js paintHomeRunningSessions 存在', /paintHomeRunningSessions\s*\(/.test(js));
-  ok('mobile.js paintHomeRecentSessions 存在', /paintHomeRecentSessions\s*\(/.test(js));
-  ok('mobile.js paintHomeAgentChips 存在', /paintHomeAgentChips\s*\(/.test(js));
-  ok('mobile.js onSendMessage 支持 source=home', /onSendMessage\(['"]home['"]\)/.test(js) || /onSendMessage\s*\(\s*source\s*\)/.test(js));
-  ok('mobile.js onPickSession 会切到 agent tab', /onPickSession[\s\S]{0,500}showTab\(['"]agent['"]\)/.test(js));
-  // session card 字段
-  ok('buildSessionCard 显示 agentId', /buildSessionCard[\s\S]{0,2000}agentId/.test(js));
-  ok('buildSessionCard 显示 cwdLabel 或 cwd', /buildSessionCard[\s\S]{0,2000}(cwdLabel|cwd)/.test(js));
-  ok('buildSessionCard 显示 status', /buildSessionCard[\s\S]{0,2000}status/.test(js));
-  // 配对成功后默认 Home
-  ok('showApp 调用 showTab(home)', /function\s+showApp[\s\S]{0,500}showTab\(['"]home['"]\)/.test(js));
-  // Home greeting 提到 "plan for today"
-  ok('Home greeting 包含 "plan"', /plan for today/.test(js));
+  ok('Home 含 #home-sessions (sidebar sessions 列表)', /id="home-sessions"/.test(html));
+  ok('Home 含 #home-new-chat (New Chat 按钮)', /id="home-new-chat"/.test(html));
+  ok('Home 含 #home-cards (4 张 quick cards)', /id="home-cards"/.test(html));
+  ok('Home 含 #app-menu (topbar drawer toggle)', /id="app-menu"/.test(html));
+  ok('mobile.js paintHomeSessions 存在', /paintHomeSessions\s*\(/.test(js));
+  ok('mobile.js buildHomeSessionItem 存在', /buildHomeSessionItem\s*\(/.test(js));
+  ok('mobile.js groupSessionsByDate 存在', /groupSessionsByDate\s*\(/.test(js));
+  ok('mobile.js onPickHomeSession 存在', /onPickHomeSession\s*\(/.test(js));
+  ok('mobile.js onNewChat 存在', /onNewChat\s*\(/.test(js));
+  ok('mobile.js onNewChat 调用 /api/mobile/sessions/draft', /onNewChat[\s\S]{0,1500}apiPost\(['"]\/api\/mobile\/sessions\/draft['"]\s*,/.test(js));
+  ok('mobile.js onNewChat 调用 showTab(agent)', /onNewChat[\s\S]{0,1500}showTab\(['"]agent['"]\)/.test(js));
+  ok('mobile.js onPickHomeSession 调用 showTab(agent)', /onPickHomeSession[\s\S]{0,500}showTab\(['"]agent['"]\)/.test(js));
+  ok('mobile.js groupSessionsByDate 含 Today / Yesterday / Last 7 Days / Older',
+    /Today[\s\S]{0,200}Yesterday[\s\S]{0,200}Last 7 Days[\s\S]{0,200}Older/.test(js));
+  ok('Home greeting 包含 "plan for today"', /plan for today/.test(js));
 
   // ============================================================
   // [F] Skills
@@ -483,6 +480,70 @@ function req(opts, body) {
   // 单独看 postMessageToMobileSession 体内（已检过）
 
   // ============================================================
+  // [K] Phase UI-A3 · Home 首页 AionUi-like 重构
+  // ============================================================
+  section('K) UI-A3 Home 重构');
+  ok('HTML 含 #home-workspace (两栏布局容器)', /class="home-workspace"/.test(html));
+  ok('HTML 含 #home-sidebar 节点 (Phase UI-A3)', /id="home-sidebar"/.test(html));
+  ok('HTML 含 #home-new-chat (New Chat 按钮)', /id="home-new-chat"/.test(html));
+  ok('HTML 含 #home-sidebar-close (mobile drawer 关闭按钮)', /id="home-sidebar-close"/.test(html));
+  ok('HTML 含 .home-sidebar-brand (品牌区)', /class="home-sidebar-brand"/.test(html));
+  ok('HTML 含 .home-sidebar-link[data-go=settings] (Settings 链接)', /class="home-sidebar-link"[^>]*data-go="settings"/.test(html));
+  ok('HTML 含 #app-menu (topbar 菜单按钮，mobile drawer 开关)', /id="app-menu"/.test(html));
+  ok('HTML 含 #home-cards (4 张 quick cards)', /id="home-cards"/.test(html));
+  ok('HTML 含 #home-sessions (sidebar sessions 列表)', /id="home-sessions"/.test(html));
+  ok('mobile.js paintHomeSessions 存在', /paintHomeSessions\s*\(/.test(js));
+  ok('mobile.js buildHomeSessionItem 存在', /buildHomeSessionItem\s*\(/.test(js));
+  ok('mobile.js groupSessionsByDate 存在', /groupSessionsByDate\s*\(/.test(js));
+  ok('mobile.js onNewChat 存在', /onNewChat\s*\(/.test(js));
+  ok('mobile.js onPickHomeSession 存在', /onPickHomeSession\s*\(/.test(js));
+  ok('mobile.js onNewChat 调 draft session API', /onNewChat[\s\S]{0,1500}apiPost\(['"]\/api\/mobile\/sessions\/draft['"]\s*,/.test(js));
+  ok('mobile.js onNewChat 跳到 agent tab', /onNewChat[\s\S]{0,1500}showTab\(['"]agent['"]\)/.test(js));
+  ok('mobile.js onPickHomeSession 跳到 agent tab', /onPickHomeSession[\s\S]{0,500}showTab\(['"]agent['"]\)/.test(js));
+  ok('mobile.js onPickHomeSession 同步 agentId / cwd / sessionId', /onPickHomeSession[\s\S]{0,1000}agentState\.(agentId|cwd|sessionId)/.test(js));
+  ok('mobile.js groupSessionsByDate 包含 Today/Yesterday/Last 7 Days/Older', /Today[\s\S]{0,200}Yesterday[\s\S]{0,200}Last 7 Days[\s\S]{0,200}Older/.test(js));
+  ok('mobile.js autoSessionTitle (无 title 时回退)', /autoSessionTitle\s*\(/.test(js));
+  ok('mobile.js openHomeDrawer / closeHomeDrawer / toggleHomeDrawer 完整', /openHomeDrawer\s*\(/.test(js) && /closeHomeDrawer\s*\(/.test(js) && /toggleHomeDrawer\s*\(/.test(js));
+  ok('mobile.js isHomeDrawerOpen 存在', /isHomeDrawerOpen\s*\(/.test(js));
+  ok('mobile.js showTab 关闭 drawer', /showTab[\s\S]{0,500}closeHomeDrawer/.test(js));
+  ok('mobile.js AGENT_CHIPS 含 4 个 agent id (claude/codex/opencode/qoder)',
+    /AGENT_CHIPS[\s\S]{0,1500}\[[\s\S]*?claude[\s\S]*?codex[\s\S]*?opencode[\s\S]*?qoder[\s\S]*?\]/.test(js));
+  ok('mobile.js AGENT_ICONS 含 claude SVG', /AGENT_ICONS[\s\S]{0,3000}claude:[\s\S]{0,400}<svg/.test(js));
+  ok('mobile.js AGENT_ICONS 含 codex SVG', /AGENT_ICONS[\s\S]{0,3000}codex:[\s\S]{0,400}<svg/.test(js));
+  ok('mobile.js AGENT_ICONS 含 opencode SVG', /AGENT_ICONS[\s\S]{0,3000}opencode:[\s\S]{0,400}<svg/.test(js));
+  ok('mobile.js AGENT_ICONS 含 qoder SVG', /AGENT_ICONS[\s\S]{0,3000}qoder:[\s\S]{0,400}<svg/.test(js));
+  ok('public/mobile/assets/agents/claude.svg 存在', fs.existsSync(path.join(PUBLIC_MOBILE, 'assets/agents/claude.svg')));
+  ok('public/mobile/assets/agents/codex.svg 存在', fs.existsSync(path.join(PUBLIC_MOBILE, 'assets/agents/codex.svg')));
+  ok('public/mobile/assets/agents/opencode.svg 存在', fs.existsSync(path.join(PUBLIC_MOBILE, 'assets/agents/opencode.svg')));
+  ok('public/mobile/assets/agents/qoder.svg 存在', fs.existsSync(path.join(PUBLIC_MOBILE, 'assets/agents/qoder.svg')));
+  ok('CSS 含 .home-workspace 容器', /\.home-workspace/.test(css));
+  ok('CSS 含 .home-sidebar 左侧栏', /\.home-sidebar\s*\{/.test(css));
+  ok('CSS 含 .home-main 右侧主区', /\.home-main\s*\{/.test(css));
+  ok('CSS 含 .home-new-chat 按钮', /\.home-new-chat\s*\{/.test(css));
+  ok('CSS 含 .home-session-item 行样式', /\.home-session-item\s*\{/.test(css));
+  ok('CSS 含 .home-agent-chips 4-agent switcher', /\.home-agent-chips\s*\{/.test(css));
+  ok('CSS 含 .agent-chip 公共 chip', /\.agent-chip\s*\{/.test(css));
+  ok('CSS 含 .agent-chip.is-active 选中态', /\.agent-chip\.is-active/.test(css));
+  ok('CSS 含 .home-drawer-scrim 遮罩', /\.home-drawer-scrim/.test(css));
+  ok('CSS 含 @media (min-width: 900px) 桌面布局', /@media\s*\(min-width:\s*900px\)/.test(css));
+  ok('CSS 含 .home-card (quick cards)', /\.home-card\s*\{/.test(css));
+  ok('CSS 含 .home-safety (3 条安全提示)', /\.home-safety/.test(css));
+  // 隐藏旧 .app-sidebar（被新 home-sidebar 取代）
+  ok('CSS 隐藏旧 .app-sidebar', /\.app-sidebar\s*\{[^}]*display:\s*none\s*!important/.test(css));
+  // bind() 接入了 home-new-chat / app-menu / home-sidebar-close
+  ok('mobile.js bind() 接入 #home-new-chat', /['"]home-new-chat['"]/.test(js));
+  ok('mobile.js bind() 接入 #app-menu', /['"]app-menu['"]/.test(js));
+  ok('mobile.js bind() 接入 #home-sidebar-close', /['"]home-sidebar-close['"]/.test(js));
+  // 安全：不暴露 token / .jsonl / 各种禁用功能
+  ok('Home UI 不含 "Request approval" 文案', !/Request approval/.test(html));
+  ok('Home UI 不含 "Waiting for desktop approval" 文案', !/Waiting for desktop approval/.test(html));
+  ok('Home UI 不含 YOLO / Full-auto / Team Mode', !/YOLO|Full-auto|Team Mode/.test(html));
+  ok('Home UI 不含 Delete / Move / Rename / Upload 按钮', !/Delete File|Move File|Rename File|Upload File/.test(html));
+  ok('Home UI 不暴露 token / cookie / API key', !/textContent\s*=\s*getToken\s*\(\s*\)/.test(html));
+  ok('Home UI 不暴露 .jsonl 路径', !/home[\s\S]{0,8000}\.jsonl/.test(html));
+  ok('Home UI 不含 Execute Shell / Terminal Input', !/Execute Shell|Terminal Input|Write File/.test(html));
+
+  // ============================================================
   // [H] Agent 独立对话页 (Phase UI-A2 · ChatGPT-like)
   // ============================================================
   section('H) Agent 独立对话页 (ChatGPT-like)');
@@ -543,7 +604,7 @@ function req(opts, body) {
 
   // 收尾
   await new Promise((r) => server.close(r));
-  console.log('\n===== UI-A1 总结 =====');
+  console.log('\n===== UI-A3 总结 =====');
   console.log('PASS:', passed);
   console.log('FAIL:', failed);
   if (failed > 0) process.exit(1);
