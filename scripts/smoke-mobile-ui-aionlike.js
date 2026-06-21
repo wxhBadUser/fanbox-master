@@ -525,7 +525,24 @@ function req(opts, body) {
   ok('CSS 含 .agent-chip 公共 chip', /\.agent-chip\s*\{/.test(css));
   ok('CSS 含 .agent-chip.is-active 选中态', /\.agent-chip\.is-active/.test(css));
   ok('CSS 含 .home-drawer-scrim 遮罩', /\.home-drawer-scrim/.test(css));
-  ok('CSS 含 @media (min-width: 900px) 桌面布局', /@media\s*\(min-width:\s*900px\)/.test(css));
+  // Phase UI-A3b：mobile-first 断点改 1024px
+  ok('CSS 含 @media (min-width: 1024px) 桌面两栏布局 (UI-A3b)', /@media\s*\(min-width:\s*1024px\)/.test(css));
+  ok('CSS .home-workspace mobile 默认 block 单列 (UI-A3b)', /\.home-workspace\s*\{[^}]*display:\s*block/.test(css));
+  ok('CSS .home-main mobile width: 100% 不挤压 (UI-A3b)', /\.home-main\s*\{[^}]*width:\s*100%/.test(css));
+  ok('CSS .home-main 含 min-width: 0 防 grid 撑爆 (UI-A3b)', /\.home-main\s*\{[^}]*min-width:\s*0/.test(css));
+  ok('CSS .home-agent-chips mobile overflow-x: auto (UI-A3b)', /\.home-agent-chips\s*\{[^}]*overflow-x:\s*auto/.test(css));
+  ok('CSS .agent-chip mobile flex: 0 0 auto (UI-A3b)', /\.agent-chip\s*\{[^}]*flex:\s*0\s+0\s+auto/.test(css));
+  ok('CSS .home-hero-greet 含 overflow-wrap: break-word (UI-A3b)', /\.home-hero-greet\s*\{[^}]*overflow-wrap:\s*break-word/.test(css));
+  ok('CSS .app desktop 不再 240:1fr 强占位 (UI-A3b)',
+    !/@media\s*\(min-width:\s*1024px\)\s*\{\s*\.app\s*\{[^}]*grid-template-columns:\s*240px\s+1fr/.test(css));
+  ok('CSS .home-section-new-chat 节点类名 (UI-A3b)', /class="home-sidebar-section home-section-new-chat"/.test(html));
+  ok('CSS .home-section-sessions 节点类名 (UI-A3b)', /class="home-sidebar-section home-section-sessions"/.test(html));
+  ok('CSS .home-section-quickchat 节点类名 (UI-A3b)', /class="home-section home-section-quickchat"/.test(html));
+  ok('CSS #home-quickchat id 节点 (UI-A3b)', /id="home-quickchat"/.test(html));
+  // 配对成功立刻进 Home（不再 setTimeout 200ms）
+  ok('mobile.js doPair 成功立刻调 showApp (UI-A3b)', /doPair[\s\S]{0,2500}setToken[\s\S]{0,200}showApp\s*\(/.test(js));
+  ok('mobile.js showApp 清掉 pair-msg 残留 (UI-A3b)', /showApp[\s\S]{0,500}pair-msg[\s\S]{0,200}textContent\s*=\s*['"]['"]/.test(js));
+  ok('mobile.js boot 有 token 直接 showApp (UI-A3b)', /getToken[\s\S]{0,400}api[\s\S]{0,400}showApp/.test(js));
   ok('CSS 含 .home-card (quick cards)', /\.home-card\s*\{/.test(css));
   ok('CSS 含 .home-safety (3 条安全提示)', /\.home-safety/.test(css));
   // 隐藏旧 .app-sidebar（被新 home-sidebar 取代）

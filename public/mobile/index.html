@@ -77,11 +77,11 @@
 
     <main class="app-main">
       <!-- ============================================================== -->
-      <!-- Home Tab  (Phase UI-A3 · AionUi-like Home Workspace)           -->
+      <!-- Home Tab  (Phase UI-A3 / Phase UI-A3b · Mobile-first Workspace)  -->
       <!--                                                                  -->
-      <!-- 桌面（≥900px）：左栏 280px（品牌 / New Chat / 历史 sessions）    -->
-      <!--               右栏自适应（hero / agent chips / 大输入框 / meta） -->
-      <!-- 手机（<900px）：左栏变 drawer，点 topbar 菜单按钮展开              -->
+      <!-- Mobile (<= 1024px) ：单列堆叠，sidebar 收为 drawer                -->
+      <!--                       顶部 hero / agent chips / 大输入框          -->
+      <!-- Desktop (>= 1024px)：左栏 280px + 右栏自适应（不被挤压）          -->
       <!-- ============================================================== -->
       <section class="tab-pane is-active" data-tab="home">
         <div class="home-workspace">
@@ -99,13 +99,17 @@
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
               </button>
             </div>
-            <button id="home-new-chat" class="home-new-chat" type="button" title="Start a new chat">
-              <span class="home-new-chat-icon" aria-hidden="true">
-                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="10" y1="3" x2="10" y2="17"/><line x1="3" y1="10" x2="17" y2="10"/></svg>
-              </span>
-              <span>New Chat</span>
-            </button>
-            <div id="home-sessions" class="home-sessions" role="list" aria-label="Recent sessions"></div>
+            <div class="home-sidebar-section home-section-new-chat">
+              <button id="home-new-chat" class="home-new-chat" type="button" title="Start a new chat">
+                <span class="home-new-chat-icon" aria-hidden="true">
+                  <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="10" y1="3" x2="10" y2="17"/><line x1="3" y1="10" x2="17" y2="10"/></svg>
+                </span>
+                <span>New Chat</span>
+              </button>
+            </div>
+            <div class="home-sidebar-section home-section-sessions" id="home-session-groups">
+              <div id="home-sessions" class="home-sessions" role="list" aria-label="Recent sessions"></div>
+            </div>
             <div class="home-sidebar-foot">
               <button class="home-sidebar-link" data-go="settings" type="button" title="Settings">
                 <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -119,33 +123,35 @@
 
           <!-- RIGHT MAIN：greeting + agent chips + 大输入框 + meta -->
           <div class="home-main">
-            <div class="home-hero">
-              <div id="home-hero-greet" class="home-hero-greet">Hi, what's your plan for today?</div>
-              <div id="home-hero-sub" class="home-hero-sub">Send a message, continue a session, or start work in the current folder.</div>
-            </div>
-            <div class="home-agent-chips" id="home-agent-chips" role="tablist" aria-label="Agent switcher (Home)"></div>
-            <div class="home-composer">
-              <textarea id="home-input" class="home-composer-input" rows="3" maxlength="4000"
-                placeholder="Send a message, open a folder, or ask an agent to work in this project..."></textarea>
-              <div class="home-composer-foot">
-                <div class="home-composer-meta">
-                  <span id="home-cwd" class="home-composer-cwd">Work in: —</span>
-                  <span id="home-model" class="home-composer-model">Model: —</span>
-                  <span id="home-effort" class="home-composer-effort">Effort: —</span>
-                  <span id="home-status-pill"></span>
-                </div>
-                <button id="home-send" class="home-composer-send" type="button" aria-label="Send" disabled>
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="12" y1="19" x2="12" y2="5"/>
-                    <polyline points="5 12 12 5 19 12"/>
-                  </svg>
-                </button>
+            <div class="home-section home-section-quickchat" id="home-quickchat">
+              <div class="home-hero">
+                <div id="home-hero-greet" class="home-hero-greet">Hi, what's your plan for today?</div>
+                <div id="home-hero-sub" class="home-hero-sub">Send a message, continue a session, or start work in the current folder.</div>
               </div>
-            </div>
+              <div class="home-agent-chips" id="home-agent-chips" role="tablist" aria-label="Agent switcher (Home)"></div>
+              <div class="home-composer">
+                <textarea id="home-input" class="home-composer-input" rows="3" maxlength="4000"
+                  placeholder="Send a message, open a folder, or ask an agent to work in this project..."></textarea>
+                <div class="home-composer-foot">
+                  <div class="home-composer-meta">
+                    <span id="home-cwd" class="home-composer-cwd">Work in: —</span>
+                    <span id="home-model" class="home-composer-model">Model: —</span>
+                    <span id="home-effort" class="home-composer-effort">Effort: —</span>
+                    <span id="home-status-pill"></span>
+                  </div>
+                  <button id="home-send" class="home-composer-send" type="button" aria-label="Send" disabled>
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="12" y1="19" x2="12" y2="5"/>
+                      <polyline points="5 12 12 5 19 12"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
 
-            <!-- 可选：精简 assistant cards（不喧宾夺主） -->
-            <div class="home-cards" id="home-cards" aria-label="Quick action cards">
-              <!-- 动态生成；保持简洁，4 张以内 -->
+              <!-- 可选：精简 assistant cards（不喧宾夺主） -->
+              <div class="home-cards" id="home-cards" aria-label="Quick action cards">
+                <!-- 动态生成；保持简洁，4 张以内 -->
+              </div>
             </div>
 
             <!-- 安全提示：保留 3 条 -->

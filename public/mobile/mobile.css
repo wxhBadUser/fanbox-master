@@ -972,12 +972,13 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 /* Phase UI-A1 · AionUi-like Command Agent Workspace                       */
 /* ====================================================================== */
 
-/* Desktop layout：sidebar + main */
-@media (min-width: 900px) {
-  .app { display: grid; grid-template-columns: 240px 1fr; grid-template-areas: "side top" "side main"; }
-  .app-sidebar { display: flex !important; grid-area: side; }
+/* Desktop layout：sidebar + main
+   ⚠ 旧版（900px）会把 .app-sidebar 强行 grid 占位，导致右侧 main 被压缩。
+   ⚠ 新版（1024px 起）才进入两栏；旧 .app-sidebar 仍 display:none 不占位。 */
+@media (min-width: 1024px) {
+  .app { display: grid; grid-template-columns: 1fr; grid-template-areas: "top" "main"; max-width: 100%; }
   .app-topbar { grid-area: top; }
-  .app-main { grid-area: main; padding-bottom: var(--s-4); }
+  .app-main { grid-area: main; padding-left: 32px; padding-right: 32px; max-width: 100%; padding-bottom: var(--s-4); }
   .app-bottom-nav { display: none !important; }
 }
 .app-sidebar {
@@ -1080,29 +1081,28 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 #home-running-sessions, #home-recent-sessions { min-height: 16px; }
 
 /* ============================================================
-   Phase UI-A3 · AionUi-like Home Workspace
+   Phase UI-A3b · Mobile-first Home Workspace (v2)
    ------------------------------------------------------------
-   Home = 2-column layout:
-     - Left: home-sidebar (品牌 / New Chat / sessions)
-     - Right: home-main (greeting / agent chips / 大输入框 / cards)
-   Mobile (<900px): left 折叠为 drawer，由 topbar 菜单按钮展开
+   关键修复：
+     1) Mobile (<= 1023px) 全部单列，sidebar 默认折叠为 drawer
+     2) Desktop (>= 1024px) 才进入 280 + 1fr 两栏
+     3) home-main 永远不被挤压，min-width: 0 防止 grid 子项溢出
    ============================================================ */
 
-/* 隐藏旧 .app-sidebar —— 新 Home 的左 sidebar 取代它 */
+/* 旧 .app-sidebar 隐藏 —— 新 Home 的 home-sidebar 取代它 */
 .app-sidebar { display: none !important; }
 .app-bottom-nav .tab-label { font-size: 10px; }
 
 /* Home workspace 容器 */
 .home-workspace {
-  display: grid;
-  grid-template-columns: 1fr;
-  grid-template-areas: "main";
-  gap: 0;
+  display: block;             /* mobile 单列流式布局 */
+  width: 100%;
   min-height: calc(100vh - 56px - 60px);
 }
-@media (min-width: 900px) {
+@media (min-width: 1024px) {
   .home-workspace {
-    grid-template-columns: 280px 1fr;
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
     grid-template-areas: "side main";
     gap: 0;
     min-height: calc(100vh - 64px);
@@ -1111,7 +1111,6 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 
 /* ---- Left Sidebar ---- */
 .home-sidebar {
-  grid-area: side;
   display: none;       /* mobile 默认折叠 */
   flex-direction: column;
   background: #FAFAFA;
@@ -1120,8 +1119,11 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   position: relative;
   z-index: 5;
 }
-@media (min-width: 900px) {
-  .home-sidebar { display: flex !important; }
+@media (min-width: 1024px) {
+  .home-sidebar {
+    grid-area: side;
+    display: flex !important;
+  }
 }
 .home-sidebar.is-open { display: flex; }  /* mobile drawer 展开 */
 
@@ -1312,32 +1314,47 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 }
 .home-drawer-scrim.is-open { display: block; }
 
-/* ---- Right Main ---- */
+/* ---- Right Main ----
+   mobile: 100% 宽度，绝不挤压
+   desktop: 1fr，吃掉 sidebar 之外的剩余空间
+   min-width: 0 是关键：grid 子项默认 min-width:auto，会被内容撑爆 */
 .home-main {
-  grid-area: main;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  min-width: 0;
   padding: 16px 16px 24px;
   gap: 16px;
   background: #fff;
-  min-width: 0;
+  box-sizing: border-box;
 }
-@media (min-width: 900px) {
-  .home-main { padding: 32px 48px 32px; max-width: 980px; }
+@media (min-width: 1024px) {
+  .home-main {
+    grid-area: main;
+    padding: 32px 48px 32px;
+    max-width: 1080px;
+  }
 }
 
 .home-hero {
   text-align: center;
   padding: 18px 0 6px;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
 }
 .home-hero-greet {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 700;
   color: var(--fg);
   letter-spacing: -0.01em;
   line-height: 1.25;
+  /* 防止长词/长 URL 把 hero 撑爆 */
+  overflow-wrap: break-word;
+  word-break: normal;
+  text-wrap: pretty;
 }
-@media (min-width: 900px) {
+@media (min-width: 1024px) {
   .home-hero-greet { font-size: 32px; }
 }
 .home-hero-sub {
@@ -1348,16 +1365,31 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   max-width: 640px;
   margin-left: auto;
   margin-right: auto;
+  overflow-wrap: break-word;
 }
 
-/* ---- Agent chips（4 个，每个带 SVG icon） ---- */
+/* ---- Agent chips（4 个，每个带 SVG icon） ----
+   mobile: 横向滚动，不允许换行成竖排
+   desktop: 居中，可以换行 */
 .home-agent-chips {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding: 6px 0 6px;
+  justify-content: flex-start;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 6px 4px 6px;
+  /* 不要让 chip 被压缩，保持可读尺寸 */
+  scroll-snap-type: x proximity;
+}
+.home-agent-chips::-webkit-scrollbar { display: none; }
+@media (min-width: 1024px) {
+  .home-agent-chips {
+    justify-content: center;
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
 }
 .agent-chip {
   display: inline-flex;
@@ -1374,6 +1406,9 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   transition: background 0.12s, border-color 0.12s, color 0.12s;
   font-family: inherit;
   white-space: nowrap;
+  /* mobile 上 chip 至少 80px，避免被挤成竖排 */
+  flex: 0 0 auto;
+  scroll-snap-align: start;
 }
 .agent-chip:hover { background: #F1F5F9; color: var(--fg); }
 .agent-chip.is-active {
@@ -1977,11 +2012,9 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 .session-status-failed { background: #FEE2E2; color: var(--err); }
 .session-status-waiting_approval { background: #FEF3C7; color: #92400E; }
 
-@media (min-width: 900px) {
-  .app { display: grid; grid-template-columns: 240px 1fr; }
-  .app-sidebar { display: flex; }
-  .app-topbar { grid-column: 1 / -1; }
-  .app-main { padding-left: 32px; padding-right: 32px; max-width: 100%; }
+/* Phase UI-A3b：desktop 布局（>= 1024px）补充
+   注意：旧版 900px 处已经把 .app 改成 1fr（不再给隐藏的 .app-sidebar 留空位） */
+@media (min-width: 1024px) {
   .home-quickchat { padding: 28px 24px 20px; }
   .agent-chat { max-height: 70vh; }
   .files-manager-list { max-height: 65vh; overflow-y: auto; }

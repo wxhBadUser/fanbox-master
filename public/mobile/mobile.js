@@ -1591,6 +1591,9 @@
     var a = document.getElementById('app');
     if (p) p.hidden = true;
     if (a) a.hidden = false;
+    // 清掉配对卡上残留的 "配对中…" 状态，避免 UI 不一致
+    var pm = document.getElementById('pair-msg');
+    if (pm) { pm.textContent = ''; pm.className = 'msg'; }
     paintIcons();
     // Phase UI-A2：配对成功 → App Shell → 默认 Home
     showTab('home');
@@ -1617,10 +1620,11 @@
       });
       var j = null; try { j = await r.json(); } catch (e) { j = { ok: false }; }
       if (!j.ok) throw new Error(j.error || ('http_' + r.status));
+      // 1) 先存 token
       setToken(j.token);
-      msg.textContent = '配对成功';
-      msg.className = 'msg msg-ok';
-      setTimeout(showApp, 200);
+      // 2) 立即切到主应用（不要再让用户点一次）
+      //    不用 setTimeout，避免「以为卡死」的感觉
+      showApp();
     } catch (e) {
       msg.textContent = '配对失败：' + (e && e.message || e);
       msg.className = 'msg msg-err';
