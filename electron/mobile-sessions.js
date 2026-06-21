@@ -4,6 +4,7 @@
 //       统一格式 + 严格裁剪敏感字段，返回给 /api/mobile/sessions*。
 //
 // Phase 2A-2.1 扩展：approval request loop（只创建审批 / 不启动 agent）
+// Phase 2A-2.2 扩展：普通非红线消息走 runMobileAgent（claude/codex 真实 / opencode/qoder stub）
 //
 // 硬约束（违反任意一条都视为 bug）：
 //   1. 不暴露 raw stdout / pty buffer / xterm.scrollback
@@ -25,6 +26,9 @@
 const os = require('os');
 const path = require('path');
 const fs = require('fs').promises;
+
+// ---------- Phase 2A-2.2：claude/codex 真实 runner（安全适配） ----------
+const mobileRunner = require('./mobile-agent-runner');
 
 // ---------- 路径（可被环境变量覆盖，方便测试隔离） ----------
 
@@ -1040,7 +1044,7 @@ async function postMessageToMobileSession(opts) {
     };
   }
 
-  // ---- 5) 普通消息 → running → stub runner → done ----
+  // ---- 5) 普通消息 → running → safe runner（claude/codex 真实；opencode/qoder stub） ----
   const now = Date.now();
   // 写入 user message（status: sent）
   await appendMessageToMobileSession(sessionId, {
@@ -1053,14 +1057,18 @@ async function postMessageToMobileSession(opts) {
   // 标记 running
   await setSessionStatus(sessionId, 'running', { lastRunStartedAt: now });
 
-  // 跑 stub runner（同步；不接 pty / shell）
+  // 跑 runner（Phase 2A-2.2：claude/codex 真实 / opencode/qoder stub；不接 pty / shell / YOLO）
   const t0 = Date.now();
-  const runResult = runStubAgent({
-    agentId: agentId, cwd: cwd, text: trimmed, contextFiles: contextFiles, sessionId: sessionId
+  const runResult = await mobileRunner.runMobileAgent({
+    agentId: agentId,
+    cwd: cwd,
+    text: trimmed,
+    contextFiles: contextFiles,
+    sessionId: sessionId
   });
   const t1 = Date.now();
 
-  // 写 agent message
+  // 写 agent message（runner 内部已 scrub + 截断）
   await appendMessageToMobileSession(sessionId, {
     role: 'agent',
     text: runResult && runResult.text ? runResult.text : STUB_RUNNER_NOTE,
@@ -1085,7 +1093,9 @@ async function postMessageToMobileSession(opts) {
     cwd: cwd,
     inputHash: _hashInput(trimmed),
     inputLen: trimmed.length,
-    status: finalStatus
+    status: finalStatus,
+    runnerMode: runResult && runResult.mode || 'unknown',
+    usedStub: !!(runResult && runResult.usedStub)
   });
 
   return {
@@ -1094,7 +1104,10 @@ async function postMessageToMobileSession(opts) {
     sessionId: sessionId,
     status: finalStatus,
     agentId: agentId,
-    durationMs: t1 - t0
+    durationMs: t1 - t0,
+    runnerMode: runResult && runResult.mode || 'unknown',
+    usedStub: !!(runResult && runResult.usedStub),
+    timedOut: !!(runResult && runResult.timedOut)
   };
 }
 

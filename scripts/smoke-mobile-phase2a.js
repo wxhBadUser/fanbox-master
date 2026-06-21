@@ -36,6 +36,8 @@ process.env.HOME = TMP_HOME; process.env.USERPROFILE = TMP_HOME;
 process.env.FANBOX_MOBILE_DIR = path.join(TMP_HOME, '.fanbox', 'mobile');
 process.env.FANBOX_WECHAT_DIR = path.join(TMP_HOME, '.fanbox', 'wechat');
 process.env.FANBOX_SESSIONS_DIR = path.join(TMP_HOME, '.fanbox', 'sessions');
+// Phase 2A-2.2：测试环境下强制所有 agent 走 stub，避免撞上本机已装的 claude/codex 产生慢请求 / 凭据依赖
+process.env.MOBILE_AGENT_FORCE_STUB = '1';
 fs.mkdirSync(process.env.FANBOX_MOBILE_DIR, { recursive: true });
 fs.mkdirSync(process.env.FANBOX_WECHAT_DIR, { recursive: true });
 fs.mkdirSync(process.env.FANBOX_SESSIONS_DIR, { recursive: true });
@@ -948,6 +950,154 @@ function req(opts, body) {
   const desktopAll = desktopHtml + '\n' + desktopJs;
   ok('Desktop UI 包含 Pending Mobile Approvals', /mobile-approval-list|待确认请求|Pending Mobile Approvals/i.test(desktopAll));
   ok('Desktop UI 不暴露 /api/mobile/pty/input', !/api\/mobile\/pty\/input/.test(desktopAll));
+
+  // ============================================================
+  // [11.9] Phase 2A-2.2：安全 Claude/Codex runner 接入
+  // ============================================================
+  section('11.9) Phase 2A-2.2: real runner wiring');
+
+  // ---- 1) 模块存在 & 暴露 ----
+  const runner = require(path.join(ROOT_DIR, 'electron', 'mobile-agent-runner.js'));
+  ok('mobile-agent-runner 模块可 require', !!runner);
+  ok('暴露 runMobileAgent', typeof runner.runMobileAgent === 'function');
+  ok('暴露 runClaudeRunner', typeof runner.runClaudeRunner === 'function');
+  ok('暴露 runCodexRunner', typeof runner.runCodexRunner === 'function');
+  ok('暴露 runStubRunner', typeof runner.runStubRunner === 'function');
+  ok('暴露 sanitizeOutput', typeof runner.sanitizeOutput === 'function');
+
+  // ---- 2) 白名单 & 常量 ----
+  ok('ALLOWED_AGENT_IDS 含 4 个 agent', runner.ALLOWED_AGENT_IDS.length === 4 && ['claude', 'codex', 'opencode', 'qoder'].every(x => runner.ALLOWED_AGENT_IDS.indexOf(x) >= 0));
+  ok('REAL_RUNNER_IDS = claude/codex', runner.REAL_RUNNER_IDS.length === 2 && runner.REAL_RUNNER_IDS.indexOf('claude') >= 0 && runner.REAL_RUNNER_IDS.indexOf('codex') >= 0);
+  ok('STUB_RUNNER_IDS = opencode/qoder', runner.STUB_RUNNER_IDS.length === 2 && runner.STUB_RUNNER_IDS.indexOf('opencode') >= 0 && runner.STUB_RUNNER_IDS.indexOf('qoder') >= 0);
+  ok('MAX_OUTPUT_CHARS = 4000', runner.MAX_OUTPUT_CHARS === 4000);
+  ok('DEFAULT_TIMEOUT_MS > 0', runner.DEFAULT_TIMEOUT_MS > 0);
+
+  // ---- 3) SAFETY_PROMPT 内容 ----
+  ok('SAFETY_PROMPT 含 cwd 边界', /Work only inside the current cwd/.test(runner.SAFETY_PROMPT));
+  ok('SAFETY_PROMPT 含 desktop approval', /desktop approval/.test(runner.SAFETY_PROMPT));
+  ok('SAFETY_PROMPT 含 .env 禁止', /\.env/.test(runner.SAFETY_PROMPT));
+  ok('SAFETY_PROMPT 含 CI/CD 禁止', /CI\/CD/.test(runner.SAFETY_PROMPT));
+  ok('SAFETY_PROMPT 含 push/deploy 禁止', /push|deploy|publish/.test(runner.SAFETY_PROMPT));
+
+  // ---- 4) sanitizeOutput 行为 ----
+  const s1 = runner.sanitizeOutput('hello world');
+  ok('sanitizeOutput 保留普通文本', s1 === 'hello world');
+  const s2 = runner.sanitizeOutput('Token: Bearer abcDEF.123-_+/=XYZ');
+  ok('sanitizeOutput redact Bearer', /Bearer \[redacted\]/.test(s2) && !/abcDEF/.test(s2));
+  const s3 = runner.sanitizeOutput('api key: sk-1234567890abcdef');
+  ok('sanitizeOutput redact sk-', /sk-\[redacted\]/.test(s3) && !/1234567890abcdef/.test(s3));
+  const s4 = runner.sanitizeOutput('session_id=uuid-aabbccddeeff');
+  ok('sanitizeOutput redact session id', /session_id=\[redacted\]/.test(s4) && !/aabbccddeeff/.test(s4));
+  const s5 = runner.sanitizeOutput('claude_session_id=uuid-aabbccddeeff');
+  ok('sanitizeOutput redact claude session id', /session_id=\[redacted\]/.test(s5) && !/aabbccddeeff/.test(s5));
+  const long = 'x'.repeat(runner.MAX_OUTPUT_CHARS + 500);
+  const s6 = runner.sanitizeOutput(long);
+  ok('sanitizeOutput 截断 > MAX_OUTPUT_CHARS', s6.length <= runner.MAX_OUTPUT_CHARS + 100 && /truncated/i.test(s6));
+  const s7 = runner.sanitizeOutput('\x1b[31mred text\x1b[0m');
+  ok('sanitizeOutput 去 ANSI', !/\x1b\[/.test(s7) && /red text/.test(s7));
+
+  // ---- 5) runStubRunner 行为 ----
+  const stub1 = runner.runStubRunner({ agentId: 'opencode', text: 'hello', cwd: '/tmp' });
+  ok('runStubRunner opencode ok=true', stub1.ok === true);
+  ok('runStubRunner opencode usedStub=true', stub1.usedStub === true);
+  ok('runStubRunner opencode 不含 token/cookie', !/Bearer\s|sk-[A-Za-z0-9]/.test(stub1.text));
+  const stub2 = runner.runStubRunner({ agentId: 'qoder', text: 'hello', cwd: '/tmp' });
+  ok('runStubRunner qoder usedStub=true', stub2.usedStub === true);
+
+  // ---- 6) runMobileAgent 路由（不入真子进程，仅 unit-level） ----
+  // opencode/qoder → stub
+  const rMobOC = await runner.runMobileAgent({ agentId: 'opencode', cwd: '/tmp', text: 'hi' });
+  ok('runMobileAgent opencode mode=stub', rMobOC.mode === 'stub' && rMobOC.usedStub === true);
+  const rMobQD = await runner.runMobileAgent({ agentId: 'qoder', cwd: '/tmp', text: 'hi' });
+  ok('runMobileAgent qoder mode=stub', rMobQD.mode === 'stub' && rMobQD.usedStub === true);
+  // 不在白名单 → agent_not_allowed
+  const rMobBad = await runner.runMobileAgent({ agentId: 'shell', cwd: '/tmp', text: 'hi' });
+  ok('runMobileAgent shell agent_not_allowed', rMobBad.ok === false && rMobBad.error === 'agent_not_allowed');
+  // text 太长 → input_too_long
+  const rMobLong = await runner.runMobileAgent({ agentId: 'claude', cwd: '/tmp', text: 'a'.repeat(5000) });
+  ok('runMobileAgent text>4000 input_too_long', rMobLong.ok === false && rMobLong.error === 'input_too_long');
+  // claude/codex 走真实分支（用户没装 cli → usedStub=true 兜底）
+  const rMobClaude = await runner.runMobileAgent({ agentId: 'claude', cwd: '/tmp', text: 'hi' });
+  ok('runMobileAgent claude 返回 ok', rMobClaude && typeof rMobClaude.text === 'string');
+  // 即使没装 cli，也只会落到 usedStub=true 的安全 fallback，不会 panic
+  if (rMobClaude.usedStub) {
+    ok('runMobileAgent claude（未装 cli）usedStub=true 兜底', true);
+  } else {
+    ok('runMobileAgent claude（已装 cli）mode=real', rMobClaude.mode === 'real');
+  }
+  const rMobCodex = await runner.runMobileAgent({ agentId: 'codex', cwd: '/tmp', text: 'hi' });
+  ok('runMobileAgent codex 返回 ok', rMobCodex && typeof rMobCodex.text === 'string');
+  if (rMobCodex.usedStub) {
+    ok('runMobileAgent codex（未装 cli）usedStub=true 兜底', true);
+  } else {
+    ok('runMobileAgent codex（已装 cli）mode=real', rMobCodex.mode === 'real');
+  }
+
+  // ---- 7) 源码级安全断言（最关键） ----
+  const runnerSrc = fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-agent-runner.js'), 'utf8');
+  ok('runner 不使用 shell:true', !/shell\s*:\s*true/.test(runnerSrc));
+  ok('runner 不引入 pty / node-pty', !/require\(['"]node-pty['"]\)/.test(runnerSrc) && !/pty:spawn|pty:input/.test(runnerSrc));
+  ok('runner 不出现 --dangerously-skip-permissions', !/--dangerously-skip-permissions/.test(runnerSrc));
+  ok('runner 不出现 --dangerously-bypass-approvals-and-sandbox', !/--dangerously-bypass-approvals-and-sandbox/.test(runnerSrc));
+  ok('runner 不出现 YOLO / full-auto 标志', !/\bYOLO\b/i.test(runnerSrc) && !/full-?auto/i.test(runnerSrc));
+  // args 是硬编码数组拼接（每次 push 的是常量字符串）
+  ok('runner args 模板是 hardcoded array', /const\s+args\s*=\s*\[/.test(runnerSrc));
+  // 不允许将 text 拼进 args
+  ok('runner text 不进 argv（仅 stdin）', !/args\.push\(\s*text\s*\)|args\.push\(\s*trimmed\s*\)/.test(runnerSrc));
+  // 必走 spawn(bin, args, { shell: false, ... })
+  ok('runner 调 spawn(bin, args, { shell: false })', /spawn\(\s*bin\s*,\s*args\s*,\s*\{[\s\S]*?shell\s*:\s*false[\s\S]*?\}\s*\)/.test(runnerSrc));
+  // 不让用户控制 executable
+  ok('runner 不用用户输入做 bin 名', !/spawn\(\s*(?:opts|args|user)\b/.test(runnerSrc));
+
+  // ---- 8) postMessageToMobileSession 已切换到 runMobileAgent（不再用 runStubAgent sync） ----
+  const sessSrc = fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile-sessions.js'), 'utf8');
+  ok('postMessageToMobileSession 调 runMobileAgent', /runMobileAgent\(/.test(sessSrc));
+  // 红线后走 createApproval，**不**调 runner
+  const postFn = sessSrc.match(/postMessageToMobileSession[\s\S]*?\n\}/);
+  ok('红线分支在 runner 调用前', postFn && /requiresApproval[\s\S]*?createApproval[\s\S]*?return[\s\S]*?runMobileAgent/.test(postFn.join(' ')));
+
+  // ---- 9) events 端点不暴露 _internalSessionId / claudeSession / codexSession ----
+  // 抓最新一次普通消息的 sessionId，触发真实 runner 路径
+  const rDraftR = await req({ path: '/api/mobile/sessions/draft', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ cwd: cwdMock, agentId: 'codex' }));
+  const jDraftR = JSON.parse(rDraftR.body);
+  const realSessionId = jDraftR.sessionId;
+  ok('new draft for real-runner flow 200', rDraftR.status === 200);
+  const rReal = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(realSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ text: '你好，介绍一下这个文件夹的 README', cwd: cwdMock, agentId: 'codex' }));
+  const jReal = JSON.parse(rReal.body);
+  ok('真实 runner 流程 POST 200', rReal.status === 200, rReal.status);
+  ok('真实 runner 流程 requiresApproval=false', jReal.requiresApproval === false);
+  ok('真实 runner 流程 status === done/failed', jReal.status === 'done' || jReal.status === 'failed', 'status=' + jReal.status);
+  // events 端点
+  const rRealEvt = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(realSessionId) + '/events?limit=20', method: 'GET', headers: auth });
+  const jRealEvt = JSON.parse(rRealEvt.body);
+  const realEvtStr = JSON.stringify(jRealEvt);
+  ok('real-runner events 含 status', jRealEvt.status === 'done' || jRealEvt.status === 'failed');
+  ok('real-runner events 不含 _internalSessionId', !/_internalSessionId/.test(realEvtStr));
+  ok('real-runner events 不含 claudeSession', !/claudeSession/.test(realEvtStr));
+  ok('real-runner events 不含 codexSession', !/codexSession/.test(realEvtStr));
+  ok('real-runner events 不含 token/cookie/apiKey', !/Bearer\s|sk-[A-Za-z0-9]|AKIA-/.test(realEvtStr));
+  ok('real-runner events 不含 .jsonl / .cast / .log', !/\.jsonl|\.cast|\.log/.test(realEvtStr));
+  // 校验 agent message 的 text 也不含 claude/codex session id
+  const agentMsgs = (jRealEvt.messages || []).filter(m => m.role === 'agent');
+  if (agentMsgs.length > 0) {
+    const agentText = agentMsgs.map(m => m.text).join('\n');
+    ok('agent message text 不含 claude/codex session id 形态', !/claude[_-]?session[_-]?id=|codex[_-]?session[_-]?id=/i.test(agentText));
+  } else {
+    ok('agent message 存在', false, 'no agent message');
+  }
+
+  // ---- 10) running 状态下的 409（确保 postMessageToMobileSession 内部互斥未改坏） ----
+  // 用一个会让真实 runner 跑得比较久（或者退化成 stub 立刻 done）的 session 测试"刚发完还能再发"：发完一条普通消息 status=done 后，下一条仍能继续（不应误报 409）
+  const rRunOk = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(realSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ text: '再问一次', cwd: cwdMock, agentId: 'codex' }));
+  ok('done 后再发 → 200', rRunOk.status === 200, rRunOk.status);
+
+  // ---- 11) text > 4000 仍然 400（即使走 runner 也不能放过） ----
+  const rBig2 = await req({ path: '/api/mobile/sessions/' + encodeURIComponent(realSessionId) + '/messages', method: 'POST', headers: { 'Content-Type': 'application/json', ...auth } },
+    JSON.stringify({ text: 'a'.repeat(4001), cwd: cwdMock, agentId: 'codex' }));
+  ok('text>4000 → 400', rBig2.status === 400, rBig2.status);
 
   // ============================================================
   // [12] 关闭 Mobile Access 后 sessions API 一律 401
