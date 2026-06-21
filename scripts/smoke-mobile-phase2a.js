@@ -394,8 +394,8 @@ function req(opts, body) {
   ok('HTML 恰好 4 个 data-tab-btn', btnMatches.length === 4, 'count=' + btnMatches.length);
 
   // Home 含 usage 摘要
-  ok('Home 含 home-usage-today', /id="home-usage-today"/.test(html));
-  ok('Home 含 home-usage-week', /id="home-usage-week"/.test(html));
+  ok('Home 含 home-runs-today', /id="home-runs-today"/.test(html));
+  ok('Home 含 home-runs-week', /id="home-runs-week"/.test(html));
 
   // Files 顶部 CTA
   ok('Files 含 files-cwd-label', /id="files-cwd-label"/.test(html));
@@ -417,10 +417,10 @@ function req(opts, body) {
   ok('Agent tab 含 "Running on your paired desktop"', /Running on your paired desktop/i.test(html));
   ok('Agent tab 含 "Scoped to the selected folder"', /Scoped to the selected folder/i.test(html));
   ok('Agent tab 含 "Logged locally in FanBox"', /Logged locally in FanBox/i.test(html));
-  // Agent tab 包含 assistant cards
-  ok('Agent tab 含 #agent-assistant-cards', /id="agent-assistant-cards"/.test(html));
-  // Agent tab 包含 agent-hero（用 class）
-  ok('Agent tab 含 .agent-hero (AionUi-like)', /class="agent-hero"/i.test(html));
+  // Phase UI-A2：Home 是默认入口；Agent 是 ChatGPT-like 独立页
+  // Assistant cards 已从 Agent tab 移除（Home 顶 Quick Chat 是新入口）
+  ok('Agent tab 含 #agent-header-name（左上角 agent 名称）', /id="agent-header-name"/.test(html));
+  ok('Agent tab 含 .agent-chat (ChatGPT-like 容器)', /class="agent-chat"/i.test(html));
 
   // Home 包含 recent / running sessions
   ok('Home 含 #home-running-sessions', /id="home-running-sessions"/.test(html));
@@ -523,8 +523,8 @@ function req(opts, body) {
     order.length === 4 && order[0] === 'home' && order[1] === 'agent' && order[2] === 'files' && order[3] === 'skills',
     'order=' + order.join(','));
   // 15) Home 含 usage 摘要（id 存在）
-  ok('HTML #home-usage-today', /id="home-usage-today"/.test(html));
-  ok('HTML #home-usage-week', /id="home-usage-week"/.test(html));
+  ok('HTML #home-runs-today', /id="home-runs-today"/.test(html));
+  ok('HTML #home-runs-week', /id="home-runs-week"/.test(html));
   // 16) mobile.js apiPost 白名单扩展（UI-A1：包含 sessions/draft、sessions/:id/messages、skills-state）
   // js / css 已在 [10] 开头初始化
   ok('js POST_ALLOWLIST 包含 context/(cwd|select)', /POST_ALLOWLIST[\s\S]{0,1500}?context\\\/\(cwd\|select\)/.test(js));

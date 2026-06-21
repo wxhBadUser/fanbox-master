@@ -184,7 +184,7 @@
   // Phase UI-A1：主入口只剩 home / agent / files / skills；sessions 已并入 home
   function showTab(name) {
     var allowed = ['home', 'agent', 'files', 'skills'];
-    if (allowed.indexOf(name) < 0) name = 'agent';
+    if (allowed.indexOf(name) < 0) name = 'home';
     $all('.tab-pane').forEach(function (p) {
       p.hidden = p.getAttribute('data-tab') !== name;
     });
@@ -213,52 +213,156 @@
     ]);
   }
 
-  // ---------------- Home ----------------
+  // ---------------- Home (Phase UI-A2) ----------------
+  // 顺序：
+  //   1) 顶部 Agent Quick Chat（输入框 + 4 agent switcher + cwd/model/effort）
+  //   2) Running Sessions
+  //   3) All Sessions（电脑+手机+微信）
+  //   4) Today Summary
+  //   5) Available Roots
+  //   6) 安全提示
   async function renderHome() {
-    var todayEl = $('#home-usage-today');
-    var weekEl = $('#home-usage-week');
-    if (todayEl) todayEl.textContent = '—';
-    if (weekEl) weekEl.textContent = '—';
+    paintHomeHeroGreet();
+    paintHomeAgentChips();
+    paintHomeCwd();
+    paintHomeModel();
+    paintHomeEffort();
+    paintHomeStatusPill();
     // 1) usage（mobile runner summary）
+    var todayEl = $('#home-runs-today');
+    var weekEl = $('#home-runs-week');
+    var durEl = $('#home-runs-duration');
+    if (todayEl) todayEl.textContent = '0';
+    if (weekEl) weekEl.textContent = '0';
+    if (durEl) durEl.textContent = '0s';
     var usageP = api('/api/mobile/usage').then(function (j) {
       var s = (j && j.summary) || {};
-      // Phase UI-A1：mobile usage 不暴露 token；只显示 runs 计数
       if (todayEl) todayEl.textContent = (typeof s.todayRuns === 'number') ? String(s.todayRuns) : '0';
       if (weekEl) weekEl.textContent = (typeof s.weekRuns === 'number') ? String(s.weekRuns) : '0';
-      var todayRunsEl = $('#home-runs-today');
-      var weekRunsEl = $('#home-runs-week');
-      var durEl = $('#home-runs-duration');
-      if (todayRunsEl) todayRunsEl.textContent = (typeof s.todayRuns === 'number') ? String(s.todayRuns) : '0';
-      if (weekRunsEl) weekRunsEl.textContent = (typeof s.weekRuns === 'number') ? String(s.weekRuns) : '0';
       if (durEl) durEl.textContent = (typeof s.todayDurationMs === 'number') ? (Math.round(s.todayDurationMs / 100) / 10) + 's' : '0s';
-      var recentEl = $('#home-runs-recent');
-      if (recentEl) {
-        clearChildren(recentEl);
-        var mr = (j && j.mobileRunner && Array.isArray(j.mobileRunner.recent)) ? j.mobileRunner.recent : [];
-        if (!mr.length) {
-          recentEl.appendChild(emptyBlock('No mobile runs yet', 'send a message from Agent Tab to start'));
-          return;
-        }
-        mr.slice(0, 5).forEach(function (r) {
-          var dur = (typeof r.durationMs === 'number') ? (Math.round(r.durationMs / 100) / 10) + 's' : '—';
-          var lbl = (r.agentId || '?') + ' · ' + (r.cwdLabel || '?') + ' · ' + dur + ' · ' + (r.status || '?');
-          recentEl.appendChild(el('div', { class: 'root-row' }, [
-            el('div', { class: 'root-name', text: lbl }),
-            el('div', { class: 'root-path', text: fmtTime(r.startedAt) })
-          ]));
-        });
-      }
     }).catch(function () { /* 不阻断 */ });
 
-    // 2) sessions（recent + running from unified index）
+    // 2) agents（获取每个 agent 的 model / effort）
+    var agentsP = api('/api/mobile/agents').then(function (j) {
+      var items = pickList(j);
+      items.forEach(function (a) {
+        agentState.installedMap[a.id] = !!a.installed;
+        agentState.agentMeta[a.id] = {
+          label: a.label || a.id,
+          model: a.model || 'default',
+          effort: a.effort || 'normal'
+        };
+      });
+      paintHomeAgentChips();
+      paintHomeModel();
+      paintHomeEffort();
+    }).catch(function () { /* ignore */ });
+
+    // 3) sessions（recent + running from unified index）
     var sessionsP = api('/api/mobile/sessions?limit=50').then(function (j) {
       var items = pickList(j);
-      paintHomeRunningSessions(items.filter(function (s) { return s.status === 'running' || s.status === 'waiting_approval'; }));
-      paintHomeRecentSessions(items.slice(0, 10));
+      var running = items.filter(function (s) { return s.status === 'running' || s.status === 'waiting_approval'; });
+      var recent = items.slice(0, 20);
+      paintHomeRunningSessions(running);
+      paintHomeRecentSessions(recent);
       paintSidebarRecentSessions(items.slice(0, 8));
+      var rc = $('#home-running-count'); if (rc) rc.textContent = String(running.length);
+      var nc = $('#home-recent-count'); if (nc) nc.textContent = String(recent.length);
     }).catch(function () { /* 不阻断 */ });
 
-    try { await Promise.all([usageP, sessionsP]); } catch (e) { /* */ }
+    // 4) available roots（用于提示用户切换工作目录）
+    var rootsP = api('/api/mobile/roots').then(function (j) {
+      var box = $('#home-roots');
+      if (!box) return;
+      var items = pickList(j && j.roots);
+      clearChildren(box);
+      if (!items.length) {
+        box.appendChild(emptyBlock('No roots available', '请在 desktop 端配置 allowedRoots'));
+        return;
+      }
+      items.forEach(function (r) {
+        var row = el('div', { class: 'root-row' }, [
+          el('div', { class: 'root-name', text: r.name || r.path }),
+          el('div', { class: 'root-path', text: r.path })
+        ]);
+        row.addEventListener('click', function () { onHomePickRoot(r); });
+        box.appendChild(row);
+      });
+    }).catch(function () { /* ignore */ });
+
+    try { await Promise.all([usageP, agentsP, sessionsP, rootsP]); } catch (e) { /* */ }
+    // 拉完后刷新一次 send 按钮状态
+    updateHomeSendButtonState();
+  }
+
+  function paintHomeHeroGreet() {
+    var greet = $('#home-hero-greet');
+    var sub = $('#home-hero-sub');
+    var now = new Date();
+    var hr = now.getHours();
+    var time = (hr < 12) ? 'Good morning' : (hr < 18) ? 'Good afternoon' : 'Good evening';
+    if (greet) greet.textContent = time + ", what's your plan for today?";
+    if (sub) sub.textContent = 'Type a message below to start, or pick a recent session to continue.';
+  }
+
+  function paintHomeAgentChips() {
+    var box = $('#home-agent-chips');
+    if (!box) return;
+    clearChildren(box);
+    AGENT_CHIPS.forEach(function (a) {
+      var installed = agentState.installedMap[a.id];
+      var installedKnown = (typeof installed === 'boolean');
+      var chip = el('button', {
+        class: 'agent-chip' +
+          (agentState.agentId === a.id ? ' is-active' : '') +
+          (installedKnown ? (installed ? ' is-installed' : ' is-missing') : ''),
+        type: 'button',
+        'data-agent-id': a.id
+      }, [
+        el('span', { class: 'agent-chip-dot' }),
+        tspan(a.label)
+      ]);
+      chip.addEventListener('click', function () { onPickAgent(a.id); });
+      box.appendChild(chip);
+    });
+  }
+
+  function paintHomeCwd() {
+    var cwdEl = $('#home-cwd');
+    if (cwdEl) cwdEl.textContent = agentState.cwd ? ('Work in: ' + relPath(agentState.cwd)) : 'Work in: —';
+  }
+
+  function paintHomeModel() {
+    var el1 = $('#home-model');
+    if (!el1) return;
+    var meta = agentState.agentId ? agentState.agentMeta[agentState.agentId] : null;
+    el1.textContent = 'Model: ' + (meta ? meta.model : (agentState.model || 'default'));
+  }
+
+  function paintHomeEffort() {
+    var el1 = $('#home-effort');
+    if (!el1) return;
+    var meta = agentState.agentId ? agentState.agentMeta[agentState.agentId] : null;
+    el1.textContent = 'Effort: ' + (meta ? meta.effort : (agentState.effort || 'normal'));
+  }
+
+  function paintHomeStatusPill() {
+    var box = $('#home-status-pill');
+    if (!box) return;
+    clearChildren(box);
+    var ready = !!(agentState.cwd && agentState.agentId);
+    var text = ready ? 'ready' : (agentState.cwd ? 'pick agent' : 'pick folder');
+    var kind = ready ? 'ok' : 'empty';
+    box.appendChild(statusPill(text, kind));
+  }
+
+  // 用户在 Home 顶部点 root：仅作"切到 Files 页"提示（不直接改 cwd，避免绕过 files open agent）
+  function onHomePickRoot(r) {
+    if (!r || !r.path) return;
+    // 切到 Files 页加载该 root
+    showTab('files');
+    // 尝试把 root 写到 filesState.root，下次 files 页 render 会用它
+    try { filesState.root = r.path; } catch (e) {}
   }
 
   function paintHomeRunningSessions(items) {
@@ -298,86 +402,196 @@
     });
   }
 
-  // ---------------- Files ----------------
-  var filesState = { root: '', q: '', lastResults: [], lastPicked: null, aborter: null, currentObjectUrl: null };
+  // ---------------- Files (Phase UI-A2 · Phone File Manager) ----------------
+  // 状态：
+  //   - filesState.path：当前所在目录
+  //   - filesState.root：根目录（不可越过）
+  //   - filesState.history：导航历史（用于 back）
+  //   - filesState.items：当前目录下的 items（dir/file）
+  //   - filesState.q：搜索关键字（仅在当前 path 下做模糊匹配）
+  var filesState = {
+    root: '',
+    path: '',
+    history: [],
+    items: [],
+    q: '',
+    lastPicked: null,
+    currentObjectUrl: null
+  };
 
-  async function loadRoots() {
-    var sel = $('#files-root');
-    if (!sel) return;
-    if (sel.options.length > 0) return;
-    sel.innerHTML = '<option>Loading…</option>';
+  // 取所有可访问的 roots（由后端 /api/mobile/roots 返回），并选第一个作为 filesState.root
+  async function loadFilesRoots() {
+    if (filesState.root) return filesState.root;
     try {
       var r = await api('/api/mobile/roots');
-      sel.innerHTML = '';
       var roots = pickList(r.roots);
-      roots.forEach(function (x) {
-        var o = el('option', { value: x.path, text: x.name || x.path });
-        sel.appendChild(o);
-      });
-      if (roots.length) {
-        sel.value = roots[0].path;
-        filesState.root = roots[0].path;
-      }
+      if (!roots.length) return '';
+      filesState.root = roots[0].path;
+      return filesState.root;
+    } catch (e) { return ''; }
+  }
+
+  // 进入一个目录（dirPath 必须存在）
+  async function cdInto(dirPath) {
+    if (!dirPath) return;
+    if (filesState.path) filesState.history.push(filesState.path);
+    filesState.path = dirPath;
+    filesState.items = [];
+    filesState.q = '';
+    var q = $('#files-q'); if (q) q.value = '';
+    await refreshFilesList();
+    paintFilesBreadcrumb();
+  }
+
+  // 返回上级
+  async function cdUp() {
+    if (!filesState.path || !filesState.root) return;
+    if (filesState.path === filesState.root) {
+      // 已在根，不能再 up
+      return;
+    }
+    // 简单做法：取 parent
+    var sep = filesState.path.indexOf('\\') >= 0 ? '\\' : '/';
+    var idx = filesState.path.lastIndexOf(sep);
+    if (idx <= 0) return;
+    var parent = filesState.path.substring(0, idx);
+    filesState.history.push(filesState.path);
+    filesState.path = parent;
+    filesState.items = [];
+    filesState.q = '';
+    var q = $('#files-q'); if (q) q.value = '';
+    await refreshFilesList();
+    paintFilesBreadcrumb();
+  }
+
+  // 拉取当前目录 items
+  async function refreshFilesList() {
+    var list = $('#files-list');
+    var meta = $('#files-meta');
+    if (!list) return;
+    if (!filesState.path) {
+      clearChildren(list);
+      list.appendChild(emptyBlock('No folder selected', '请在 desktop 端配置 allowedRoots'));
+      return;
+    }
+    clearChildren(list);
+    list.appendChild(el('div', { class: 'skeleton', style: 'height: 56px; margin-bottom: 8px;' }));
+    list.appendChild(el('div', { class: 'skeleton', style: 'height: 56px; margin-bottom: 8px;' }));
+    try {
+      var r = await api('/api/mobile/files?path=' + encodeURIComponent(filesState.path));
+      if (!r.ok) throw new Error(r.error || 'files_failed');
+      filesState.items = Array.isArray(r.items) ? r.items : [];
+      paintFilesList();
+      if (meta) meta.textContent = filesState.items.length + ' items';
     } catch (e) {
-      sel.innerHTML = '<option>No roots</option>';
+      clearChildren(list);
+      list.appendChild(emptyBlock('Failed to load folder', String(e && e.message || e)));
+      if (meta) meta.textContent = '';
     }
   }
 
-  async function runSearch() {
-    var q = ($('#files-q').value || '').trim();
-    var root = $('#files-root').value || filesState.root;
-    filesState.q = q;
-    filesState.root = root;
+  // 渲染文件列表（手机文件管理器样式：竖向一行一项）
+  function paintFilesList() {
     var list = $('#files-list');
-    var meta = $('#files-meta');
-    if (!q) {
-      clearChildren(list);
-      list.appendChild(emptyBlock('输入关键字开始搜索', 'Root + 关键字 = 模糊文件名匹配'));
-      meta.textContent = '';
+    if (!list) return;
+    var items = (filesState.items || []).slice().sort(function (a, b) {
+      // 文件夹优先；同类型按名字排序
+      if (!!a.isDir !== !!b.isDir) return a.isDir ? -1 : 1;
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+    // 应用搜索过滤
+    var q = (filesState.q || '').toLowerCase();
+    if (q) {
+      items = items.filter(function (it) { return (it.name || '').toLowerCase().indexOf(q) >= 0; });
+    }
+    clearChildren(list);
+    if (!items.length) {
+      list.appendChild(emptyBlock(q ? 'No matching items' : 'This folder is empty', q ? '试试清空搜索框' : ''));
       return;
     }
-    if (filesState.aborter) try { filesState.aborter.abort(); } catch (e) {}
-    filesState.aborter = new AbortController();
-    meta.textContent = '搜索中…';
-    clearChildren(list);
-    list.appendChild(el('div', { class: 'skeleton', style: 'height: 56px; margin-bottom: 8px;' }));
-    try {
-      var url = '/api/mobile/search?q=' + encodeURIComponent(q) + '&path=' + encodeURIComponent(root) + '&limit=50';
-      var t = getToken();
-      var r = await fetch(url, { method: 'GET', headers: { 'Authorization': 'Bearer ' + t, 'Accept': 'application/json' }, signal: filesState.aborter.signal });
-      var j = null; try { j = await r.json(); } catch (e) { j = { ok: false }; }
-      clearChildren(list);
-      if (!j.ok) throw new Error(j.error || ('http_' + r.status));
-      var items = pickList(j);
-      filesState.lastResults = items;
-      meta.textContent = items.length + ' results' + (j.truncated ? ' (truncated)' : '');
-      if (!items.length) {
-        list.appendChild(emptyBlock('No files found', '没有匹配的文件名'));
-        return;
-      }
-      items.forEach(function (it) {
-        var row = el('button', { class: 'file-row', type: 'button' }, [
-          el('div', { class: 'file-name', text: it.name }),
-          el('div', { class: 'file-path', text: relPath(it.path), title: it.path || '' }),
-          el('div', { class: 'file-meta' }, [
-            el('span', { class: 'pill' + (it.kind && it.kind !== 'text' ? '' : ' pill-blue'), text: it.kind || 'file' }),
+    items.forEach(function (it) {
+      var isDir = !!it.isDir;
+      var row = el('button', { class: 'fm-row' + (isDir ? ' fm-row-dir' : ' fm-row-file'), type: 'button' }, [
+        el('span', { class: 'fm-icon' + (isDir ? ' fm-icon-dir' : ' fm-icon-file') }, [tspan(isDir ? '▸' : '◇')]),
+        el('div', { class: 'fm-body' }, [
+          el('div', { class: 'fm-name', text: it.name || '(unnamed)' }),
+          el('div', { class: 'fm-meta' }, [
+            tspan(isDir ? 'folder' : (it.kind || 'file')),
+            tspan('·'),
             tspan(fmtSize(it.size)),
+            tspan('·'),
             tspan(fmtTime(it.mtime))
           ])
-        ]);
-        row.addEventListener('click', function () { pickFile(it); });
-        list.appendChild(row);
-      });
-    } catch (e) {
-      if (String(e && e.name) === 'AbortError') return;
-      clearChildren(list);
-      list.appendChild(emptyBlock('Search failed', String(e && e.message || e)));
-      meta.textContent = '';
+        ])
+      ]);
+      // 桌面双击 / 手机单击 → 进入或预览
+      row.addEventListener('click', function () { onFilesRowClick(it); });
+      row.addEventListener('dblclick', function () { onFilesRowClick(it); });
+      list.appendChild(row);
+    });
+  }
+
+  function onFilesRowClick(it) {
+    if (!it) return;
+    if (it.isDir) {
+      cdInto(it.path);
+    } else {
+      pickFile(it);
     }
+  }
+
+  // 当前路径 breadcrumb
+  function paintFilesBreadcrumb() {
+    var el1 = $('#files-path');
+    if (!el1) return;
+    el1.textContent = filesState.path ? relPath(filesState.path) : '/';
+  }
+
+  async function renderFiles() {
+    if (!filesState.root) await loadFilesRoots();
+    // 第一次进入且无 path 时：定位到 root
+    if (!filesState.path) filesState.path = filesState.root;
+    paintFilesBreadcrumb();
+    paintFilesCwd();
+    if (!filesState.items.length) await refreshFilesList();
+  }
+
+  // "当前文件夹" + "Ask AI in this folder" CTA
+  function paintFilesCwd() {
+    var label = $('#files-cwd-label');
+    var openBtn = $('#files-open-agent');
+    var backBtn = $('#files-back');
+    var path = filesState.path || '';
+    if (label) label.textContent = path ? relPath(path) : '未选择';
+    if (openBtn) openBtn.disabled = !path;
+    if (backBtn) backBtn.disabled = !path || !filesState.root || path === filesState.root;
+  }
+
+  // 用户在 Files 页面点 "Ask AI in this folder"
+  async function onFilesOpenAgent() {
+    var cwd = filesState.path || '';
+    if (!cwd) return;
+    try {
+      await apiPost('/api/mobile/context/cwd', { cwd: cwd });
+    } catch (e) {
+      console.warn('set context cwd failed', e);
+    }
+    agentState.cwd = cwd;
+    // 默认选择 claude（如果未选）；切到 Agent 页
+    if (!agentState.agentId) agentState.agentId = 'claude';
+    agentState.sessionId = '';
+    agentLoadedOnce = true;
+    // 同步偏好
+    try {
+      await apiPost('/api/mobile/context/select', {
+        cwd: cwd, agentId: agentState.agentId, sessionId: ''
+      });
+    } catch (e) { /* ignore */ }
+    showTab('agent');
   }
 
   // ---------------- 受保护图片：fetch + token + blob URL ----------------
-  var imageRegistry = []; // 跟踪本次会话所有 objectURL，关闭预览时回收
+  var imageRegistry = [];
   function registerObjectUrl(url) {
     if (!url) return;
     imageRegistry.push(url);
@@ -401,9 +615,9 @@
     return URL.createObjectURL(blob);
   }
 
+  // 文件预览（点文件后）
   async function pickFile(it) {
     filesState.lastPicked = it;
-    // 关闭旧预览时回收上次的 objectURL
     if (filesState.currentObjectUrl) {
       try { URL.revokeObjectURL(filesState.currentObjectUrl); } catch (e) {}
       filesState.currentObjectUrl = null;
@@ -412,6 +626,7 @@
     var nameEl = $('#files-preview-name');
     var metaEl = $('#files-preview-meta');
     var body = $('#files-preview-body');
+    if (!box || !nameEl || !metaEl || !body) return;
     nameEl.textContent = it.name;
     metaEl.textContent = relPath(it.path) + ' · ' + fmtSize(it.size) + ' · ' + fmtTime(it.mtime);
     clearChildren(body);
@@ -441,11 +656,8 @@
       return;
     }
     if (j.kind === 'image' && j.thumbUrl) {
-      // 不直接 <img src="/api/mobile/thumb?...">：浏览器不会带 Authorization。
-      // 走 fetch + Bearer + blob URL，关闭时 revoke。
       body.appendChild(el('div', { class: 'preview-loading', text: '图片加载中…' }));
       loadAuthImage(j.thumbUrl).then(function (objectUrl) {
-        // 二次校验：确保用户没有切到其它文件
         if (body !== $('#files-preview-body')) {
           try { URL.revokeObjectURL(objectUrl); } catch (e) {}
           return;
@@ -482,25 +694,6 @@
       return;
     }
     body.appendChild(el('div', { class: 'preview-empty', text: 'Binary file · 不提供内嵌预览' }));
-  }
-
-  async function renderFiles() {
-    await loadRoots();
-    paintFilesCwd();
-    if (!filesState.lastResults.length) {
-      runSearch();
-    }
-  }
-
-  // Phase 2A-1：Files "current folder" CTA —— 显示当前 root + 启用按钮
-  function paintFilesCwd() {
-    var label = $('#files-cwd-label');
-    var openBtn = $('#files-open-agent');
-    var sessBtn = $('#files-view-sessions');
-    var root = $('#files-root') ? $('#files-root').value : (filesState.root || '');
-    if (label) label.textContent = root ? relPath(root) : '未选择';
-    if (openBtn) openBtn.disabled = !root;
-    if (sessBtn) sessBtn.disabled = !root;
   }
 
   // ---------------- Skills ----------------
@@ -700,8 +893,11 @@
     });
   }
 
-  // ---------------- Phase 2A-1：Agent Workspace Shell ----------------
+  // ---------------- Phase UI-A2：Agent 独立对话页（ChatGPT-like） ----------------
   // 4 个固定 agent：claude / codex / opencode / qoder（fallback 占位）
+  // 顶部：当前 agent label (Claude Code / Codex / OpenCode / Qoder) + cwd + model + effort
+  // 中部：消息流（user / agent / system 气泡）
+  // 底部：textarea + Send
   var AGENT_CHIPS = [
     { id: 'claude',   label: 'Claude Code' },
     { id: 'codex',    label: 'Codex' },
@@ -713,13 +909,16 @@
     agentId: '',
     sessionId: '',
     sessions: [],
-    installedMap: {}, // agentId -> bool
+    installedMap: {},   // agentId -> bool
+    agentMeta: {},      // agentId -> { label, model, effort }
     usage: null,
-    // Phase UI-A1：移除 desktop approval；保留 runStatus 供 Send 按钮控制
-    runStatus: ''                 // running / done / failed / '' (idle)
+    // Phase UI-A2：mobile send path 直接走 runner；redline 仅写 audit，不再走 desktop approval
+    runStatus: '',      // running / done / failed / '' (idle)
+    model: 'default',
+    effort: 'normal'
   };
 
-  // Phase UI-A1：移除 approval 文案（红线仅写 audit，不再走 approval）
+  // Phase UI-A2：mobile send path 直接走 runner；redline 仅写 audit，不再走 desktop approval
   var RUN_STATUS_TEXT = {
     running: 'Agent is running…',
     done:    'Done.',
@@ -729,16 +928,18 @@
   // 把"当前 Agent Tab 是否被实际切换过"记下来，避免 user 选完 root 后重复拉
   var agentLoadedOnce = false;
 
+  // 当前页（用于 Send 按钮 / onSendMessage）
+  // 'home' 表示从 Home 顶部对话框发出；'agent' 表示从 Agent 独立页发出
+  var sendSource = 'agent';
+
   async function renderAgent() {
+    sendSource = 'agent';
+    paintAgentHeaderName();
+    paintAgentHeaderStatus();
+    paintAgentHeaderMeta();
     paintAgentSwitcher();
-    paintAgentStatus();
     paintAgentCwd();
     paintAgentMessages();
-    paintAgentHero();
-    paintAgentAssistantCards();
-    paintAgentRunsSummary();
-    paintAgentUsage();
-    paintAgentContext();
     // 第一次进入：拉一次 context + sessions
     if (!agentLoadedOnce) {
       agentLoadedOnce = true;
@@ -748,15 +949,26 @@
         agentState.agentId = ctx.agentId || '';
         agentState.sessionId = ctx.sessionId || '';
         paintAgentCwd();
+        paintAgentHeaderMeta();
         paintAgentSwitcher();
+        paintAgentHeaderName();
       } catch (e) { /* ignore */ }
     }
-    // 拉 agent 安装情况（不强制失败；不阻塞 UI）
+    // 拉 agent 安装情况 + 元数据
     try {
       var r = await api('/api/mobile/agents');
       var items = pickList(r);
-      items.forEach(function (a) { agentState.installedMap[a.id] = !!a.installed; });
+      items.forEach(function (a) {
+        agentState.installedMap[a.id] = !!a.installed;
+        agentState.agentMeta[a.id] = {
+          label: a.label || a.id,
+          model: a.model || 'default',
+          effort: a.effort || 'normal'
+        };
+      });
       paintAgentSwitcher();
+      paintAgentHeaderName();
+      paintAgentHeaderMeta();
     } catch (e) { /* ignore */ }
     // 拉 sessions（如果 cwd 非空）
     if (agentState.cwd) {
@@ -764,21 +976,48 @@
     } else {
       paintAgentSessionsEmpty('请先在 Files 选择 cwd');
     }
+    updateSendButtonState();
   }
 
-  // Phase UI-A1：AionUi-like hero greet（按时间动态）
-  function paintAgentHero() {
-    var greet = $('#agent-hero-greet');
-    var sub = $('#agent-hero-sub');
-    var now = new Date();
-    var hr = now.getHours();
-    var time = (hr < 12) ? 'Good morning' : (hr < 18) ? 'Good afternoon' : 'Good evening';
-    if (greet) greet.textContent = time + ", what's your plan for today?";
-    if (sub) sub.textContent = 'Type a message, ask an agent to work in this folder, or pick a skill below.';
+  // 顶部 agent 名称（左上角"Claude Code / Codex / OpenCode / Qoder"）
+  function paintAgentHeaderName() {
+    var name = $('#agent-header-name');
+    if (!name) return;
+    var meta = agentState.agentId ? agentState.agentMeta[agentState.agentId] : null;
+    var label = (meta && meta.label) || (AGENT_CHIPS.find(function (a) { return a.id === agentState.agentId; }) || {}).label || agentState.agentId || 'Agent';
+    name.textContent = label || 'Agent';
+  }
+  function paintAgentHeaderStatus() {
+    var el1 = $('#agent-header-status');
+    if (!el1) return;
+    if (agentState.runStatus === 'running') {
+      el1.textContent = 'running…';
+      el1.className = 'agent-header-status is-running';
+    } else if (agentState.runStatus === 'failed') {
+      el1.textContent = 'failed';
+      el1.className = 'agent-header-status is-failed';
+    } else {
+      el1.textContent = 'ready';
+      el1.className = 'agent-header-status';
+    }
+  }
+  function paintAgentHeaderMeta() {
+    var cwdEl = $('#agent-meta-cwd');
+    var modelEl = $('#agent-meta-model');
+    var effortEl = $('#agent-meta-effort');
+    if (cwdEl) cwdEl.textContent = agentState.cwd ? relPath(agentState.cwd) : '—';
+    if (modelEl) {
+      var meta = agentState.agentId ? agentState.agentMeta[agentState.agentId] : null;
+      modelEl.textContent = meta ? meta.model : (agentState.model || 'default');
+    }
+    if (effortEl) {
+      var meta2 = agentState.agentId ? agentState.agentMeta[agentState.agentId] : null;
+      effortEl.textContent = meta2 ? meta2.effort : (agentState.effort || 'normal');
+    }
   }
 
-  // Phase UI-A1：AionUi-like assistant / skill cards（点击 → 填入 input）
-  // Phase UI-A1：assistant cards 用纯文字+SVG icon（避免 unicode emoji 触发安全扫描）
+  // 保留：assistant / skill cards（UI-A1 风格）—— Phase UI-A2 暂时不在 Agent 页渲染（结构变成 ChatGPT-like）
+  // 保留 ASSISTANT_CARDS 常量，方便 Home 后续扩展
   var ASSISTANT_CARDS = [
     { id: 'cowork',   icon: '⚡', title: 'Cowork',          prompt: '请帮我在当前目录完成协作任务：' },
     { id: 'review',   icon: '◇', title: 'Code Review',     prompt: '请审查当前目录的代码，重点关注安全、正确性、可维护性：' },
@@ -790,51 +1029,9 @@
     { id: 'word',     icon: '¶', title: 'Word Helper',     prompt: '请把当前目录的内容整理为 Word 文档大纲：' }
   ];
 
-  function paintAgentAssistantCards() {
-    var box = $('#agent-assistant-cards');
-    if (!box) return;
-    clearChildren(box);
-    ASSISTANT_CARDS.forEach(function (c) {
-      var card = el('button', { class: 'agent-assistant-card', type: 'button', title: c.prompt }, [
-        el('span', { class: 'agent-assistant-card-icon', text: c.icon }),
-        tspan(c.title)
-      ]);
-      card.addEventListener('click', function () { onPickAssistant(c); });
-      box.appendChild(card);
-    });
-  }
-
-  function onPickAssistant(card) {
-    var input = $('#agent-input');
-    if (!input) return;
-    var cur = (input.value || '').trim();
-    var sep = cur && !cur.endsWith('\n') ? '\n' : '';
-    input.value = cur + sep + (card.prompt || '');
-    input.focus();
-    updateSendButtonState();
-    try { input.scrollIntoView({ block: 'center' }); } catch (_) {}
-  }
-
-  function paintAgentRunsSummary() {
-    var box = $('#agent-runs-summary');
-    if (!box) return;
-    clearChildren(box);
-    api('/api/mobile/usage').then(function (j) {
-      var s = (j && j.summary) || {};
-      var today = (typeof s.todayRuns === 'number') ? s.todayRuns : 0;
-      var week = (typeof s.weekRuns === 'number') ? s.weekRuns : 0;
-      var durMs = (typeof s.todayDurationMs === 'number') ? s.todayDurationMs : 0;
-      var dur = (Math.round(durMs / 100) / 10) + 's';
-      clearChildren(box);
-      box.appendChild(el('div', { class: 'agent-runs-row' }, [tspan('Today'), tspan(String(today))]));
-      box.appendChild(el('div', { class: 'agent-runs-row' }, [tspan('This week'), tspan(String(week))]));
-      box.appendChild(el('div', { class: 'agent-runs-row' }, [tspan('Today duration'), tspan(dur)]));
-    }).catch(function () { /* ignore */ });
-  }
-
   function paintAgentCwd() {
     var cwdEl = $('#agent-cwd');
-    if (cwdEl) cwdEl.textContent = agentState.cwd ? relPath(agentState.cwd) : '未选择';
+    if (cwdEl) cwdEl.textContent = agentState.cwd ? ('Work in: ' + relPath(agentState.cwd)) : 'Work in: —';
   }
 
   function paintAgentSwitcher() {
@@ -864,7 +1061,7 @@
     var el2 = $('#agent-status-pill');
     if (el1) {
       if (agentState.sessionId) el1.textContent = 'session ' + agentState.sessionId;
-      else el1.textContent = agentState.cwd ? '未选择 session' : '未选择 cwd';
+      else el1.textContent = agentState.cwd ? 'no session yet' : 'no folder yet';
     }
     if (el2) {
       clearChildren(el2);
@@ -874,6 +1071,7 @@
     }
   }
 
+  // ChatGPT-like 消息流渲染
   function paintAgentMessages() {
     var box = $('#agent-messages');
     if (!box) return;
@@ -882,41 +1080,26 @@
     if (!cur) {
       if (!agentState.cwd) {
         box.appendChild(emptyBlock('请先在 Files 选择 cwd', 'cwd → agent → session'));
+        return;
       } else if (agentState.sessions.length === 0) {
-        box.appendChild(emptyBlock('当前 cwd 暂无 session', '可在 Sessions 页面查看其他来源'));
+        box.appendChild(emptyBlock('No messages yet', 'Type a message below to start a conversation with this agent.'));
+        return;
       } else {
-        box.appendChild(emptyBlock('未选择 session', '点击下方最近 session，或切换 agent'));
+        box.appendChild(emptyBlock('No session selected', 'pick a recent session on Home, or type a message to start a new one'));
+        return;
       }
-      return;
     }
     // v1：detail 不暴露 messages 全文（mobile-sessions.js scrubSessionDetail）
     // 这里给一个安全摘要气泡
     var preview = (cur.summary && cur.summary.lastMessagePreview) || '';
-    // Phase 2B：附 status + duration 小摘要（仅 mobile source）
-    var durText = '';
-    if (cur.source === 'mobile') {
-      var dur = (cur.usage && typeof cur.usage.durationMs === 'number') ? cur.usage.durationMs : 0;
-      if (dur > 0) durText = (Math.round(dur / 100) / 10) + 's';
-    }
-    var statusLine = ' · ' + (cur.status || 'unknown') + (durText ? (' · ⏱ ' + durText) : '');
     if (preview) {
-      var b = el('div', { class: 'message-bubble message-bubble-agent' }, [
-        el('span', { class: 'message-role', text: (cur.summary.lastRole || 'agent') + ' · ' + (cur.agentId || 'unknown') + statusLine }),
-        tspan(preview)
+      var b = el('div', { class: 'chat-bubble chat-bubble-agent' }, [
+        el('div', { class: 'chat-bubble-role', text: ((cur.agentId || 'agent') + ' · ' + (cur.status || 'unknown')) }),
+        el('div', { class: 'chat-bubble-text', text: preview })
       ]);
       box.appendChild(b);
     } else {
-      box.appendChild(emptyBlock('无 preview 内容', 'session ' + cur.sessionId + statusLine));
-    }
-    if (cur.context && (cur.context.files || cur.context.skills)) {
-      var files = (cur.context.files || []).slice(0, 3);
-      var skills = (cur.context.skills || []).slice(0, 3);
-      if (files.length || skills.length) {
-        var meta = el('div', { class: 'message-bubble message-bubble-system' });
-        if (files.length) meta.appendChild(tspan('files: ' + files.map(relPath).join(', ') + '\n'));
-        if (skills.length) meta.appendChild(tspan('skills: ' + skills.join(', ')));
-        box.appendChild(meta);
-      }
+      box.appendChild(emptyBlock('No messages yet', 'Type a message below to start a conversation with this agent.'));
     }
   }
 
@@ -925,36 +1108,7 @@
     var box = $('#agent-messages');
     if (box) {
       clearChildren(box);
-      box.appendChild(emptyBlock('当前 cwd 暂无 session', sub || '可在 Sessions 页面查看其他来源'));
-    }
-  }
-
-  function paintAgentUsage() {
-    var t = $('#agent-usage-today');
-    var w = $('#agent-usage-week');
-    if (!t || !w) return;
-    if (agentState.usage && agentState.usage.summary) {
-      t.textContent = fmtTokens(agentState.usage.summary.todayTokens);
-      w.textContent = fmtTokens(agentState.usage.summary.weekTokens);
-    } else {
-      t.textContent = '—';
-      w.textContent = '—';
-    }
-  }
-
-  function paintAgentContext() {
-    var f = $('#agent-context-files');
-    var s = $('#agent-skill-suggestions');
-    if (!f || !s) return;
-    var cur = agentState.sessions.find(function (x) { return x.sessionId === agentState.sessionId; });
-    if (cur && cur.context) {
-      var files = (cur.context.files || []).map(relPath).join(' · ') || '—';
-      var skills = (cur.context.skills || []).join(' · ') || '—';
-      f.textContent = files;
-      s.textContent = skills;
-    } else {
-      f.textContent = '—';
-      s.textContent = '—';
+      box.appendChild(emptyBlock('No messages yet', sub || 'Type a message below to start a conversation with this agent.'));
     }
   }
 
@@ -976,7 +1130,6 @@
       }
       paintAgentStatus();
       paintAgentMessages();
-      paintAgentContext();
     } catch (e) {
       // 静默失败 —— 不显示错误，避免阻断
       paintAgentSessionsEmpty('加载失败：' + (e && e.message || e));
@@ -988,7 +1141,13 @@
     agentState.agentId = agentId;
     agentState.sessionId = '';
     paintAgentSwitcher();
+    paintAgentHeaderName();
+    paintAgentHeaderMeta();
     paintAgentStatus();
+    paintHomeAgentChips();
+    paintHomeModel();
+    paintHomeEffort();
+    paintHomeStatusPill();
     // 同步偏好到后端
     try {
       await apiPost('/api/mobile/context/select', {
@@ -1001,38 +1160,21 @@
     else paintAgentMessages();
   }
 
-  // 用户在 Files 页面点"在此文件夹打开 Agent"
-  async function onFilesOpenAgent() {
-    var root = $('#files-root') ? $('#files-root').value : (filesState.root || '');
-    if (!root) return;
-    try {
-      await apiPost('/api/mobile/context/cwd', { cwd: root });
-    } catch (e) {
-      console.warn('set context cwd failed', e);
-    }
-    agentState.cwd = root;
-    // 选择后端记忆的 lastAgent（如果有），否则默认 claude
-    agentState.agentId = 'claude';
-    agentState.sessionId = '';
-    agentLoadedOnce = true;
-    showTab('agent');
-  }
-
-  // 用户在 Agent 页面点"选择文件夹" —— 简化：直接复用 Files 的 root select（暂不实现 picker）
+  // 保留兼容：Agent 页面 "选择文件夹"
   function onAgentPickCwd() {
-    // 切到 Files 页面，让用户在那里选 root
     showTab('files');
   }
 
-  // ---------------- Phase 2A-2.1：Send (redline-aware) ----------------
+  // ---------------- Send (Phase UI-A2) ----------------
   // 普通消息 → stub runner → done
-  // 红线消息 → approval → waiting_approval → 轮询 approved / rejected / timeout
-
-  // Phase UI-A1：mobile send path 直接走 runner；redline 仅写 audit，不再走 desktop approval
-  // 原 onSendMessage 里的 approval 流程已删除。
-  async function onSendMessage() {
-    var input = $('#agent-input');
-    var btn = $('#agent-send');
+  // 红线消息 → audit → runner → done
+  // 来源：'home'（Home 顶部对话框）或 'agent'（Agent 独立页）
+  async function onSendMessage(source) {
+    var src = source || sendSource || 'agent';
+    var inputSel = (src === 'home') ? '#home-input' : '#agent-input';
+    var btnSel   = (src === 'home') ? '#home-send'  : '#agent-send';
+    var input = $(inputSel);
+    var btn = $(btnSel);
     if (!input || !btn) return;
     var text = (input.value || '').trim();
     if (!text) {
@@ -1058,6 +1200,7 @@
     btn.disabled = true;
     agentState.runStatus = 'running';
     paintAgentStatus();
+    paintAgentHeaderStatus();
     try {
       // 1) 找/创建 sessionId
       var sessionId = agentState.sessionId;
@@ -1082,16 +1225,22 @@
       input.value = '';
       agentState.runStatus = (r.status === 'failed') ? 'failed' : (r.status || 'done');
       paintAgentStatus();
+      paintAgentHeaderStatus();
       // 拉一次 events 显示 agent bubble
       try { await refreshEvents(); } catch (_) {}
       // 跑完后刷新 Home sessions 列表（Running / Recent）
       try { if (typeof renderHome === 'function') await renderHome(); } catch (_) {}
+      // 如果用户在 Agent 独立页：刷新 messages
+      if (src === 'agent') {
+        await refreshAgentSessions();
+      }
     } catch (e) {
       agentState.runStatus = 'failed';
-      paintAgentStatus('error: ' + (e && e.message || e));
+      paintAgentStatus();
+      paintAgentHeaderStatus();
     } finally {
       btn.disabled = false;
-      updateSendButtonState();
+      if (src === 'home') updateHomeSendButtonState(); else updateSendButtonState();
     }
   }
 
@@ -1107,28 +1256,27 @@
 
   function paintEvents(payload) {
     if (!payload || !Array.isArray(payload.messages)) return;
-    // 简单做法：把 messages 渲染到 #agent-messages 容器
     var box = $('#agent-messages');
     if (!box) return;
-    box.innerHTML = '';
-    for (var i = 0; i < payload.messages.length; i++) {
-      var m = payload.messages[i];
+    // 在 ChatGPT-like 容器中追加 messages（不清空 existing session summary）
+    payload.messages.forEach(function (m) {
       var div = document.createElement('div');
-      div.className = 'bubble bubble-' + (m.role || 'system');
-      var role = document.createElement('div');
-      role.className = 'bubble-role';
-      role.textContent = m.role === 'user' ? 'You' : (m.role === 'agent' ? 'Agent' : 'System');
+      var role = m.role || 'system';
+      div.className = 'chat-bubble chat-bubble-' + role;
+      var role1 = document.createElement('div');
+      role1.className = 'chat-bubble-role';
+      role1.textContent = role === 'user' ? 'You' : (role === 'agent' ? 'Agent' : 'System');
       var body = document.createElement('div');
-      body.className = 'bubble-text';
+      body.className = 'chat-bubble-text';
       body.textContent = m.text || '';
       var meta = document.createElement('div');
-      meta.className = 'bubble-meta';
+      meta.className = 'chat-bubble-meta';
       meta.textContent = m.status || '';
-      div.appendChild(role);
+      div.appendChild(role1);
       div.appendChild(body);
       div.appendChild(meta);
       box.appendChild(div);
-    }
+    });
   }
 
   function flashInputError(input, msg) {
@@ -1140,6 +1288,16 @@
   function updateSendButtonState() {
     var btn = $('#agent-send');
     var input = $('#agent-input');
+    if (!btn || !input) return;
+    var text = (input.value || '').trim();
+    var ok = !!agentState.cwd && !!agentState.agentId && text.length > 0 && text.length <= 4000 && agentState.runStatus !== 'running';
+    btn.disabled = !ok;
+  }
+
+  // Home 顶部对话框 send button state
+  function updateHomeSendButtonState() {
+    var btn = $('#home-send');
+    var input = $('#home-input');
     if (!btn || !input) return;
     var text = (input.value || '').trim();
     var ok = !!agentState.cwd && !!agentState.agentId && text.length > 0 && text.length <= 4000 && agentState.runStatus !== 'running';
@@ -1228,8 +1386,8 @@
     if (p) p.hidden = true;
     if (a) a.hidden = false;
     paintIcons();
-    // Phase UI-A1：Agent 为默认核心入口
-    showTab('agent');
+    // Phase UI-A2：配对成功 → App Shell → 默认 Home
+    showTab('home');
   }
 
   async function doPair() {
@@ -1265,15 +1423,11 @@
     }
   }
 
-  // ---------------- 事件绑定 ----------------
+  // ---------------- 事件绑定 (Phase UI-A2) ----------------
   function bind() {
     // bottom nav
     $all('.tab-btn').forEach(function (b) {
       b.addEventListener('click', function () { showTab(b.getAttribute('data-tab-btn')); });
-    });
-    // quick access
-    $all('.qa-tile').forEach(function (b) {
-      b.addEventListener('click', function () { showTab(b.getAttribute('data-go')); });
     });
     // top refresh
     var refresh = document.getElementById('app-refresh');
@@ -1281,64 +1435,78 @@
       var active = document.querySelector('.tab-btn.is-active');
       showTab(active ? active.getAttribute('data-tab-btn') : 'home');
     });
-    // Phase UI-A1：Sidebar New Chat → 切到 Agent + 清空 input
+    // sidebar: data-go nav
+    $all('[data-go]').forEach(function (b) {
+      b.addEventListener('click', function () { showTab(b.getAttribute('data-go')); });
+    });
+    // Sidebar New Chat → 切到 Agent + 清空 input
     var newChat = document.getElementById('sidebar-new-chat');
     if (newChat) newChat.addEventListener('click', function () {
       var input = document.getElementById('agent-input');
       if (input) input.value = '';
       showTab('agent');
     });
-    // Sidebar Search → 切到 Files（搜索栏在 Files 页面）
-    var sbSearch = document.getElementById('sidebar-search');
-    if (sbSearch) sbSearch.addEventListener('click', function () { showTab('files'); });
-    // files
-    var filesGo = document.getElementById('files-go');
-    if (filesGo) filesGo.addEventListener('click', runSearch);
+
+    // Phase UI-A2: Home 顶部对话框
+    var homeInput = document.getElementById('home-input');
+    if (homeInput) {
+      homeInput.addEventListener('input', updateHomeSendButtonState);
+      homeInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          onSendMessage('home');
+        }
+      });
+    }
+    var homeSend = document.getElementById('home-send');
+    if (homeSend) homeSend.addEventListener('click', function () { onSendMessage('home'); });
+
+    // Agent 独立页：Send
+    var agentInput = document.getElementById('agent-input');
+    if (agentInput) {
+      agentInput.addEventListener('input', updateSendButtonState);
+      agentInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          onSendMessage('agent');
+        }
+      });
+    }
+    var agentSend = document.getElementById('agent-send');
+    if (agentSend) agentSend.addEventListener('click', function () { onSendMessage('agent'); });
+    // Agent 顶部 Back → Home
+    var agentBack = document.getElementById('agent-header-back');
+    if (agentBack) agentBack.addEventListener('click', function () { showTab('home'); });
+
+    // Files (Phase UI-A2 · Phone File Manager)
     var filesQ = document.getElementById('files-q');
     if (filesQ) {
-      var t = null;
       filesQ.addEventListener('input', function () {
-        if (t) clearTimeout(t);
-        t = setTimeout(runSearch, 300);
+        filesState.q = filesQ.value || '';
+        paintFilesList();
       });
-      filesQ.addEventListener('keydown', function (e) { if (e.key === 'Enter') runSearch(); });
     }
-    var filesRoot = document.getElementById('files-root');
-    if (filesRoot) filesRoot.addEventListener('change', function () { paintFilesCwd(); if (filesState.q) runSearch(); });
+    var filesBack = document.getElementById('files-back');
+    if (filesBack) filesBack.addEventListener('click', function () { cdUp(); });
+    var filesRefresh = document.getElementById('files-refresh');
+    if (filesRefresh) filesRefresh.addEventListener('click', function () { refreshFilesList(); });
     var filesPreviewClose = document.getElementById('files-preview-close');
     if (filesPreviewClose) filesPreviewClose.addEventListener('click', function () {
       revokeAllObjectUrls();
       var p = document.getElementById('files-preview');
       if (p) p.hidden = true;
     });
-    // Phase 2A-1：Files → Agent
     var filesOpenAgent = document.getElementById('files-open-agent');
     if (filesOpenAgent) filesOpenAgent.addEventListener('click', onFilesOpenAgent);
-    // Phase 2A-1：Agent tab
-    var agentPickCwd = document.getElementById('agent-pick-cwd');
-    if (agentPickCwd) agentPickCwd.addEventListener('click', onAgentPickCwd);
-    // Phase 2A-2.1：Agent → Send
-    var agentInput = document.getElementById('agent-input');
-    if (agentInput) {
-      agentInput.addEventListener('input', updateSendButtonState);
-      // Phase UI-A1：Enter 发送；Shift+Enter 换行
-      agentInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          if (!e.target.disabled) onSendMessage();
-        }
-      });
-    }
-    var agentSend = document.getElementById('agent-send');
-    if (agentSend) {
-      agentSend.addEventListener('click', onSendMessage);
-    }
+
     // skills filter
     var skillsQ = document.getElementById('skills-q');
     if (skillsQ) skillsQ.addEventListener('input', paintSkills);
+
     // pair
     var pairBtn = document.getElementById('pair-btn');
     if (pairBtn) pairBtn.addEventListener('click', doPair);
+
     // 离开页面时回收所有 objectURL
     window.addEventListener('beforeunload', revokeAllObjectUrls);
     window.addEventListener('pagehide', revokeAllObjectUrls);

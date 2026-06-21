@@ -902,10 +902,10 @@ async function readSkillsMobile() {
 // 不读 .env / config / token；不安装；不启动。
 // ============================================================
 const MOBILE_AGENTS = [
-  { id: 'claude',   label: 'Claude Code', command: 'claude',   detect: ['claude'] },
-  { id: 'codex',    label: 'Codex',       command: 'codex',    detect: ['codex'] },
-  { id: 'opencode', label: 'OpenCode',    command: 'opencode', detect: ['opencode'] },
-  { id: 'qoder',    label: 'Qoder CLI',   command: 'qoder',    detect: ['qoder', 'qodercli', 'qoder-cli'] },
+  { id: 'claude',   label: 'Claude Code', command: 'claude',   detect: ['claude'],   model: 'claude-sonnet-4-5', effort: 'normal' },
+  { id: 'codex',    label: 'Codex',       command: 'codex',    detect: ['codex'],    model: 'gpt-5-codex',      effort: 'normal' },
+  { id: 'opencode', label: 'OpenCode',    command: 'opencode', detect: ['opencode'], model: 'default',         effort: 'normal' },
+  { id: 'qoder',    label: 'Qoder CLI',   command: 'qoder',    detect: ['qoder', 'qodercli', 'qoder-cli'], model: 'default', effort: 'normal' },
 ];
 
 function probeOne(bin) {
@@ -938,6 +938,9 @@ async function readAgentsMobile() {
       command: a.command,
       installed: !!found,
       hint: found ? '' : `未找到 ${a.command}，请先安装并加入 PATH。`,
+      // Phase UI-A2：在 agents 响应里附带默认 model / effort；前端 Home / Agent 显示用
+      model: a.model || 'default',
+      effort: a.effort || 'normal'
     });
   }
   return { ok: true, items };

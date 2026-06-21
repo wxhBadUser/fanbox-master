@@ -302,13 +302,14 @@ function req(opts, body) {
   const tabBtnCount = (html.match(tabBtnRegex) || []).length;
   ok('HTML 含 4 data-tab pane (UI-A1)', tabCount === 4, 'count=' + tabCount);
   ok('HTML 含 4 data-tab-btn (UI-A1)', tabBtnCount === 4, 'count=' + tabBtnCount);
-  ok('HTML 含 flow-node (Home)', /flow-node/.test(html) && /Phone|LAN/.test(html));
-  ok('HTML 含 flow-node (Files)', /Root/.test(html) && /Search/.test(html));
-  // Phase 2A-1 后 Agent tab 是 Files → cwd → Agent Shell；Usage tab 合并到 Home
-  ok('HTML 含 Agent 或 Usage 标签 (Phase 1+2A-1 兼容)', /Agent|Sessions|Usage/.test(html));
-  // Phase UI-A1：去掉 Read-only 文案（手机端不再是只读）；保留 LAN protected + Token required
-  ok('HTML 含 LAN protected + Token required 安全文案',
-    /LAN protected/i.test(html) && /Token required/i.test(html));
+  ok('HTML 含 home-quickchat (Home)', /home-quickchat|home-hero-greet|home-input/.test(html) && /Work in|home-cwd/.test(html));
+  ok('HTML 含 files-breadcrumb (Files)', /files-breadcrumb|files-path|files-back/.test(html));
+  // Phase UI-A2：4 个 tab（home/agent/files/skills）
+  ok('HTML 含 Agent / Files / Skills 标签 (Phase UI-A2 兼容)', /Agent/.test(html) && /Files/.test(html) && /Skills/.test(html));
+  // Phase UI-A2：保留 3 条安全文案
+  ok('HTML 含 "Running on your paired desktop"', /Running on your paired desktop/i.test(html));
+  ok('HTML 含 "Scoped to the selected folder"', /Scoped to the selected folder/i.test(html));
+  ok('HTML 含 "Logged locally in FanBox"', /Logged locally in FanBox/i.test(html));
   ok('HTML 含 pair/confirm endpoint 调用', /\/api\/mobile\/pair\/confirm/.test(js));
   ok('HTML 不暴露真实 token 到 DOM', !/textContent\s*=\s*getToken\s*\(\s*\)/.test(html)); // 仅 js 内部用
   ok('js 不写入 localStorage 搜索历史', !/localStorage\.setItem\(\s*['"][^'"]*history/i.test(js));

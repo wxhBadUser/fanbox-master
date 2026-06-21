@@ -138,33 +138,43 @@ function req(opts, body) {
   fs.mkdirSync(path.dirname(skillFilePath), { recursive: true });
   fs.writeFileSync(skillFilePath, '# plan skill\nplan description for smoke test', 'utf8');
 
+  // Phase UI-A2：拉一次 /api/mobile/agents（H 段、I 段用）
+  const rAgents = await req({ path: '/api/mobile/agents', method: 'GET', headers: auth });
+  const agentsResp = rAgents.body;
+  function getAgentChips() {
+    try { return JSON.parse(agentsResp).items || []; } catch (e) { return []; }
+  }
+
   // ============================================================
   // [A] UI-A1 Agent workspace 结构
   // ============================================================
-  section('A) UI-A1 Agent workspace 结构');
+  section('A) UI-A2 Home-first Agent Workspace');
 
-  // 1) Agent 是默认入口：showApp() 调 showTab('agent')
-  ok('mobile.js showApp() 调 showTab(\'agent\')', /showApp[\s\S]{0,500}showTab\(['"]agent['"]\)/.test(js));
-  // HTML 中 Agent tab-btn 必含 is-active（class 顺序无关）
-  const agentBtnMatch = html.match(/<button[^>]*data-tab-btn="agent"[^>]*>/);
-  ok('mobile.js agent tab 是 default active（HTML 默认 active class）',
-    !!agentBtnMatch && /\bis-active\b/.test(agentBtnMatch[0]));
+  // 1) Home 是默认入口：showApp() 调 showTab('home')
+  ok('mobile.js showApp() 调 showTab(\'home\')', /showApp[\s\S]{0,500}showTab\(['"]home['"]\)/.test(js));
+  // HTML 中 Home tab-btn 必含 is-active（class 顺序无关）
+  const homeBtnMatch = html.match(/<button[^>]*data-tab-btn="home"[^>]*>/);
+  ok('mobile.js home tab 是 default active（HTML 默认 active class）',
+    !!homeBtnMatch && /\bis-active\b/.test(homeBtnMatch[0]));
   ok('HTML title 含 "Command Agent Workspace"', /Command Agent Workspace/i.test(html));
   ok('HTML title 含 FanBox', /FanBox/i.test(html));
 
-  // 2) AionUi-like hero title
-  ok('HTML 含 agent-hero 节点', /id="agent-hero"/i.test(html) || /class="agent-hero"/i.test(html));
-  ok('mobile.js hero 含 time-based greeting', /Good (morning|afternoon|evening)/i.test(js));
-  ok('mobile.js hero 含 "what.s your plan" 文案', /plan for today|what.+plan/i.test(js));
+  // 2) AionUi-like hero title（Phase UI-A2：移到 Home 顶部）
+  ok('HTML 含 home-hero / home-hero-greet 节点', /id="home-hero"/i.test(html) || /id="home-hero-greet"/i.test(html) || /class="home-hero"/i.test(html));
+  ok('mobile.js home-hero 含 time-based greeting', /Good (morning|afternoon|evening)/i.test(js));
+  ok('mobile.js home-hero 含 "what.s your plan" 文案', /plan for today|what.+plan/i.test(js));
   ok('HTML 含 "Hi" 风格 hero 描述', /(Hi,|Hello,|Good )/.test(html));
 
-  // 3) Claude / Codex / OpenCode / Qoder switcher
+  // 3) Claude / Codex / OpenCode / Qoder switcher（Home + Agent 都有）
   ok('mobile.js AGENT_CHIPS 含 claude/codex/opencode/qoder',
     /AGENT_CHIPS\s*=\s*\[[\s\S]*?claude[\s\S]*?codex[\s\S]*?opencode[\s\S]*?qoder[\s\S]*?\]/.test(js));
-  ok('HTML 含 agent-switcher 节点', /id="agent-switcher"/i.test(html));
-  // data-agent-id 在 mobile.js 中由 paintAgentSwitcher 动态设置
+  ok('HTML 含 agent-switcher 节点（Agent 顶）', /id="agent-switcher"/i.test(html));
+  ok('HTML 含 home-agent-chips 节点（Home 顶）', /id="home-agent-chips"/i.test(html));
+  // data-agent-id 在 mobile.js 中由 paintAgentSwitcher / paintHomeAgentChips 动态设置
   ok('mobile.js paintAgentSwitcher 设置 data-agent-id',
     /paintAgentSwitcher[\s\S]{0,2000}'data-agent-id'/.test(js));
+  ok('mobile.js paintHomeAgentChips 设置 data-agent-id',
+    /paintHomeAgentChips[\s\S]{0,2000}'data-agent-id'/.test(js));
   for (const a of ['claude', 'codex', 'opencode', 'qoder']) {
     ok('agent switcher 含 ' + a,
       js.includes("id: '" + a + "'") || js.includes('id: "' + a + '"'));
@@ -173,28 +183,32 @@ function req(opts, body) {
   ok('opencode 标记为 stub (not installed)', /(opencode|qoder)[\s\S]{0,80}(stub|not found|not installed)/i.test(js) || /STUB_RUNNER_IDS/.test(runnerCode));
   ok('runner 含 STUB_RUNNER_IDS = [opencode, qoder]', /STUB_RUNNER_IDS\s*=\s*\[/.test(runnerCode));
 
-  // 4) 大输入框
-  ok('HTML 含 #agent-input textarea', /id="agent-input"/.test(html));
+  // 4) 大输入框（Phase UI-A2：Home 顶部 + Agent 底部都有）
+  ok('HTML 含 #home-input textarea（Home 顶部）', /id="home-input"/.test(html));
+  ok('HTML 含 #agent-input textarea（Agent 底部）', /id="agent-input"/.test(html));
+  ok('CSS .home-composer-input min-height ≥ 80px', /\.home-composer-input\s*\{[^}]*min-height:\s*[89]\d/.test(css));
   ok('CSS .agent-composer-input min-height ≥ 80px', /\.agent-composer-input\s*\{[^}]*min-height:\s*[89]\d/.test(css));
-  ok('HTML 含 #agent-send 按钮', /id="agent-send"/.test(html));
-  ok('mobile.js 支持 Enter 发送（keydown Enter + Shift+Enter 换行）', /keydown|onKeyDown|Enter.*send|shiftKey/i.test(js));
+  ok('HTML 含 #home-send 按钮（Home 顶部）', /id="home-send"/.test(html));
+  ok('HTML 含 #agent-send 按钮（Agent 底部）', /id="agent-send"/.test(html));
+  ok('mobile.js 支持 Enter 发送（Home + Agent keydown Enter + Shift+Enter 换行）', /keydown|onKeyDown|Enter.*send|shiftKey/i.test(js));
 
-  // 5) Work in current project/cwd
-  ok('HTML 含 #agent-cwd (cwd 显示)', /id="agent-cwd"/.test(html));
+  // 5) Work in current project/cwd（Home 顶部 + Agent 头部）
+  ok('HTML 含 #home-cwd (Home 顶部 cwd 显示)', /id="home-cwd"/.test(html));
+  ok('HTML 含 #agent-cwd (Agent 底部 cwd 显示)', /id="agent-cwd"/.test(html));
+  ok('HTML 含 #agent-meta-cwd (Agent 头部 cwd)', /id="agent-meta-cwd"/.test(html));
+  ok('mobile.js paintHomeCwd 调用', /paintHomeCwd\s*\(/.test(js));
   ok('mobile.js paintAgentCwd 调用', /paintAgentCwd\s*\(/.test(js));
+  ok('mobile.js paintAgentHeaderMeta 调用', /paintAgentHeaderMeta\s*\(/.test(js));
   ok('HTML 含 "Work in" 风格提示文案', /Work in/i.test(html) || /work in/i.test(js));
 
-  // 6) assistant / skill cards
-  ok('HTML 含 #agent-assistant-cards', /id="agent-assistant-cards"/.test(html));
-  ok('mobile.js ASSISTANT_CARDS 含至少 4 张卡', /ASSISTANT_CARDS[\s\S]{0,3000}\[[\s\S]*?(Cowork|Code Review|Fix Bug|Explain Project)/.test(js));
-  for (const t of ['Cowork', 'Code Review', 'Fix Bug', 'Explain Project']) {
-    ok('ASSISTANT_CARDS 含 ' + t, js.includes("title: '" + t + "'") || js.includes('title: "' + t + '"') || js.includes(t));
-  }
-  ok('CSS .agent-assistant-card 存在', /\.agent-assistant-card\s*\{/.test(css));
+  // 6) Home input 替换了旧的 assistant cards（Phase UI-A2：去掉大卡片，输入框直接放在 Home 顶）
+  ok('HTML 含 #home-input 取代旧 #agent-assistant-cards', /id="home-input"/.test(html));
+  ok('mobile.js 旧 agent-assistant-cards 已不在 #agent-pane 渲染', !/id="agent-assistant-cards"/.test(html));
 
-  // 7) messages
+  // 7) messages（ChatGPT-like 容器，移到 Agent 独立页）
   ok('HTML 含 #agent-messages 容器', /id="agent-messages"/.test(html));
   ok('mobile.js paintAgentMessages 存在', /paintAgentMessages\s*\(/.test(js));
+  ok('CSS 含 .agent-chat 容器', /\.agent-chat\s*\{/.test(css));
 
   // 8) Agent 页面不显示 raw stdout / JSONL / token
   ok('agent pane 区域无 "raw stdout" 文案', !/(raw\s*stdout|rawStdout|RawStdout)/i.test(allUi));
@@ -350,11 +364,18 @@ function req(opts, body) {
   ok('UI 不含 autoApproveNonRedline', !/autoApproveNonRedline/i.test(allUi));
 
   // ============================================================
-  // [D] Files
+  // [D] Files (Phase UI-A2 · Phone File Manager)
   // ============================================================
   section('D) Files');
-  ok('Files 含 #files-root', /id="files-root"/.test(html));
+  ok('Files 含 #files-breadcrumb', /id="files-breadcrumb"|class="files-breadcrumb"/.test(html));
+  ok('Files 含 #files-back (back 按钮)', /id="files-back"/.test(html));
+  ok('Files 含 #files-refresh (refresh 按钮)', /id="files-refresh"/.test(html));
+  ok('Files 含 #files-path (当前路径)', /id="files-path"/.test(html));
   ok('Files 含 #files-list (文件列表)', /id="files-list"/.test(html));
+  ok('Files 含 #files-manager-list (phone file manager)', /files-manager-list/.test(html));
+  ok('Files 含 .fm-row 行样式', /\.fm-row/.test(css));
+  ok('Files 含 .fm-icon-dir 文件夹图标', /\.fm-icon-dir/.test(css));
+  ok('Files 含 .fm-icon-file 文件图标', /\.fm-icon-file/.test(css));
   ok('Files 含 #files-preview (预览)', /id="files-preview"/.test(html));
   ok('Files 含 #files-q (搜索)', /id="files-q"/.test(html));
   ok('Files 含 #files-open-agent 按钮', /id="files-open-agent"/.test(html));
@@ -363,25 +384,41 @@ function req(opts, body) {
   ok('Files 不含 "Rename File" 按钮', !/Rename File/.test(html));
   ok('Files 不含 "Upload File" 按钮', !/Upload File/.test(html));
   // click / dblclick 入口
-  ok('mobile.js pickFile 是 click 入口（桌面双击也兼容）', /pickFile\s*\(/.test(js));
+  ok('mobile.js onFilesRowClick 存在', /onFilesRowClick/.test(js));
+  ok('mobile.js cdInto / cdUp 实现', /function\s+cdInto/.test(js) && /function\s+cdUp/.test(js));
   // Files UI 不暴露原始 stdout
   ok('Files 区域不含 .jsonl 路径', !/files[\s\S]{0,8000}\.jsonl/.test(html));
 
   // ============================================================
-  // [E] Home
+  // [E] Home (Phase UI-A2 · Home-first Agent Workspace)
   // ============================================================
   section('E) Home');
-  ok('Home 含 #home-usage-today', /id="home-usage-today"/.test(html));
-  ok('Home 含 #home-usage-week', /id="home-usage-week"/.test(html));
+  ok('Home 含 #home-quickchat (Agent Quick Chat 顶部)', /id="home-quickchat"|class="home-quickchat[\s"a-z-]/.test(html));
+  ok('Home 含 #home-hero-greet (问候语)', /id="home-hero-greet"/.test(html));
+  ok('Home 含 #home-input (顶部输入框)', /id="home-input"/.test(html));
+  ok('Home 含 #home-send (顶部 send 按钮)', /id="home-send"/.test(html));
+  ok('Home 含 #home-cwd (顶部 cwd)', /id="home-cwd"/.test(html));
+  ok('Home 含 #home-model (顶部 model)', /id="home-model"/.test(html));
+  ok('Home 含 #home-effort (顶部 effort)', /id="home-effort"/.test(html));
+  ok('Home 含 #home-agent-chips (4-agent switcher)', /id="home-agent-chips"/.test(html));
+  ok('Home 含 #home-runs-today (Today Summary)', /id="home-runs-today"/.test(html));
+  ok('Home 含 #home-runs-week (Week Summary)', /id="home-runs-week"/.test(html));
+  ok('Home 含 #home-runs-duration (Today duration)', /id="home-runs-duration"/.test(html));
   ok('Home 含 #home-running-sessions', /id="home-running-sessions"/.test(html));
   ok('Home 含 #home-recent-sessions', /id="home-recent-sessions"/.test(html));
   ok('mobile.js paintHomeRunningSessions 存在', /paintHomeRunningSessions\s*\(/.test(js));
   ok('mobile.js paintHomeRecentSessions 存在', /paintHomeRecentSessions\s*\(/.test(js));
+  ok('mobile.js paintHomeAgentChips 存在', /paintHomeAgentChips\s*\(/.test(js));
+  ok('mobile.js onSendMessage 支持 source=home', /onSendMessage\(['"]home['"]\)/.test(js) || /onSendMessage\s*\(\s*source\s*\)/.test(js));
   ok('mobile.js onPickSession 会切到 agent tab', /onPickSession[\s\S]{0,500}showTab\(['"]agent['"]\)/.test(js));
   // session card 字段
   ok('buildSessionCard 显示 agentId', /buildSessionCard[\s\S]{0,2000}agentId/.test(js));
   ok('buildSessionCard 显示 cwdLabel 或 cwd', /buildSessionCard[\s\S]{0,2000}(cwdLabel|cwd)/.test(js));
   ok('buildSessionCard 显示 status', /buildSessionCard[\s\S]{0,2000}status/.test(js));
+  // 配对成功后默认 Home
+  ok('showApp 调用 showTab(home)', /function\s+showApp[\s\S]{0,500}showTab\(['"]home['"]\)/.test(js));
+  // Home greeting 提到 "plan for today"
+  ok('Home greeting 包含 "plan"', /plan for today/.test(js));
 
   // ============================================================
   // [F] Skills
@@ -444,6 +481,65 @@ function req(opts, body) {
 
   // 后端源码：POST /messages 不再调 createApproval
   // 单独看 postMessageToMobileSession 体内（已检过）
+
+  // ============================================================
+  // [H] Agent 独立对话页 (Phase UI-A2 · ChatGPT-like)
+  // ============================================================
+  section('H) Agent 独立对话页 (ChatGPT-like)');
+  ok('Agent 含 #agent-header-name (左上角 agent 名称)', /id="agent-header-name"/.test(html));
+  ok('Agent 含 #agent-header-status (状态徽标)', /id="agent-header-status"/.test(html));
+  ok('Agent 含 #agent-header-back (Back 按钮)', /id="agent-header-back"/.test(html));
+  ok('Agent 含 #agent-meta-cwd (cwd 行)', /id="agent-meta-cwd"/.test(html));
+  ok('Agent 含 #agent-meta-model (model 行)', /id="agent-meta-model"/.test(html));
+  ok('Agent 含 #agent-meta-effort (effort 行)', /id="agent-meta-effort"/.test(html));
+  ok('Agent 含 #agent-switcher (顶部 4-agent switcher)', /id="agent-switcher"/.test(html));
+  ok('Agent 含 #agent-messages (ChatGPT-like messages)', /id="agent-messages"/.test(html));
+  ok('Agent 含 #agent-input (底部 textarea)', /id="agent-input"/.test(html));
+  ok('Agent 含 #agent-send (底部 send 按钮)', /id="agent-send"/.test(html));
+  ok('Agent 顶部安全提示存在', /Running on your paired desktop/.test(html) && /Scoped to the selected folder/.test(html) && /Logged locally in FanBox/.test(html));
+  ok('mobile.js paintAgentHeaderName 存在', /paintAgentHeaderName\s*\(/.test(js));
+  ok('mobile.js paintAgentHeaderMeta 存在', /paintAgentHeaderMeta\s*\(/.test(js));
+  ok('mobile.js paintAgentMessages 存在', /paintAgentMessages\s*\(/.test(js));
+  ok('mobile.js paintAgentHeaderStatus 存在', /paintAgentHeaderStatus\s*\(/.test(js));
+  ok('AGENT_CHIPS 含 Claude Code / Codex / OpenCode / Qoder',
+    /Claude Code/.test(JSON.stringify(getAgentChips())) && /Codex/.test(JSON.stringify(getAgentChips()))
+    && /OpenCode/.test(JSON.stringify(getAgentChips())) && /Qoder/.test(JSON.stringify(getAgentChips())));
+  ok('CSS 含 .chat-bubble (ChatGPT 气泡)', /\.chat-bubble/.test(css));
+  ok('CSS 含 .chat-bubble-user (user 气泡样式)', /\.chat-bubble-user/.test(css));
+  ok('CSS 含 .chat-bubble-agent (agent 气泡样式)', /\.chat-bubble-agent/.test(css));
+  ok('CSS 含 .agent-chat (消息容器)', /\.agent-chat/.test(css));
+  ok('后端 /api/mobile/agents 返回 model 字段', /"model":\s*"default"/.test(agentsResp));
+  ok('后端 /api/mobile/agents 返回 effort 字段', /"effort":\s*"normal"/.test(agentsResp));
+  ok('后端 /api/mobile/agents 4 个 agent (claude/codex/opencode/qoder)',
+    /"id":\s*"claude"/.test(agentsResp) && /"id":\s*"codex"/.test(agentsResp)
+    && /"id":\s*"opencode"/.test(agentsResp) && /"id":\s*"qoder"/.test(agentsResp));
+
+  // ============================================================
+  // [I] Files (Phone File Manager 行为)
+  // ============================================================
+  section('I) Files (Phone File Manager 行为)');
+  ok('Files UI 不含 files-root select (UI-A2 已用 file manager 替换)',
+    !/id="files-root"/.test(html));
+  ok('Files UI 不含 #files-go (UI-A2 已用 file manager 替换)',
+    !/id="files-go"/.test(html));
+  ok('Files UI 不含 Delete File 按钮', !/Delete File/.test(html));
+  ok('Files UI 不含 Move File 按钮', !/Move File/.test(html));
+  ok('Files UI 不含 Rename File 按钮', !/Rename File/.test(html));
+  ok('Files UI 不含 Upload File 按钮', !/Upload File/.test(html));
+  ok('Files UI 不含 Execute Shell', !/Execute Shell/.test(html));
+  ok('Files UI 不含 Terminal Input', !/Terminal Input/.test(html));
+  ok('Files UI 不含 Write File', !/Write File/.test(html));
+  ok('mobile.js refreshFilesList 调用 /api/mobile/files', /refreshFilesList[\s\S]{0,1000}api\(['"]\/api\/mobile\/files/.test(js));
+  ok('mobile.js onFilesOpenAgent 设置 cwd + 切到 agent',
+    /onFilesOpenAgent[\s\S]{0,1000}showTab\(['"]agent['"]\)/.test(js) && /apiPost\(['"]\/api\/mobile\/context\/cwd['"]/.test(js));
+
+  // ============================================================
+  // [J] Skills (UI-A2 · 简介显示)
+  // ============================================================
+  section('J) Skills (简介显示)');
+  ok('paintSkills 显示 description', /paintSkills[\s\S]{0,2000}description/.test(js));
+  ok('paintSkills 显示 No description fallback', /No description/.test(js));
+  ok('paintSkills 包含 search 过滤', /paintSkills[\s\S]{0,1500}skills-q|skills-q[\s\S]{0,500}paintSkills/.test(js));
 
   // 收尾
   await new Promise((r) => server.close(r));

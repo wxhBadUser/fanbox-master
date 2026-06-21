@@ -73,88 +73,59 @@
     </header>
 
     <main class="app-main">
-      <!-- ============================== -->
-      <!-- Home Tab                       -->
-      <!-- ============================== -->
-      <section class="tab-pane" data-tab="home" hidden>
-        <div class="card flow-card">
-          <div class="flow">
-            <div class="flow-node">Phone / Browser</div>
-            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
-            <div class="flow-node flow-node-active">LAN + Token</div>
-            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
-            <div class="flow-node">Agent runner</div>
+      <!-- ============================================================== -->
+      <!-- Home Tab  (Phase UI-A2 · Home-first Agent Workspace)           -->
+      <!-- 顺序：                                                          -->
+      <!--   1) 顶部 Agent Quick Chat（输入框 + 4 agent switcher + cwd）   -->
+      <!--   2) Running Sessions                                          -->
+      <!--   3) Recent Sessions（电脑+手机+微信）                          -->
+      <!--   4) Today Summary                                              -->
+      <!-- ============================================================== -->
+      <section class="tab-pane" data-tab="home">
+        <!-- 1) Agent Quick Chat（Home 顶部） -->
+        <div class="home-quickchat card">
+          <div id="home-hero-greet" class="home-hero-greet">Hi, what's your plan for today?</div>
+          <div id="home-hero-sub" class="home-hero-sub">Type a message below to start, or pick a recent session to continue.</div>
+          <div class="home-agent-chips" id="home-agent-chips" role="tablist" aria-label="Agent switcher (Home)"></div>
+          <div class="home-composer">
+            <textarea id="home-input" class="home-composer-input" rows="3" maxlength="4000"
+              placeholder="Send a message, open a folder, or ask an agent to work in this project..."></textarea>
+            <div class="home-composer-foot">
+              <div class="home-composer-meta">
+                <span id="home-cwd" class="home-composer-cwd">Work in: —</span>
+                <span id="home-model" class="home-composer-model">Model: —</span>
+                <span id="home-effort" class="home-composer-effort">Effort: —</span>
+                <span id="home-status-pill"></span>
+              </div>
+              <button id="home-send" class="home-composer-send" type="button" aria-label="Send">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="19" x2="12" y2="5"/>
+                  <polyline points="5 12 12 5 19 12"/>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
 
-        <div class="card-grid card-grid-2">
-          <div class="card card-stat">
-            <div class="card-row">
-              <span class="status-dot status-dot-ok"></span>
-              <div class="card-h">Agent chat</div>
-            </div>
-            <p class="card-p">手机/浏览器可直接对 Agent 说话，命令直接执行</p>
-          </div>
-          <div class="card card-stat">
-            <div class="card-row">
-              <span class="status-dot status-dot-ok"></span>
-              <div class="card-h">LAN protected</div>
-            </div>
-            <p class="card-p">仅局域网 IP 接受请求</p>
-          </div>
-          <div class="card card-stat card-stat-wide">
-            <div class="card-row">
-              <span class="status-dot status-dot-ok"></span>
-              <div class="card-h">Token required</div>
-            </div>
-            <p class="card-p">所有请求需要 Bearer Token</p>
-          </div>
-        </div>
-
+        <!-- 2) Running Sessions -->
         <div class="card">
-          <div class="card-h">Available Roots</div>
-          <div id="home-roots" class="roots-list">
-            <div class="skeleton" style="height: 14px; width: 60%;"></div>
-            <div class="skeleton" style="height: 14px; width: 45%;"></div>
+          <div class="card-row card-row-between">
+            <div class="card-h">Running Sessions</div>
+            <div id="home-running-count" class="card-meta">0</div>
           </div>
+          <div id="home-running-sessions" class="sessions-list"></div>
         </div>
 
+        <!-- 3) Recent Sessions（电脑+手机+微信） -->
         <div class="card">
-          <div class="card-h">Quick Access</div>
-          <div class="qa-grid">
-            <button class="qa-tile" data-go="files" type="button">
-              <span class="qa-icon" data-i="files"></span>
-              <span class="qa-label">Files</span>
-            </button>
-            <button class="qa-tile" data-go="agent" type="button">
-              <span class="qa-icon" data-i="agents"></span>
-              <span class="qa-label">Agent</span>
-            </button>
-            <button class="qa-tile" data-go="skills" type="button">
-              <span class="qa-icon" data-i="skills"></span>
-              <span class="qa-label">Skills</span>
-            </button>
-            <button class="qa-tile" data-go="home" type="button">
-              <span class="qa-icon" data-i="home"></span>
-              <span class="qa-label">Home</span>
-            </button>
+          <div class="card-row card-row-between">
+            <div class="card-h">All Sessions</div>
+            <div id="home-recent-count" class="card-meta">0</div>
           </div>
+          <div id="home-recent-sessions" class="sessions-list"></div>
         </div>
 
-        <div class="card">
-          <div class="card-h">Today &amp; This week</div>
-          <div class="card-grid card-grid-2" style="border: none; padding: 0;">
-            <div>
-              <div class="card-meta">Today runs</div>
-              <div id="home-usage-today" class="card-big">—</div>
-            </div>
-            <div>
-              <div class="card-meta">This week runs</div>
-              <div id="home-usage-week" class="card-big">—</div>
-            </div>
-          </div>
-        </div>
-
+        <!-- 4) Today Summary -->
         <div class="card">
           <div class="card-h">Today Summary</div>
           <div class="card-grid card-grid-3" style="border: none; padding: 0;">
@@ -173,100 +144,63 @@
           </div>
         </div>
 
+        <!-- 5) Available Roots（用作"切换工作目录"提示） -->
         <div class="card">
-          <div class="card-h">Running Sessions</div>
-          <div id="home-running-sessions" class="sessions-list"></div>
+          <div class="card-h">Available Roots</div>
+          <div id="home-roots" class="roots-list">
+            <div class="skeleton" style="height: 14px; width: 60%;"></div>
+            <div class="skeleton" style="height: 14px; width: 45%;"></div>
+          </div>
         </div>
 
-        <div class="card">
-          <div class="card-h">Recent Sessions</div>
-          <div id="home-recent-sessions" class="sessions-list"></div>
-        </div>
-
-        <div class="card">
-          <div class="card-h">Recent mobile runs</div>
-          <div id="home-runs-recent" class="roots-list"></div>
-        </div>
-
+        <!-- 6) 安全提示 -->
         <div class="card card-tip">
-          <div class="card-h">Running on your paired desktop · Scoped to folder</div>
-          <p class="card-p">所有请求经过 LAN + Token；Agent 命令直接执行；audit 写入本地日志；不上传文件 / 不公开凭据。</p>
+          <div class="card-row">
+            <span class="status-dot status-dot-ok"></span><span class="card-p">Running on your paired desktop</span>
+          </div>
+          <div class="card-row">
+            <span class="status-dot status-dot-ok"></span><span class="card-p">Scoped to the selected folder</span>
+          </div>
+          <div class="card-row">
+            <span class="status-dot status-dot-ok"></span><span class="card-p">Logged locally in FanBox</span>
+          </div>
         </div>
       </section>
 
-      <!-- ============================== -->
-      <!-- Files Tab                      -->
-      <!-- ============================== -->
-      <section class="tab-pane" data-tab="files" hidden>
-        <div class="card flow-card">
-          <div class="flow">
-            <div class="flow-node">Root</div>
-            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
-            <div class="flow-node flow-node-active">Search</div>
-            <div class="flow-edge"><svg width="40" height="12" aria-hidden="true"><line x1="0" y1="6" x2="32" y2="6" stroke="#BFDBFE" stroke-width="1.2" stroke-dasharray="3 3"/><polygon points="32,2 40,6 32,10" fill="#2563EB"/></svg></div>
-            <div class="flow-node">Preview</div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="field-row">
-            <select id="files-root" class="field field-select"></select>
-            <input id="files-q" class="field field-input" type="search" placeholder="搜索文件名…" maxlength="80" autocomplete="off">
-            <button id="files-go" class="btn-ghost" type="button">搜索</button>
-          </div>
-        </div>
-
-        <div class="card card-cta">
-          <div class="card-row card-row-between">
-            <div>
-              <div class="card-h">当前文件夹</div>
-              <div id="files-cwd-label" class="card-meta">未选择</div>
+      <!-- ============================================================== -->
+      <!-- Agent Tab  (Phase UI-A2 · ChatGPT-like Independent Page)       -->
+      <!-- 左上角：当前 agent (Claude Code / Codex / OpenCode / Qoder)     -->
+      <!-- ============================================================== -->
+      <section class="tab-pane" data-tab="agent" hidden>
+        <div class="agent-header card">
+          <div class="agent-header-top">
+            <div class="agent-header-left">
+              <div id="agent-header-name" class="agent-header-name">Claude Code</div>
+              <span id="agent-header-status" class="agent-header-status">ready</span>
             </div>
-            <div class="cta-row">
-              <button id="files-open-agent" class="btn-primary" type="button" disabled>在此文件夹打开 Agent</button>
-            </div>
+            <button id="agent-header-back" class="btn-ghost" type="button">Back to Home</button>
+          </div>
+          <div class="agent-header-meta">
+            <span class="agent-header-meta-row"><span class="card-meta">cwd</span><span id="agent-meta-cwd" class="agent-meta-cwd">—</span></span>
+            <span class="agent-header-meta-row"><span class="card-meta">model</span><span id="agent-meta-model">default</span></span>
+            <span class="agent-header-meta-row"><span class="card-meta">effort</span><span id="agent-meta-effort">normal</span></span>
+          </div>
+          <!-- 顶部 agent switcher（同一 cwd 下切换 agent） -->
+          <div class="agent-chips" id="agent-switcher" role="tablist" aria-label="Agent switcher"></div>
+        </div>
+
+        <!-- 消息区：ChatGPT-like 上下排列 -->
+        <div id="agent-messages" class="agent-chat">
+          <div class="empty">
+            <div class="empty-strong">No messages yet</div>
+            <div>Type a message below to start a conversation with this agent.</div>
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-row card-row-between">
-            <div class="card-h">Results</div>
-            <div id="files-meta" class="card-meta"></div>
-          </div>
-          <div id="files-list" class="file-list">
-            <div class="empty">输入关键字开始搜索</div>
-          </div>
-        </div>
-
-        <div id="files-preview" class="card card-preview" hidden>
-          <div class="card-row card-row-between">
-            <div class="card-h" id="files-preview-name"></div>
-            <button id="files-preview-close" class="btn-icon" type="button" aria-label="关闭">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
-            </button>
-          </div>
-          <div id="files-preview-meta" class="card-meta"></div>
-          <div id="files-preview-body" class="preview-body"></div>
-        </div>
-      </section>
-
-      <!-- ============================== -->
-      <!-- Agent Tab (Phase UI-A1: AionUi-like) -->
-      <!-- ============================== -->
-      <section class="tab-pane" data-tab="agent">
-        <!-- Hero title（类似 AionUi "Hi, what's your plan for today?"） -->
-        <div class="agent-hero">
-          <div id="agent-hero-greet" class="agent-hero-greet">Hi, what's your plan for today?</div>
-          <div id="agent-hero-sub" class="agent-hero-sub">Type a message, ask an agent to work in this folder, or pick a skill below.</div>
-        </div>
-
-        <!-- Agent switcher（顶部 chips） -->
-        <div class="agent-chips" id="agent-switcher" role="tablist" aria-label="Agent switcher"></div>
-
-        <!-- 大输入框（AionUi-like） -->
+        <!-- 输入区（ChatGPT-like 底部 textarea + Send） -->
         <div class="agent-composer card">
-          <textarea id="agent-input" class="agent-composer-input" rows="4" maxlength="4000"
-            placeholder="Send a message, open a folder, or ask an agent to work in this project..."></textarea>
+          <textarea id="agent-input" class="agent-composer-input" rows="3" maxlength="4000"
+            placeholder="Send a message to this agent..."></textarea>
           <div class="agent-composer-foot">
             <div class="agent-composer-meta">
               <span id="agent-cwd" class="agent-composer-cwd">Work in: —</span>
@@ -282,22 +216,7 @@
           </div>
         </div>
 
-        <!-- messages 列表（最新在底部） -->
-        <div id="agent-messages" class="agent-messages" hidden></div>
-
-        <!-- assistant / skill cards（AionUi-like） -->
-        <div class="agent-assistants">
-          <div class="agent-assistants-h">Skills &amp; Assistants</div>
-          <div id="agent-assistant-cards" class="agent-assistant-cards"></div>
-        </div>
-
-        <!-- 底部：今日 runs 小摘要（仅 mobile source） -->
-        <div class="agent-runs card">
-          <div class="agent-runs-h">Today · Mobile runs</div>
-          <div id="agent-runs-summary" class="agent-runs-summary"></div>
-        </div>
-
-        <!-- 安全提示（修改后的文案） -->
+        <!-- 安全提示 -->
         <div class="agent-safety card card-tip">
           <div class="card-row">
             <span class="status-dot status-dot-ok"></span><span class="card-p">Running on your paired desktop</span>
@@ -311,13 +230,73 @@
         </div>
       </section>
 
-      <!-- ============================== -->
-      <!-- Skills Tab                     -->
-      <!-- ============================== -->
+      <!-- ============================================================== -->
+      <!-- Files Tab  (Phase UI-A2 · Phone File Manager)                  -->
+      <!-- 竖向文件夹/文件列表 + breadcrumb + Ask AI in this folder        -->
+      <!-- ============================================================== -->
+      <section class="tab-pane" data-tab="files" hidden>
+        <!-- 顶部：当前路径 breadcrumb + back -->
+        <div class="card files-breadcrumb-card">
+          <div class="files-breadcrumb">
+            <button id="files-back" class="btn-icon" type="button" aria-label="Back" title="Up">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <div id="files-path" class="files-path">/</div>
+            <button id="files-refresh" class="btn-icon" type="button" aria-label="Refresh" title="Refresh">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><polyline points="21 4 21 9 16 9"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- 搜索框 -->
+        <div class="card">
+          <input id="files-q" class="field field-input" type="search" placeholder="搜索文件名…" maxlength="80" autocomplete="off">
+        </div>
+
+        <!-- 当前文件夹 CTA：在此文件夹打开 Agent -->
+        <div class="card card-cta">
+          <div class="card-row card-row-between">
+            <div style="min-width: 0; flex: 1 1 0;">
+              <div class="card-h">当前文件夹</div>
+              <div id="files-cwd-label" class="card-meta">未选择</div>
+            </div>
+            <button id="files-open-agent" class="btn-primary" type="button" disabled style="margin-top: 0; width: auto;">Ask AI in this folder</button>
+          </div>
+        </div>
+
+        <!-- 文件列表（手机文件管理器样式：竖向） -->
+        <div class="card">
+          <div class="card-row card-row-between">
+            <div class="card-h">Files</div>
+            <div id="files-meta" class="card-meta"></div>
+          </div>
+          <div id="files-list" class="files-manager-list">
+            <div class="empty">
+              <div class="empty-strong">Loading…</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 预览 -->
+        <div id="files-preview" class="card card-preview" hidden>
+          <div class="card-row card-row-between">
+            <div class="card-h" id="files-preview-name"></div>
+            <button id="files-preview-close" class="btn-icon" type="button" aria-label="关闭">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+            </button>
+          </div>
+          <div id="files-preview-meta" class="card-meta"></div>
+          <div id="files-preview-body" class="preview-body"></div>
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- Skills Tab                                                      -->
+      <!-- ============================================================== -->
       <section class="tab-pane" data-tab="skills" hidden>
         <div class="card">
           <div class="field-row">
-            <input id="skills-q" class="field field-input" type="search" placeholder="过滤 skill 名称…" maxlength="60" autocomplete="off">
+            <input id="skills-q" class="field field-input" type="search" placeholder="搜索 skill 名称或简介…" maxlength="60" autocomplete="off">
           </div>
         </div>
         <div id="skills-list" class="skills-list">
@@ -325,18 +304,14 @@
           <div class="skeleton" style="height: 64px; margin-bottom: 10px;"></div>
         </div>
       </section>
-
-      <!-- ============================== -->
-      <!-- Sessions moved into Home (Phase UI-A1) -->
-      <!-- ============================== -->
     </main>
 
     <nav class="app-bottom-nav" role="tablist">
-      <button class="tab-btn" data-tab-btn="home" type="button" role="tab">
+      <button class="tab-btn is-active" data-tab-btn="home" type="button" role="tab">
         <span class="tab-icon" data-i="home"></span>
         <span class="tab-label">Home</span>
       </button>
-      <button class="tab-btn is-active" data-tab-btn="agent" type="button" role="tab">
+      <button class="tab-btn" data-tab-btn="agent" type="button" role="tab">
         <span class="tab-icon" data-i="agents"></span>
         <span class="tab-label">Agent</span>
       </button>
