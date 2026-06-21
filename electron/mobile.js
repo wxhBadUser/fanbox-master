@@ -1056,13 +1056,128 @@ async function readUsageMobile() {
   const codexOut = codex
     ? { id: 'codex', label: 'Codex', todayTokens: codex.today, weekTokens: codex.week, available: true, lastSeenAt: codex.lastSeen || 0 }
     : { id: 'codex', label: 'Codex', todayTokens: 0, weekTokens: 0, available: false, lastSeenAt: 0 };
+
+  // Phase 2B（R2 第一部分）：mobile runner usage（每次 mobile 端调用 runner 的本地记录）
+  // 字段：runs（最近 N 条）、todayRuns、weekRuns、todayDurationMs、weekDurationMs
+  // 显式不暴露：inputTokens / outputTokens / totalTokens / estimatedCost（无真实来源）
+  const mobileRunner = await readMobileRunnerUsageMobile().catch(() => null);
+
   return {
     ok: true,
     summary: {
       todayTokens: claudeOut.todayTokens + codexOut.todayTokens,
       weekTokens: claudeOut.weekTokens + codexOut.weekTokens,
+      // 新增：mobile runner 计数（与 token 解耦）
+      todayRuns: mobileRunner ? mobileRunner.todayRuns : 0,
+      weekRuns: mobileRunner ? mobileRunner.weekRuns : 0,
+      todayDurationMs: mobileRunner ? mobileRunner.todayDurationMs : 0,
+      weekDurationMs: mobileRunner ? mobileRunner.weekDurationMs : 0,
+      todayInputChars: mobileRunner ? mobileRunner.todayInputChars : 0,
+      todayOutputChars: mobileRunner ? mobileRunner.todayOutputChars : 0,
     },
     agents: [claudeOut, codexOut],
+    // 新增：mobile runner usage 详情（无 token / cost / 原始 stdout）
+    mobileRunner: mobileRunner || {
+      ok: true,
+      updatedAt: 0,
+      todayRuns: 0,
+      weekRuns: 0,
+      todayDurationMs: 0,
+      weekDurationMs: 0,
+      todayInputChars: 0,
+      todayOutputChars: 0,
+      byAgent: [],
+      byCwd: [],
+      recent: []
+    }
+  };
+}
+
+// Phase 2B：读 mobile runner usage 并按 today / week / agent / cwd 聚合
+// 路径与 schema 由 mobile-sessions.js 的 MOBILE_USAGE_FILE 决定
+async function readMobileRunnerUsageMobile(filter) {
+  const sessions = require('./mobile-sessions.js');
+  const obj = await sessions.readMobileUsage();
+  const runs = Array.isArray(obj.runs) ? obj.runs : [];
+  const now = Date.now();
+  const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+  const todayCut = dayStart.getTime();
+  const weekCut = now - 7 * 86400000;
+
+  // 可选过滤
+  const agentFilter = (filter && typeof filter.agentId === 'string') ? filter.agentId : null;
+  const cwdFilter = (filter && typeof filter.cwd === 'string') ? filter.cwd : null;
+
+  const filtered = runs.filter(r => {
+    if (!r || typeof r !== 'object') return false;
+    if (agentFilter && r.agentId !== agentFilter) return false;
+    if (cwdFilter && r.cwd !== cwdFilter) return false;
+    return true;
+  });
+
+  // 聚合
+  let todayRuns = 0, weekRuns = 0, todayDurationMs = 0, weekDurationMs = 0;
+  let todayInputChars = 0, todayOutputChars = 0;
+  const byAgentMap = new Map();
+  const byCwdMap = new Map();
+
+  for (const r of filtered) {
+    const ts = (typeof r.startedAt === 'number') ? r.startedAt : 0;
+    const dur = (typeof r.durationMs === 'number') ? r.durationMs : 0;
+    if (ts >= todayCut) {
+      todayRuns += 1;
+      todayDurationMs += dur;
+      todayInputChars += (typeof r.inputChars === 'number') ? r.inputChars : 0;
+      todayOutputChars += (typeof r.outputChars === 'number') ? r.outputChars : 0;
+    }
+    if (ts >= weekCut) {
+      weekRuns += 1;
+      weekDurationMs += dur;
+    }
+    // 按 agent 聚合（week）
+    if (ts >= weekCut) {
+      const ak = r.agentId || 'unknown';
+      const av = byAgentMap.get(ak) || { agentId: ak, runs: 0, durationMs: 0 };
+      av.runs += 1;
+      av.durationMs += dur;
+      byAgentMap.set(ak, av);
+    }
+    // 按 cwd 聚合（week）
+    if (ts >= weekCut) {
+      const ck = (r.cwdLabel && typeof r.cwdLabel === 'string') ? r.cwdLabel : 'unknown';
+      const cv = byCwdMap.get(ck) || { cwdLabel: ck, runs: 0, durationMs: 0 };
+      cv.runs += 1;
+      cv.durationMs += dur;
+      byCwdMap.set(ck, cv);
+    }
+  }
+
+  return {
+    ok: true,
+    updatedAt: (typeof obj.updatedAt === 'number') ? obj.updatedAt : 0,
+    todayRuns: todayRuns,
+    weekRuns: weekRuns,
+    todayDurationMs: todayDurationMs,
+    weekDurationMs: weekDurationMs,
+    todayInputChars: todayInputChars,
+    todayOutputChars: todayOutputChars,
+    byAgent: Array.from(byAgentMap.values()).sort((a, b) => b.runs - a.runs),
+    byCwd: Array.from(byCwdMap.values()).sort((a, b) => b.runs - a.runs),
+    // recent 仅返回白名单字段；不暴露 token / cost / raw output
+    recent: filtered.slice(0, 20).map(r => ({
+      runId: r.runId,
+      sessionId: r.sessionId,
+      agentId: r.agentId,
+      cwdLabel: r.cwdLabel,
+      cwd: r.cwd,
+      startedAt: r.startedAt,
+      endedAt: r.endedAt,
+      durationMs: r.durationMs,
+      inputChars: r.inputChars,
+      outputChars: r.outputChars,
+      status: r.status
+      // 显式不返回：inputTokens / outputTokens / totalTokens / estimatedCost
+    }))
   };
 }
 
@@ -1317,9 +1432,19 @@ async function handleMobileApiV2(req, res, url) {
     return sendJson(res, 200, await readAgentsMobile());
   }
 
-  // /api/mobile/usage
+  // /api/mobile/usage[?agentId=&cwd=]
+  // Phase 2B：mobile runner usage 增加 agentId / cwd 过滤
   if (pathOnly === '/api/mobile/usage') {
     const t = await requireMobileAuth(req, res); if (!t) return;
+    const filter = {
+      agentId: qp.get('agentId') || '',
+      cwd: qp.get('cwd') || ''
+    };
+    const hasFilter = !!filter.agentId || !!filter.cwd;
+    if (hasFilter) {
+      const runner = await readMobileRunnerUsageMobile(filter);
+      return sendJson(res, 200, { ok: true, filtered: true, filter, mobileRunner: runner });
+    }
     return sendJson(res, 200, await readUsageMobile());
   }
 

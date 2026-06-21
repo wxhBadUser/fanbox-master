@@ -223,6 +223,30 @@
       var s = (j && j.summary) || {};
       if (todayEl) todayEl.textContent = fmtTokens(s.todayTokens);
       if (weekEl) weekEl.textContent = fmtTokens(s.weekTokens);
+      // Phase 2B：mobile runner runs（today/week）
+      var todayRunsEl = $('#home-runs-today');
+      var weekRunsEl = $('#home-runs-week');
+      if (todayRunsEl) todayRunsEl.textContent = (typeof s.todayRuns === 'number') ? String(s.todayRuns) : '0';
+      if (weekRunsEl) weekRunsEl.textContent = (typeof s.weekRuns === 'number') ? String(s.weekRuns) : '0';
+      // mobile runner recent（最近 5 条）
+      var recentEl = $('#home-runs-recent');
+      if (recentEl) {
+        clearChildren(recentEl);
+        var mr = (j && j.mobileRunner && Array.isArray(j.mobileRunner.recent)) ? j.mobileRunner.recent : [];
+        if (!mr.length) {
+          recentEl.appendChild(emptyBlock('No mobile runs yet', 'send a message from Agent Tab to start'));
+          return;
+        }
+        mr.slice(0, 5).forEach(function (r) {
+          var dur = (typeof r.durationMs === 'number') ? (Math.round(r.durationMs / 100) / 10) + 's' : '—';
+          var lbl = (r.agentId || '?') + ' · ' + (r.cwdLabel || '?') + ' · ' + dur + ' · ' + (r.status || '?');
+          var row = el('div', { class: 'root-row' }, [
+            el('div', { class: 'root-name', text: lbl }),
+            el('div', { class: 'root-path', text: fmtTime(r.startedAt) })
+          ]);
+          recentEl.appendChild(row);
+        });
+      }
     }).catch(function () { /* 用量失败不阻断 Home */ });
     try { await Promise.all([rootsP, usageP]); } catch (e) { /* */ }
   }
@@ -728,14 +752,21 @@
     // v1：detail 不暴露 messages 全文（mobile-sessions.js scrubSessionDetail）
     // 这里给一个安全摘要气泡
     var preview = (cur.summary && cur.summary.lastMessagePreview) || '';
+    // Phase 2B：附 status + duration 小摘要（仅 mobile source）
+    var durText = '';
+    if (cur.source === 'mobile') {
+      var dur = (cur.usage && typeof cur.usage.durationMs === 'number') ? cur.usage.durationMs : 0;
+      if (dur > 0) durText = (Math.round(dur / 100) / 10) + 's';
+    }
+    var statusLine = ' · ' + (cur.status || 'unknown') + (durText ? (' · ⏱ ' + durText) : '');
     if (preview) {
       var b = el('div', { class: 'message-bubble message-bubble-agent' }, [
-        el('span', { class: 'message-role', text: (cur.summary.lastRole || 'agent') + ' · ' + (cur.agentId || 'unknown') }),
+        el('span', { class: 'message-role', text: (cur.summary.lastRole || 'agent') + ' · ' + (cur.agentId || 'unknown') + statusLine }),
         tspan(preview)
       ]);
       box.appendChild(b);
     } else {
-      box.appendChild(emptyBlock('无 preview 内容', 'session ' + cur.sessionId));
+      box.appendChild(emptyBlock('无 preview 内容', 'session ' + cur.sessionId + statusLine));
     }
     if (cur.context && (cur.context.files || cur.context.skills)) {
       var files = (cur.context.files || []).slice(0, 3);
@@ -1147,6 +1178,12 @@
     var srcLabel = src === 'wechat' ? 'wechat' : (src === 'mobile' ? 'mobile' : 'desktop');
     var status = (s.status || 'unknown');
     var preview = (s.summary && s.summary.lastMessagePreview) || '';
+    // Phase 2B：duration / usage 小摘要（仅 mobile source 显示）
+    var durText = '';
+    if (src === 'mobile') {
+      var dur = (s.usage && typeof s.usage.durationMs === 'number') ? s.usage.durationMs : 0;
+      if (dur > 0) durText = (Math.round(dur / 100) / 10) + 's';
+    }
     var card = el('button', { class: 'session-card', type: 'button' }, [
       el('div', { class: 'session-head' }, [
         el('div', { class: 'session-title', text: s.title || srcLabel, title: s.title || '' }),
@@ -1159,7 +1196,9 @@
           tspan('·'),
           tspan(s.cwdLabel || relPath(s.cwd)),
           tspan('·'),
-          tspan(fmtTime(s.lastActiveAt))
+          tspan(fmtTime(s.lastActiveAt)),
+          durText ? tspan('·') : null,
+          durText ? tspan('⏱ ' + durText) : null
         ]),
         el('span', { class: 'session-status session-status-' + status, text: status })
       ])

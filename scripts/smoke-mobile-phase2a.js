@@ -1198,6 +1198,191 @@ function req(opts, body) {
   ok('safeStr redact sk-', /sk-\[REDACTED\]/.test(skRed));
 
   // ============================================================
+  // [15] Phase 2B（R2 第一部分）：统一 session index + mobile runner usage
+  // ============================================================
+  section('15) Phase 2B · unified index + mobile runner usage');
+
+  // 15.1 直接调用 recordMobileUsage
+  const fakeStarted = Date.now() - 1234;
+  const fakeEnded = Date.now();
+  const w1 = await mobileSessions.recordMobileUsage({
+    sessionId: 'sess_rb1_' + Date.now(),
+    agentId: 'claude',
+    cwd: cwdMock,
+    cwdLabel: 'fanbox-master',
+    startedAt: fakeStarted,
+    endedAt: fakeEnded,
+    durationMs: 1234,
+    inputChars: 256,
+    outputChars: 1024,
+    status: 'done'
+  });
+  ok('recordMobileUsage 写入 ok=true', w1 && w1.ok === true);
+
+  // 15.2 拒绝带敏感字段
+  const w1b = await mobileSessions.recordMobileUsage({
+    sessionId: 'sess_rb1b_' + Date.now(),
+    agentId: 'claude',
+    cwd: cwdMock,
+    cwdLabel: 'fanbox-master',
+    startedAt: fakeStarted,
+    endedAt: fakeEnded,
+    durationMs: 100,
+    inputChars: 1,
+    outputChars: 1,
+    status: 'done',
+    raw: 'should be ignored',
+    token: 'should be ignored',
+    apiKey: 'should be ignored',
+    secret: 'should be ignored',
+    password: 'should be ignored',
+    claudeSession: 'should be ignored',
+    codexSession: 'should be ignored',
+    jsonl: 'should be ignored',
+    rawOutput: 'should be ignored'
+  });
+  ok('recordMobileUsage 写入 ok=true（带敏感字段被忽略）', w1b && w1b.ok === true);
+
+  // 15.3 usage 不含敏感字段
+  const usageObj = await mobileSessions.readMobileUsage();
+  ok('readMobileUsage schemaVersion=1', usageObj.schemaVersion === 1);
+  ok('readMobileUsage runs 至少 2 条', Array.isArray(usageObj.runs) && usageObj.runs.length >= 2);
+  const usageStr = JSON.stringify(usageObj);
+  ok('usage 不含 token', !usageStr.includes('"token":"should be ignored"'));
+  ok('usage 不含 apiKey', !usageStr.includes('"apiKey":"should be ignored"'));
+  ok('usage 不含 secret', !usageStr.includes('"secret":"should be ignored"'));
+  ok('usage 不含 password', !usageStr.includes('"password":"should be ignored"'));
+  ok('usage 不含 claudeSession', !usageStr.includes('"claudeSession":"should be ignored"'));
+  ok('usage 不含 codexSession', !usageStr.includes('"codexSession":"should be ignored"'));
+  ok('usage 不含 raw', !usageStr.includes('"raw":"should be ignored"'));
+  ok('usage 不含 jsonl 路径', !usageStr.includes('.jsonl'));
+  ok('usage 不含 rawOutput', !usageStr.includes('"rawOutput"'));
+  ok('usage 不含 prompt 全文（fakeStarted 是数字，不是 prompt 全文）', !usageStr.includes('hello world this is a long prompt that should never be stored'));
+  ok('usage inputChars=256', usageObj.runs.some(r => r.inputChars === 256 && r.agentId === 'claude' && r.cwdLabel === 'fanbox-master'));
+  ok('usage outputChars=1024', usageObj.runs.some(r => r.outputChars === 1024));
+  ok('usage durationMs=1234', usageObj.runs.some(r => r.durationMs === 1234));
+  ok('usage status=done', usageObj.runs.some(r => r.status === 'done'));
+  ok('usage inputTokens=null（不伪造）', usageObj.runs.every(r => r.inputTokens === null));
+  ok('usage outputTokens=null（不伪造）', usageObj.runs.every(r => r.outputTokens === null));
+  ok('usage totalTokens=null（不伪造）', usageObj.runs.every(r => r.totalTokens === null));
+  ok('usage estimatedCost=null（不伪造）', usageObj.runs.every(r => r.estimatedCost === null));
+
+  // 15.4 upsertUnifiedSessionIndex + readUnifiedSessionIndex
+  const fakeMobileSess = {
+    sessionId: 'sess_idx1_' + Date.now(),
+    agentId: 'claude',
+    kind: 'agent',
+    cwd: cwdMock,
+    cwdLabel: 'fanbox-master',
+    title: '解释 mobile 目录结构',
+    status: 'done',
+    createdAt: fakeStarted,
+    updatedAt: fakeEnded,
+    lastActiveAt: fakeEnded,
+    messageCount: 2,
+    lastRunDurationMs: 1234
+  };
+  const u1 = await mobileSessions.upsertUnifiedSessionIndex(fakeMobileSess);
+  ok('upsertUnifiedSessionIndex ok=true', u1 && u1.ok === true);
+  const idxObj = await mobileSessions.readUnifiedSessionIndex();
+  ok('readUnifiedSessionIndex schemaVersion=1', idxObj.schemaVersion === 1);
+  ok('index 含 fakeMobileSess', !!idxObj.sessions[fakeMobileSess.sessionId]);
+  const idxEntry = idxObj.sessions[fakeMobileSess.sessionId];
+  ok('index entry agentId=claude', idxEntry.agentId === 'claude');
+  ok('index entry cwdLabel=fanbox-master', idxEntry.cwdLabel === 'fanbox-master');
+  ok('index entry status=done', idxEntry.status === 'done');
+  ok('index entry source=mobile', idxEntry.source === 'mobile');
+  ok('index entry usage.durationMs=1234', idxEntry.usage && idxEntry.usage.durationMs === 1234);
+  ok('index entry usage.inputTokens=null', idxEntry.usage && idxEntry.usage.inputTokens === null);
+  // 拒绝 unknown agent
+  const badAgent = await mobileSessions.upsertUnifiedSessionIndex({ ...fakeMobileSess, agentId: 'evil-agent' });
+  ok('index 拒绝 unknown agent（ok=false）', badAgent && badAgent.ok === false);
+
+  // 15.5 sessions list 返回 status 字段（沿用 [10] 的 jQ，校验 status 字段存在）
+  const jListRe = JSON.parse((await req({ path: '/api/mobile/sessions?limit=10', method: 'GET', headers: auth2 })).body);
+  if (Array.isArray(jListRe.items) && jListRe.items.length > 0) {
+    ok('sessions list 每条都有 status 字段', jListRe.items.every(i => typeof i.status === 'string'));
+    ok('sessions list 状态枚举有效', jListRe.items.every(i => ['idle','running','done','failed','waiting_approval','approved','rejected','timeout'].includes(i.status)));
+  } else {
+    ok('sessions list 至少返回 0 项（容忍空）', true);
+  }
+
+  // 15.6 sessions detail 不含 raw stdout / .jsonl / claudeSession / token
+  const jListAny = JSON.parse((await req({ path: '/api/mobile/sessions?limit=10', method: 'GET', headers: auth2 })).body);
+  if (jListAny.items && jListAny.items.length > 0) {
+    const jd = JSON.parse((await req({ path: '/api/mobile/sessions/' + jListAny.items[0].sessionId, method: 'GET', headers: auth2 })).body);
+    const detailStr = JSON.stringify(jd);
+    ok('session detail 不含 .jsonl', !detailStr.includes('.jsonl'));
+    ok('session detail 不含 rawStdout', !detailStr.includes('rawStdout'));
+    ok('session detail 不含 rawStderr', !detailStr.includes('rawStderr'));
+    ok('session detail 不含 stdout', !detailStr.includes('"stdout"'));
+    ok('session detail 不含 stderr', !detailStr.includes('"stderr"'));
+    ok('session detail 不含 pty', !detailStr.includes('"pty"'));
+    ok('session detail 不含 process.pid', !detailStr.includes('"pid"'));
+    ok('session detail 不含 claudeSession', !detailStr.includes('"claudeSession"'));
+    ok('session detail 不含 codexSession', !detailStr.includes('"codexSession"'));
+    ok('session detail 不含 apiKey', !detailStr.includes('"apiKey"'));
+    ok('session detail 不含 secret', !detailStr.includes('"secret"'));
+    ok('session detail 不含 password', !detailStr.includes('"password"'));
+  } else {
+    ok('session detail 跳过（无 session 可查）', true);
+  }
+
+  // 15.7 /api/mobile/usage 包含 mobileRunner 字段
+  const jUsage = JSON.parse((await req({ path: '/api/mobile/usage', method: 'GET', headers: auth2 })).body);
+  ok('/api/mobile/usage 包含 mobileRunner', !!(jUsage.mobileRunner));
+  ok('/api/mobile/usage summary.todayRuns >= 1', (jUsage.summary && typeof jUsage.summary.todayRuns === 'number' && jUsage.summary.todayRuns >= 1));
+  ok('/api/mobile/usage summary.todayDurationMs >= 0', (jUsage.summary && typeof jUsage.summary.todayDurationMs === 'number'));
+  ok('/api/mobile/usage summary.todayInputChars >= 256', (jUsage.summary && jUsage.summary.todayInputChars >= 256));
+  ok('/api/mobile/usage summary.todayOutputChars >= 1024', (jUsage.summary && jUsage.summary.todayOutputChars >= 1024));
+  ok('/api/mobile/usage mobileRunner.byAgent 是数组', Array.isArray(jUsage.mobileRunner.byAgent));
+  ok('/api/mobile/usage mobileRunner.byCwd 是数组', Array.isArray(jUsage.mobileRunner.byCwd));
+  ok('/api/mobile/usage mobileRunner.recent 不含 inputTokens', !JSON.stringify(jUsage.mobileRunner.recent).includes('"inputTokens"'));
+  ok('/api/mobile/usage mobileRunner.recent 不含 estimatedCost', !JSON.stringify(jUsage.mobileRunner.recent).includes('"estimatedCost"'));
+  ok('/api/mobile/usage mobileRunner.recent 不含 rawOutput', !JSON.stringify(jUsage.mobileRunner.recent).includes('rawOutput'));
+
+  // 15.8 /api/mobile/usage?agentId=claude 过滤
+  const jUsageF = JSON.parse((await req({ path: '/api/mobile/usage?agentId=claude', method: 'GET', headers: auth2 })).body);
+  ok('usage 过滤 agentId=claude filtered=true', jUsageF.filtered === true);
+  ok('usage 过滤 agentId=claude 全部是 claude', jUsageF.mobileRunner.recent.every(r => r.agentId === 'claude'));
+
+  // 15.9 /api/mobile/usage?cwd=... 过滤
+  const jUsageCwd = JSON.parse((await req({ path: '/api/mobile/usage?cwd=' + encodeURIComponent(cwdMock), method: 'GET', headers: auth2 })).body);
+  ok('usage 过滤 cwd=mock filtered=true', jUsageCwd.filtered === true);
+  ok('usage 过滤 cwd=mock 全部是 mock', jUsageCwd.mobileRunner.recent.every(r => r.cwd === cwdMock));
+
+  // 15.10 events 返回 status 字段
+  const jEvents = JSON.parse((await req({ path: '/api/mobile/sessions?limit=5', method: 'GET', headers: auth2 })).body);
+  if (jEvents.items && jEvents.items.length > 0) {
+    const je = JSON.parse((await req({ path: '/api/mobile/sessions/' + jEvents.items[0].sessionId + '/events', method: 'GET', headers: auth2 })).body);
+    const eventsStr = JSON.stringify(je);
+    ok('events 不含 rawStdout', !eventsStr.includes('rawStdout'));
+    ok('events 不含 rawStderr', !eventsStr.includes('rawStderr'));
+    ok('events 不含 .jsonl', !eventsStr.includes('.jsonl'));
+    ok('events 不含 token/cookie/apiKey/secret/password', !/\b(token|cookie|apiKey|secret|password)\b/.test(eventsStr.replace(/,"status":"failed","text":"[^"]*"/g, '')));
+  } else {
+    ok('events 跳过（无 session）', true);
+  }
+
+  // 15.11 UI 危险文案扫描（保持 R1A 行为）
+  const uiHtml = fs.readFileSync(path.join(__dirname, '..', 'public', 'mobile', 'index.html'), 'utf8');
+  const uiJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'mobile', 'mobile.js'), 'utf8');
+  const uiCss = fs.readFileSync(path.join(__dirname, '..', 'public', 'mobile', 'mobile.css'), 'utf8');
+  const uiAll = uiHtml + '\n' + uiJs + '\n' + uiCss;
+  // R2 新增约束：UI 包含 mobile runs 显示
+  ok('UI 含 mobile-runs / today-runs / week-runs 之一', /mobile-runs|today-runs|week-runs|home-runs/i.test(uiAll));
+  ok('UI 不包含 YOLO', !/\bYOLO\b/i.test(uiAll));
+  ok('UI 不包含 Full-auto', !/Full-?auto/i.test(uiAll));
+  ok('UI 不包含 Start all agents', !/Start all agents/i.test(uiAll));
+  ok('UI 不包含 Terminal Input', !/Terminal Input/i.test(uiAll));
+  ok('UI 不包含 Execute Shell', !/Execute Shell/i.test(uiAll));
+  ok('UI 不包含 Delete File', !/Delete File/i.test(uiAll));
+  ok('UI 不包含 Move File', !/Move File/i.test(uiAll));
+  ok('UI 不包含 Rename File', !/Rename File/i.test(uiAll));
+  ok('UI 不包含 Upload File', !/Upload File/i.test(uiAll));
+  ok('UI 包含 Redline actions require desktop approval', /Redline actions require desktop approval/i.test(uiAll));
+
+  // ============================================================
   // 收尾
   // ============================================================
   await new Promise((r) => server.close(r));

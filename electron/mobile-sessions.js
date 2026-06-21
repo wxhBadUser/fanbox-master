@@ -41,6 +41,14 @@ const MOBILE_SESSIONS_FILE = path.join(MOBILE_DIR, 'sessions.json');
 const WECHAT_CONVOS_FILE = path.join(WECHAT_DIR, 'conversations.json');
 const DESKTOP_INDEX_FILE = path.join(SESSIONS_DIR, 'index.json');
 
+// Phase 2B（R2 第一部分）：统一 session index + mobile runner usage
+// 统一 session index: ~/.fanbox/sessions/index.json
+// mobile runner usage: ~/.fanbox/mobile/usage.json
+// 注意：本轮 mobile sessions 仍写 MOBILE_SESSIONS_FILE；这里只额外写一份到统一 index，供 mobile / browser / desktop 三端共享。
+// 后续 Phase 才会彻底把 3 套 JSON 合并成 SQLite。
+const UNIFIED_INDEX_FILE = process.env.FANBOX_UNIFIED_INDEX_FILE || path.join(SESSIONS_DIR, 'index.json');
+const MOBILE_USAGE_FILE = path.join(MOBILE_DIR, 'usage.json');
+
 // Phase 2A-2.1：approval + audit 存储
 const APPROVALS_FILE = path.join(MOBILE_DIR, 'approvals.json');
 const AUDIT_FILE = path.join(MOBILE_DIR, 'audit.jsonl');
@@ -65,6 +73,15 @@ const RATE_WINDOW_MS = 10 * 60 * 1000;         // 限流窗口 10 min
 const RATE_LIMIT_PER_DEVICE = 10;              // 每 device 最多 10 次 / 10 min
 const APPROVAL_STATUSES = ['pending', 'approved', 'rejected', 'timeout', 'cancelled'];
 const ALLOWED_AGENT_IDS = new Set(['claude', 'codex', 'opencode', 'qoder']);
+
+// Phase 2B：统一 session index 限制
+const UNIFIED_INDEX_SCHEMA_VERSION = 1;
+const UNIFIED_INDEX_MAX_SESSIONS = 500;        // index 最多保留 500 条；超出按 lastActiveAt 截断
+// mobile runner usage 限制
+const MOBILE_USAGE_SCHEMA_VERSION = 1;
+const MOBILE_USAGE_MAX_RUNS = 200;             // usage 最多保留 200 条
+const MOBILE_USAGE_MAX_INPUT_CHARS = 8000;     // 单条 inputChars 上限（与 MAX_INPUT_CHARS 对齐）
+const MOBILE_USAGE_MAX_OUTPUT_CHARS = 8000;    // 单条 outputChars 上限
 
 // ========== Phase 2A-2.1：redline detector（纯函数）==========
 // 命中红线的请求必须先在 desktop 端 Approve 才能继续。
@@ -796,6 +813,8 @@ async function createMobileDraftSession(opts) {
   };
   data.sessions[internalId] = obj;
   await writeMobileSessions(data);
+  // Phase 2B：同步统一 session index
+  await upsertUnifiedSessionIndex(obj).catch(() => ({ ok: false }));
   await appendAudit({ action: 'mobile_draft_created', sessionId, deviceId, agentId, cwd });
   return { ok: true, sessionId, internalId };
 }
@@ -967,6 +986,14 @@ async function createApproval(opts) {
     approvalId: approvalId
   });
 
+  // Phase 2B：同步统一 session index（waiting_approval 状态）
+  try {
+    const data = await readMobileSessionsObj();
+    const entries = Object.entries(data.sessions);
+    const found = entries.find(([k, v]) => v && (v.sessionId === sessionId || k === sessionId));
+    if (found) await upsertUnifiedSessionIndex(found[1]);
+  } catch (_) { /* 写失败不影响主流程 */ }
+
   await appendAudit({
     action: 'approval_created',
     approvalId: approvalId,
@@ -1085,6 +1112,32 @@ async function postMessageToMobileSession(opts) {
     lastRunAgent: agentId
   });
 
+  // Phase 2B（R2 第一部分）：写 mobile runner usage + 同步统一 session index
+  // 1) usage 记录（仅 inputChars / outputChars / durationMs / status；不存 prompt 全文 / 输出全文 / token / cost）
+  const inputChars = trimmed.length;
+  const outputChars = (runResult && typeof runResult.text === 'string') ? runResult.text.length : 0;
+  const finalUsageStatus = (runResult && runResult.timedOut) ? 'timed_out' : finalStatus;
+  await recordMobileUsage({
+    sessionId: sessionId,
+    agentId: agentId,
+    cwd: cwd,
+    cwdLabel: _normalizeCwdLabel(cwd),
+    startedAt: t0,
+    endedAt: t1,
+    durationMs: t1 - t0,
+    inputChars: inputChars,
+    outputChars: outputChars,
+    status: finalUsageStatus
+  }).catch(() => ({ ok: false }));
+
+  // 2) 同步统一 session index（用更新后的 session 元数据）
+  try {
+    const data = await readMobileSessionsObj();
+    const entries = Object.entries(data.sessions);
+    const found = entries.find(([k, v]) => v && (v.sessionId === sessionId || k === sessionId));
+    if (found) await upsertUnifiedSessionIndex(found[1]);
+  } catch (_) { /* 写失败不影响主流程 */ }
+
   await appendAudit({
     action: 'mobile_message_sent',
     sessionId: sessionId,
@@ -1178,6 +1231,14 @@ async function decideApproval(id, decision, actor) {
     ts: now,
     approvalId: aid
   });
+
+  // Phase 2B：同步统一 session index（approved/rejected 状态）
+  try {
+    const data = await readMobileSessionsObj();
+    const entries = Object.entries(data.sessions);
+    const found = entries.find(([k, v]) => v && (v.sessionId === a.sessionId || k === a.sessionId));
+    if (found) await upsertUnifiedSessionIndex(found[1]);
+  } catch (_) { /* 写失败不影响主流程 */ }
 
   await appendAudit({
     action: 'approval_decided',
@@ -1281,6 +1342,184 @@ module.exports = {
   expireApprovals,
   readApprovals,
   appendAudit,
+  // Phase 2B（R2 第一部分）：统一 session index + mobile runner usage
+  recordMobileUsage,
+  readMobileUsage,
+  upsertUnifiedSessionIndex,
+  readUnifiedSessionIndex,
+  // 常量
+  UNIFIED_INDEX_FILE,
+  MOBILE_USAGE_FILE,
+  UNIFIED_INDEX_SCHEMA_VERSION,
+  UNIFIED_INDEX_MAX_SESSIONS,
+  MOBILE_USAGE_SCHEMA_VERSION,
+  MOBILE_USAGE_MAX_RUNS,
+  MOBILE_USAGE_MAX_INPUT_CHARS,
+  MOBILE_USAGE_MAX_OUTPUT_CHARS,
   // 兼容测试
   applyFilters
 };
+
+// =====================================================================
+// Phase 2B（R2 第一部分）：统一 session index + mobile runner usage
+//
+// 硬约束：
+//   1. 不保存 raw stdout / .jsonl / .cast / .log 路径
+//   2. 不保存 token / cookie / API key / claudeSession / codexSession
+//   3. 不保存 prompt 全文 / 输出全文
+//   4. 写失败仅 warn，不抛（不阻断 mobile server）
+//   5. 文件路径 = UNIFIED_INDEX_FILE / MOBILE_USAGE_FILE（可被环境变量覆盖）
+//   6. 写入前 scrub 全部
+// =====================================================================
+
+// ---------- mobile runner usage ----------
+
+async function readMobileUsage() {
+  try {
+    const txt = await fs.readFile(MOBILE_USAGE_FILE, 'utf8');
+    const j = JSON.parse(txt);
+    if (!j || typeof j !== 'object') return { schemaVersion: MOBILE_USAGE_SCHEMA_VERSION, updatedAt: 0, runs: [] };
+    if (!Array.isArray(j.runs)) j.runs = [];
+    return j;
+  } catch {
+    return { schemaVersion: MOBILE_USAGE_SCHEMA_VERSION, updatedAt: 0, runs: [] };
+  }
+}
+
+async function _writeMobileUsage(obj) {
+  await fs.mkdir(MOBILE_USAGE_FILE.replace(/[\\\/][^\\\/]+$/, ''), { recursive: true });
+  await fs.writeFile(MOBILE_USAGE_FILE, JSON.stringify(obj, null, 2), 'utf8');
+}
+
+async function recordMobileUsage(entry) {
+  // entry = { sessionId, agentId, cwd, cwdLabel, startedAt, endedAt, durationMs, inputChars, outputChars, status }
+  // 写失败仅 warn，不抛
+  try {
+    if (!entry || typeof entry !== 'object') return { ok: false, error: 'invalid_entry' };
+    const safeId = String(entry.sessionId || '').replace(/[^A-Za-z0-9._\-+:]/g, '').slice(0, 128);
+    if (!safeId) return { ok: false, error: 'missing_sessionId' };
+    const agentId = normalizeAgentId(entry.agentId);
+    const cwd = safeStr(typeof entry.cwd === 'string' ? entry.cwd : '', 1024);
+    const cwdLabel = safeStr(typeof entry.cwdLabel === 'string' ? entry.cwdLabel : _normalizeCwdLabel(cwd), 80);
+    const startedAt = (typeof entry.startedAt === 'number' && entry.startedAt > 0) ? entry.startedAt : Date.now();
+    const endedAt = (typeof entry.endedAt === 'number' && entry.endedAt > 0) ? entry.endedAt : Date.now();
+    const durationMs = (typeof entry.durationMs === 'number' && entry.durationMs >= 0) ? Math.min(86400000, Math.floor(entry.durationMs)) : 0;
+    const inputChars = (typeof entry.inputChars === 'number' && entry.inputChars >= 0) ? Math.min(MOBILE_USAGE_MAX_INPUT_CHARS, Math.floor(entry.inputChars)) : 0;
+    const outputChars = (typeof entry.outputChars === 'number' && entry.outputChars >= 0) ? Math.min(MOBILE_USAGE_MAX_OUTPUT_CHARS, Math.floor(entry.outputChars)) : 0;
+    const status = (entry.status === 'done' || entry.status === 'failed' || entry.status === 'timed_out' || entry.status === 'cancelled') ? entry.status : 'failed';
+    const obj = await readMobileUsage();
+    obj.runs.push({
+      runId: 'run_' + Date.now().toString(36) + Math.floor(Math.random() * 0xfff).toString(16),
+      sessionId: safeId,
+      agentId: agentId,
+      cwd: cwd,
+      cwdLabel: cwdLabel,
+      startedAt: startedAt,
+      endedAt: endedAt,
+      durationMs: durationMs,
+      inputChars: inputChars,
+      outputChars: outputChars,
+      // 显式不写：tokens / cost（无真实来源；用户要求不伪造）
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: null,
+      estimatedCost: null,
+      status: status
+    });
+    // 截断到 MOBILE_USAGE_MAX_RUNS（按 startedAt 倒序保留最新）
+    obj.runs.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+    if (obj.runs.length > MOBILE_USAGE_MAX_RUNS) obj.runs = obj.runs.slice(0, MOBILE_USAGE_MAX_RUNS);
+    obj.schemaVersion = MOBILE_USAGE_SCHEMA_VERSION;
+    obj.updatedAt = Date.now();
+    await _writeMobileUsage(obj);
+    return { ok: true };
+  } catch (e) {
+    try { console.warn('[mobile-sessions] recordMobileUsage failed:', e && e.message || e); } catch (_) {}
+    return { ok: false, error: 'write_failed' };
+  }
+}
+
+// ---------- 统一 session index ----------
+
+async function readUnifiedSessionIndex() {
+  try {
+    const txt = await fs.readFile(UNIFIED_INDEX_FILE, 'utf8');
+    const j = JSON.parse(txt);
+    if (!j || typeof j !== 'object') return { schemaVersion: UNIFIED_INDEX_SCHEMA_VERSION, updatedAt: 0, sessions: {} };
+    if (!j.sessions || typeof j.sessions !== 'object') j.sessions = {};
+    return j;
+  } catch {
+    return { schemaVersion: UNIFIED_INDEX_SCHEMA_VERSION, updatedAt: 0, sessions: {} };
+  }
+}
+
+async function _writeUnifiedSessionIndex(obj) {
+  await fs.mkdir(UNIFIED_INDEX_FILE.replace(/[\\\/][^\\\/]+$/, ''), { recursive: true });
+  await fs.writeFile(UNIFIED_INDEX_FILE, JSON.stringify(obj, null, 2), 'utf8');
+}
+
+function _buildUnifiedEntry(session) {
+  // session 是 mobile session（来自 readMobileSessionsObj 的 sessions[internalId]）
+  if (!session || typeof session !== 'object') return null;
+  const sessionId = String(session.sessionId || '').slice(0, 128);
+  if (!sessionId) return null;
+  const agentId = normalizeAgentId(session.agentId);
+  if (agentId === 'unknown') return null;  // 不收未识别 agent
+  const cwd = safeStr(typeof session.cwd === 'string' ? session.cwd : '', 1024);
+  const cwdLabel = safeStr(session.cwdLabel || _normalizeCwdLabel(cwd), 80);
+  const title = safeStr(session.title || ('Agent ' + agentId), MAX_TITLE_CHARS);
+  const status = (typeof session.status === 'string') ? session.status : 'idle';
+  const createdAt = (typeof session.createdAt === 'number' && session.createdAt > 0) ? session.createdAt : Date.now();
+  const updatedAt = (typeof session.updatedAt === 'number' && session.updatedAt > 0) ? session.updatedAt : createdAt;
+  const lastActiveAt = (typeof session.lastActiveAt === 'number' && session.lastActiveAt > 0) ? session.lastActiveAt : updatedAt;
+  const messageCount = (typeof session.messageCount === 'number') ? Math.max(0, Math.floor(session.messageCount)) : 0;
+  // usage 来自 session 上的最新一条（如果存在）
+  const usage = (session.lastRunDurationMs != null) ? {
+    durationMs: Math.max(0, Math.floor(Number(session.lastRunDurationMs) || 0)),
+    inputTokens: null,
+    outputTokens: null,
+    totalTokens: null,
+    estimatedCost: null
+  } : { durationMs: 0, inputTokens: null, outputTokens: null, totalTokens: null, estimatedCost: null };
+  return {
+    schemaVersion: UNIFIED_INDEX_SCHEMA_VERSION,
+    sessionId: sessionId,
+    source: 'mobile',
+    agentId: agentId,
+    kind: (session.kind === 'agent' || session.kind === 'shell' || session.kind === 'recording') ? session.kind : 'agent',
+    cwd: cwd,
+    cwdLabel: cwdLabel,
+    title: title,
+    status: status,
+    createdAt: createdAt,
+    updatedAt: updatedAt,
+    lastActiveAt: lastActiveAt,
+    messageCount: messageCount,
+    usage: usage
+  };
+}
+
+async function upsertUnifiedSessionIndex(session) {
+  // 把一个 mobile session 合并进统一 index
+  // 写失败仅 warn，不抛
+  try {
+    const entry = _buildUnifiedEntry(session);
+    if (!entry) return { ok: false, error: 'invalid_session' };
+    const obj = await readUnifiedSessionIndex();
+    obj.sessions[entry.sessionId] = entry;
+    // 截断到 UNIFIED_INDEX_MAX_SESSIONS（按 lastActiveAt 倒序）
+    const arr = Object.values(obj.sessions);
+    if (arr.length > UNIFIED_INDEX_MAX_SESSIONS) {
+      arr.sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0));
+      const drop = new Set(arr.slice(UNIFIED_INDEX_MAX_SESSIONS).map(x => x.sessionId));
+      for (const id of drop) delete obj.sessions[id];
+    }
+    obj.schemaVersion = UNIFIED_INDEX_SCHEMA_VERSION;
+    obj.updatedAt = Date.now();
+    await _writeUnifiedSessionIndex(obj);
+    return { ok: true, sessionId: entry.sessionId };
+  } catch (e) {
+    try { console.warn('[mobile-sessions] upsertUnifiedSessionIndex failed:', e && e.message || e); } catch (_) {}
+    return { ok: false, error: 'write_failed' };
+  }
+}
