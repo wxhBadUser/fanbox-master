@@ -2,6 +2,7 @@
 
 > 创建日期：2026-06-21
 > 状态：Phase R1A 实施完成（已落盘于 commit `32364a1` 系列）
+> **Phase UI-A1 实施完成（已落盘于 UI-A1 commit）**
 > 参考仓库：`I:\AI_weflow\AionUi-ref`（仅做研究，不修改、不复制代码）
 
 ---
@@ -24,10 +25,11 @@ FanBox 的文件管理器 / Skills / Usage / Screenshots / Windows-first
 2. **不引入 Team Mode**（复杂度高，单用户场景不需要）。
 3. **不引入 YOLO / Full-Auto**（安全风险大，FanBox 是 Windows-first 本地文件系统）。
 4. **不内置公网 relay**（默认 local-first + LAN）。
-5. **统一产品规则**：
+5. **统一产品规则**（UI-A1 调整后）：
    - 普通非红线消息 → 直接执行
-   - 红线消息 → 必须 desktop approval
+   - 红线消息 → **写 audit 后直接执行**（不阻断；保留安全边界）
    - 不引入"每条消息确认"开关
+   - 不引入 desktop approval gate 阻断手机 send path
 
 ---
 
@@ -314,3 +316,112 @@ e2e windows:   35/35 PASS
 - 本文档随 Phase R1A 完成创建。
 - 每次 Phase 推进时更新「路线图」「当前状态」两节。
 - 任何引入新概念（YOLO、Team Mode 等）需先在本文档更新，再实施。
+
+---
+
+## 9. Phase UI-A1 实施完成（AionUi-like Command Agent Workspace）
+
+> 落盘：UI-A1 commit（见 `git log --oneline`）
+> 范围：仅 mobile WebUI 重构 + 后端 messages 路径简化
+
+### 9.1 视觉重构
+
+| 元素 | 实施 |
+|---|---|
+| 主入口 | 4 个 Tab：Home / Agent / Files / Skills（移除独立 Sessions / Usage） |
+| Sidebar | `app-sidebar`（New Chat / Search / Projects / Recent Sessions / Skills / Settings）≥900px 显示 |
+| Agent Hero | `.agent-hero`（time-based greeting "Good morning/afternoon/evening" + "what's your plan today"） |
+| Agent Switcher | Claude / Codex / OpenCode / Qoder 4 个 chip（opencode/qoder 显示 stub） |
+| 大输入框 | `.agent-composer-input`（min-height 88px，白色卡片，Enter 发送，Shift+Enter 换行） |
+| Assistant Cards | 8 张：Cowork / Code Review / Fix Bug / Explain Project / Create Doc / Summarize Files / PPT Creator / Word Helper（点击填入 input） |
+| Runs Summary | 显示今日/本周 mobile runs 数 + duration |
+| Safety Tips | "Running on your paired desktop" / "Scoped to the selected folder" / "Logged locally in FanBox" |
+
+### 9.2 后端行为变化（核心）
+
+**旧逻辑（已移除）**：
+```
+手机 send message
+→ detectRedline
+→ 命中红线则 createApproval
+→ session.status = waiting_approval
+→ 等待 desktop approve/reject
+→ 才继续
+```
+
+**新逻辑（UI-A1）**：
+```
+手机 / 浏览器 send message
+→ token + LAN 校验
+→ session/cwd/agentId 校验
+→ detectRedline → 仅 appendAudit({ action: 'redline_detected_but_not_blocked', reasons })
+→ 直接调 mobileRunner.runMobileAgent
+→ session.status = running → done / failed
+→ 返回 { ok: true, requiresApproval: false, status: 'done' }
+```
+
+**保留的安全边界**：
+- `/api/mobile/*` 仍需 token + LAN
+- pairCode（60s）+ token（24h）+ token revoke
+- cwd allowed roots / agentId 白名单 / pathInAllowed 校验
+- 不暴露 token/cookie/apiKey/.jsonl/claudeSession/codexSession/rawStdout
+- 不新增 upload/delete/move/rename/write/pty/shell/公网 relay
+
+### 9.3 UI 文案变化
+
+**移除**（旧的 approval 提示）：
+- "Waiting for desktop approval"
+- "Desktop approval required"
+- "Request approval"
+- "Redline actions require desktop approval"
+- "Approval timed out"
+- "Rejected by desktop"
+- "Approved by desktop"
+
+**新增**（新的安全提示）：
+- "Running on your paired desktop"
+- "Scoped to the selected folder"
+- "Logged locally in FanBox"
+
+### 9.4 API 端点
+
+| 端点 | 状态 |
+|---|---|
+| `POST /api/mobile/sessions/draft` | 已有，UI-A1 加入 POST_ALLOWLIST |
+| `POST /api/mobile/sessions/:id/messages` | UI-A1：移除 approval 分支，直接 runner |
+| `GET /api/mobile/skills-state` | **UI-A1 新增**，读 `~/.fanbox/mobile/skills-state.json` |
+| `POST /api/mobile/skills-state` | **UI-A1 新增**，写 mobile state（不修改真实 skill 文件） |
+| `POST /api/mobile/approvals/:id/decide` | 保留给未来使用，**mobile send path 不再调用** |
+| `GET /api/mobile/approvals` | 保留接口可读 |
+| `POST /api/mobile/control/approvals/:id/decide` | 保留给未来使用 |
+
+### 9.5 POST_ALLOWLIST（mobile.js 前端）
+
+```js
+var POST_ALLOWLIST = [
+  /^\/api\/mobile\/context\/(cwd|select)$/,
+  /^\/api\/mobile\/sessions\/draft$/,
+  /^\/api\/mobile\/sessions\/[A-Za-z0-9._\-+:]+\/messages$/,
+  /^\/api\/mobile\/skills-state$/
+];
+```
+
+### 9.6 测试覆盖
+
+| 套件 | 状态 |
+|---|---|
+| `node --check` × 8 文件 | ✅ |
+| `smoke-mobile-phase0a.js` | ✅ 228/228 |
+| `smoke-mobile-phase1.js` | ✅ 116/116 |
+| `smoke-mobile-phase2a.js` | ✅ 433/433 |
+| `smoke-mobile-ui-aionlike.js`（**新**） | ✅ 134/134 |
+| `verify:build` | ✅ |
+| `verify-agent-driver.js` | ✅ |
+| `verify-wechat-bridge.js` | ✅ |
+| `npm run test:e2e:windows` | ✅ 35/35 |
+
+### 9.7 后续阶段（参考，不在本 commit 范围）
+
+- **R3** 微信 Channel（已暂停）
+- **R4** Lark / DingTalk 等渠道（按需）
+- **R5** Session 持久化统一 store（可考虑 SQLite）
