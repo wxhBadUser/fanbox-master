@@ -2,7 +2,8 @@
 
 > 创建日期：2026-06-21
 > 状态：Phase R1A 实施完成（已落盘于 commit `32364a1` 系列）
-> **Phase UI-A1 实施完成（已落盘于 UI-A1 commit）**
+> Phase UI-A1 实施完成（已落盘于 UI-A1 commit）
+> **Phase UI-A2 实施完成（Home-first Agent Workspace）**
 > 参考仓库：`I:\AI_weflow\AionUi-ref`（仅做研究，不修改、不复制代码）
 
 ---
@@ -425,3 +426,83 @@ var POST_ALLOWLIST = [
 - **R3** 微信 Channel（已暂停）
 - **R4** Lark / DingTalk 等渠道（按需）
 - **R5** Session 持久化统一 store（可考虑 SQLite）
+
+---
+
+## 10. Phase UI-A2 实施完成（Home-first Agent Workspace）
+
+> 落盘：UI-A2 commit（见 `git log --oneline`）
+> 范围：仅 mobile WebUI 信息架构修复 + 后端 `/api/mobile/agents` 增加 model/effort
+> 触发：用户反馈 Files / Home / Skills 进不去；session 不出现；产品需要 Home-first 体验
+
+### 10.1 目标
+
+修复 P0 导航问题；将"配对 → 进入 → 对话"路径压到最浅；让 Home = 对话 + 历史，而不是 dashboard。
+
+### 10.2 关键改动
+
+| 维度 | 旧（UI-A1） | 新（UI-A2） |
+|---|---|---|
+| 配对后默认 | `showTab('agent')` | `showTab('home')` |
+| Home 顶部 | 4 个 Quick Access tiles | Agent Quick Chat（输入框 + 4 agent switcher + cwd/model/effort） |
+| Home 中部 | 最近 session + usage | Running / All Sessions（unified index） |
+| Files | select root + 搜索 | 手机文件管理器：竖向文件夹/文件、点击进入、桌面双击兼容、breadcrumb |
+| Files 入口 | `#files-root select` | 移除；改为 filesState.root 自动从 `/api/mobile/roots` 拉 |
+| Agent tab | AionUi-like cards + run summary | ChatGPT-like 独立对话页（左上角 agent + cwd/model/effort + messages） |
+| Agent 顶部 | `agent-hero` + `agent-assistant-cards` | `agent-header`（name + status + meta + switcher） |
+| Agent 中部 | 一张 summary card | `.agent-chat`（user/agent/system 气泡） |
+| 后端 `/api/mobile/agents` | `{id,label,command,installed,hint}` | + `model, effort`（默认 `default` / `normal`） |
+
+### 10.3 文件变更
+
+- `public/mobile/index.html` 重写：Home 顶部放 `#home-quickchat`、Agent 改 ChatGPT-like、Files 改 file manager
+- `public/mobile/mobile.js`：
+  - `showApp() → showTab('home')`
+  - 新增 `renderHome` / `paintHome*` / `paintAgentHeader*`
+  - 重写 `renderFiles` / `loadFilesRoots` / `cdInto` / `cdUp` / `refreshFilesList` / `paintFilesList` / `onFilesOpenAgent`
+  - 重写 `renderAgent` / `paintAgentHeaderName` / `paintAgentHeaderMeta` / `paintAgentMessages`
+  - `onSendMessage(source)` 支持 `home` / `agent`
+- `public/mobile/mobile.css`：新增 `.home-quickchat` / `.home-composer*` / `.agent-header*` / `.agent-chat` / `.chat-bubble*` / `.files-breadcrumb` / `.files-manager-list` / `.fm-row*` / `.card-cta` / `.card-preview` 等
+- `electron/mobile.js`：`MOBILE_AGENTS` 增加 `model` / `effort` 字段；`readAgentsMobile` 透出
+- `scripts/smoke-mobile-ui-aionlike.js` 新增 H/I/J 三段（Agent 独立页 / Files file manager / Skills 简介）
+- `scripts/smoke-mobile-phase1.js` / `smoke-mobile-phase2a.js`：更新过时的 HTML 元素 ID
+
+### 10.4 保留的旧元素
+
+- 4 tab 顺序：`home / agent / files / skills`
+- 4 agent：`claude / codex / opencode / qoder`
+- 3 条安全文案：`Running on your paired desktop` / `Scoped to the selected folder` / `Logged locally in FanBox`
+- Agent session 8-state machine（仍由 `mobile-sessions.js` 维护）
+- Redline detector：仍存在但仅写 audit，不阻断
+
+### 10.5 不做的事（明确）
+
+- 不做 R3 微信 Channel
+- 不做 Lark / DingTalk / 企业微信 / Telegram
+- 不做公网 relay / 服务器部署
+- 不做 Team Mode / YOLO / Full-auto
+- 不新增 Delete / Move / Rename / Upload
+- 不暴露 token / cookie / API key / raw stdout / JSONL
+- 不改 token / pairCode / LAN / auth
+- 不复制 AionUi 代码
+
+### 10.6 测试覆盖
+
+| 套件 | 状态 |
+|---|---|
+| `node --check` × 6 文件 | ✅ |
+| `smoke-mobile-phase0a.js` | ✅ 228/228 |
+| `smoke-mobile-phase1.js` | ✅ 118/118 |
+| `smoke-mobile-phase2a.js` | ✅ 433/433 |
+| `smoke-mobile-ui-aionlike.js` | ✅ 197/197（H/I/J 段新增 30+ 项） |
+| `verify:build` | ✅ |
+| `verify-agent-driver.js` | ✅ |
+| `verify-wechat-bridge.js` | ✅ |
+| `npm run test:e2e:windows` | ✅ 35/35（watchdog timeout 是 pre-existing） |
+
+### 10.7 后续阶段
+
+- **UI-A3**（按需）：把 detail API 真正支持 messages 拉取；当前 v1 只显示 `summary.lastMessagePreview` 摘要气泡
+- **UI-A4**（按需）：session 卡片支持状态 chip、source chip、duration chip
+- **R3** 微信 Channel（保持暂停）
+
