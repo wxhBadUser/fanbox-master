@@ -130,6 +130,8 @@
               </div>
               <div class="home-agent-chips" id="home-agent-chips" role="tablist" aria-label="Agent switcher (Home)"></div>
               <div class="home-composer">
+                <div class="skill-indicator" id="home-skill-indicator" hidden></div>
+                <div class="slash-palette" id="home-slash-palette" hidden></div>
                 <textarea id="home-input" class="home-composer-input" rows="3" maxlength="4000"
                   placeholder="Send a message, open a folder, or ask an agent to work in this project..."></textarea>
                 <div class="home-composer-foot">
@@ -205,6 +207,8 @@
 
         <!-- 输入区（ChatGPT-like 底部 textarea + Send） -->
         <div class="agent-composer card">
+          <div class="skill-indicator" id="agent-skill-indicator" hidden></div>
+          <div class="slash-palette" id="agent-slash-palette" hidden></div>
           <textarea id="agent-input" class="agent-composer-input" rows="3" maxlength="4000"
             placeholder="Send a message to this agent..."></textarea>
           <div class="agent-composer-foot">

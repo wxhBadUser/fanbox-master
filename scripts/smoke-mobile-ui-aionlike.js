@@ -616,7 +616,7 @@ function req(opts, body) {
   // ============================================================
   section('J) Skills (简介显示)');
   ok('paintSkills 显示 description', /paintSkills[\s\S]{0,2000}description/.test(js));
-  ok('paintSkills 显示 No description fallback', /No description/.test(js));
+  ok('paintSkills 显示 description fallback（No description / 暂无介绍）', /No description|暂无介绍/.test(js));
   ok('paintSkills 包含 search 过滤', /paintSkills[\s\S]{0,1500}skills-q|skills-q[\s\S]{0,500}paintSkills/.test(js));
 
   // ============================================================
@@ -642,9 +642,9 @@ function req(opts, body) {
   ok('L1.11 Home 显示 cwd / model / effort 三段',
     /id="home-cwd"/.test(html) && /id="home-model"/.test(html) && /id="home-effort"/.test(html));
   ok('L1.12 Home Send 触发 draft session (onSendMessage 调 /api/mobile/sessions/draft)',
-    /onSendMessage[\s\S]{0,2500}apiPost\(['"]\/api\/mobile\/sessions\/draft['"]\s*,/.test(js));
+    /function onSendMessage[\s\S]{0,6000}apiPost\(['"]\/api\/mobile\/sessions\/draft['"]\s*,/.test(js));
   ok('L1.13 Home 发消息跳 Agent (onSendMessage 调 showTab(\'agent\'))',
-    /onSendMessage[\s\S]{0,2500}showTab\(['"]agent['"]\)/.test(js));
+    /function onSendMessage[\s\S]{0,6000}showTab\(['"]agent['"]\)/.test(js));
 
   // ---- L2. Agent (11) ----
   ok('L2.1 Agent 左上角显示当前 agent 名称 (#agent-header-name)', /id="agent-header-name"/.test(html));
@@ -710,7 +710,7 @@ function req(opts, body) {
     /class="skill-name"/.test(html) || /\.skill-name/.test(js) || /class:\s*['"]skill-name['"]/.test(js));
   ok('L5.2 Skills 能显示 description (.skill-desc)',
     /class="skill-desc"/.test(html) || /\.skill-desc/.test(js) || /class:\s*['"]skill-desc['"]/.test(js));
-  ok('L5.3 Skills 无简介显示 "No description" fallback', /No description/.test(js));
+  ok('L5.3 Skills 无简介显示 "No description / 暂无介绍" fallback', /No description|暂无介绍/.test(js));
   ok('L5.4 Skills 能 search (#skills-q 绑 input 事件)', /id="skills-q"/.test(html) && /skills-q[\s\S]{0,500}addEventListener/.test(js));
   ok('L5.5 Skills 能 filter (skills-filter-btn All/Enabled/Disabled)',
     /data-filter="all"/.test(html) && /data-filter="enabled"/.test(html) && /data-filter="disabled"/.test(html));

@@ -935,7 +935,7 @@ async function projectMemory(p) {
     await walk(CODEX_SESS, 0);
     files.sort((a, b) => b.st.mtimeMs - a.st.mtimeMs);
     for (const { fp, st } of files.slice(0, 60)) {
-      try { if ((await readCwdFromHead(fp, 16384)) === cwd) sessions.push(await parseCodexSession(fp, st)); } catch { /* */ }
+      try { if (normalizeProjectPathForCompare(await readCwdFromHead(fp, 65536)) === normalizeProjectPathForCompare(cwd)) sessions.push(await parseCodexSession(fp, st)); } catch { /* */ }
     }
   } catch { /* 没用过 Codex */ }
   // 没有正经标题的会话（纯 warmup / 空会话）沉底，按最近活跃排
@@ -1900,21 +1900,44 @@ async function readCwdFromHead(file, bytes) {
   try {
     const buf = Buffer.alloc(bytes);
     const { bytesRead } = await fh.read(buf, 0, bytes, 0);
-    const m = buf.toString('utf8', 0, bytesRead).match(/"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-    return m ? JSON.parse('"' + m[1] + '"') : null;
+    const head = buf.toString('utf8', 0, bytesRead);
+    // 测试多个可能的 cwd 位置
+    const patterns = [
+      /"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/,
+      /"session_meta"\s*:\s*\{[^}]*?"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/,
+      /"metadata"\s*:\s*\{[^}]*?"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/,
+      /"source"\s*:\s*\{[^}]*?"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/,
+    ];
+    for (const pat of patterns) {
+      const m = head.match(pat);
+      if (m) return JSON.parse('"' + m[1] + '"');
+    }
+    return null;
   } finally { await fh.close(); }
+}
+
+// Windows 路径归一化比较：大小写、斜杠、尾部分隔符统一
+function normalizeProjectPathForCompare(p) {
+  if (!p) return '';
+  let norm = p.replace(/\\/g, '/').replace(/\/+/g, '/');
+  while (norm.endsWith('/') && norm.length > 1) norm = norm.slice(0, -1);
+  if (PLATFORM === 'win32') norm = norm.replace(/^([A-Za-z]):/, (_, d) => d.toLowerCase() + ':');
+  return norm;
 }
 
 async function agentProjects() {
   if (agentProjCache.data && Date.now() - agentProjCache.at < 60000) return agentProjCache.data;
-  const cutoff = Date.now() - 30 * 86400000;
-  const map = new Map(); // cwd -> { lastActive, agents: Set }
+  const cutoff = Date.now() - 90 * 86400000; // 90 天
+  const normHome = normalizeProjectPathForCompare(HOME);
+  const map = new Map(); // normCwd -> { lastActive, agents: Set }
   const add = (cwd, t, agent) => {
-    if (!cwd || cwd === HOME) return; // 在家目录裸跑的会话不算「项目」
-    const cur = map.get(cwd) || { lastActive: 0, agents: new Set() };
+    if (!cwd) return;
+    const ncwd = normalizeProjectPathForCompare(cwd);
+    if (!ncwd || ncwd === normHome) return; // 在家目录裸跑的会话不算「项目」
+    const cur = map.get(ncwd) || { lastActive: 0, agents: new Set() };
     cur.lastActive = Math.max(cur.lastActive, t);
     cur.agents.add(agent);
-    map.set(cwd, cur);
+    map.set(ncwd, cur);
   };
   // Claude Code：每个项目目录取最新的 jsonl，从文件头抓 cwd
   try {
@@ -1950,7 +1973,7 @@ async function agentProjects() {
     await walk(CODEX_SESS, 0);
     files.sort((a, b) => b.mtimeMs - a.mtimeMs);
     await Promise.all(files.slice(0, 40).map(async (f) => {
-      try { add(await readCwdFromHead(f.fp, 16384), f.mtimeMs, 'codex'); } catch { /* */ }
+      try { add(await readCwdFromHead(f.fp, 65536), f.mtimeMs, 'codex'); } catch { /* */ }
     }));
   } catch { /* 没用过 Codex */ }
   // 按最近活跃排序，已被删除的项目目录剔掉

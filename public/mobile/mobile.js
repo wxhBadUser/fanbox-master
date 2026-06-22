@@ -912,45 +912,83 @@
   // ---------------- Skills ----------------
   var skillsState = { items: [], states: {}, q: '', filter: 'all' };
 
+  // 已知 skill 的中文简介（安全 fallback，不读真实 skill 文件）
+  var SKILL_DESC_ZH = {
+    'academic-paper': '用于学术论文写作、润色、结构检查和投稿前质量控制。',
+    'handoff': '生成会话摘要与上下文交接包，方便把任务交给另一个 agent。',
+    'write-a-skill': '帮助创建、编辑和优化 FanBox agent skills。',
+    'brainstorming': '在动手写代码或实现功能前，帮助澄清需求、发散方案并收敛设计。',
+    'tdd': '用 red-green-refactor 循环指导测试驱动开发。',
+    'neat-freak': '会话结束后整理项目文档与 agent 记忆，保持信息同步。',
+    'docx': '创建、读取、编辑 Word 文档，支持表格、目录、页眉页脚。',
+    'pdf': '读取、合并、拆分、OCR、加密 PDF 文件。',
+    'pptx': '创建、读取、编辑 PowerPoint 演示文稿。',
+    'xlsx': '读取、写入 Excel 表格，支持公式、样式、多 sheet。',
+    'prototype': '快速构建可交互原型以验证设计或数据模型。',
+    'diagnose': '用 disciplined loop 诊断难 bug 和性能回归。',
+    'deep-research': '通用深度研究，支持文献回顾、系统综述和事实核查。',
+    'agent-browser': '用浏览器自动化完成网页交互、截图、表单填写。',
+    'agent-reach': '通过多种渠道搜索和读取互联网公开信息。'
+  };
+
+  function skillIdOf(s) { return String((s && (s.id || s.name)) || '').trim(); }
+  function skillNameOf(s) { return String((s && (s.name || s.id)) || '未命名技能').trim(); }
+  function skillDescriptionZh(s) {
+    if (!s) return '';
+    var id = skillIdOf(s);
+    if (SKILL_DESC_ZH[id]) return SKILL_DESC_ZH[id];
+    if (s.zhDescription) return String(s.zhDescription);
+    return '';
+  }
+  function skillEnabled(s) {
+    if (!s) return true;
+    var id = skillIdOf(s);
+    var sEntry = skillsState.states[id];
+    if (sEntry && typeof sEntry.enabled === 'boolean') return sEntry.enabled;
+    if (typeof s.enabled === 'boolean') return s.enabled;
+    return true;
+  }
+
   async function renderSkills() {
     var list = $('#skills-list');
     clearChildren(list);
     list.appendChild(el('div', { class: 'skeleton', style: 'height: 64px; margin-bottom: 10px;' }));
-    // 拉 skills + 本地 enabled state
+    // 拉 skills + 本地 enabled state（分别容错：一个失败不影响另一个）
+    var skillsErr = null;
     try {
       var j = await api('/api/mobile/skills');
-      skillsState.items = pickList(j);
+      skillsState.items = pickList(j).filter(function (x) { return !!(x && (x.id || x.name)); });
     } catch (e) {
       skillsState.items = [];
-      paintSkills(String(e && e.message || e));
-      return;
+      skillsErr = userFacingError(e, '技能列表加载失败，请稍后重试');
     }
-    // 拉 mobile skills state
     try {
       var s = await api('/api/mobile/skills-state');
       skillsState.states = (s && s.states && typeof s.states === 'object') ? s.states : {};
     } catch (e) {
       skillsState.states = {};
+      if (!skillsErr) skillsErr = userFacingError(e, '技能状态加载失败，请稍后重试');
     }
-    paintSkills();
+    paintSkills(skillsErr);
   }
 
   function paintSkills(errMsg) {
     var list = $('#skills-list');
+    if (!list) return;
     var q = ($('#skills-q') && $('#skills-q').value || '').trim().toLowerCase();
     var filter = skillsState.filter || 'all';
     var items = (skillsState.items || []).filter(function (x) {
-      // 1) search filter
+      if (!x || (!x.id && !x.name)) return false;
+      // 1) search filter（name / description / 中文简介）
       if (q) {
-        var name = (x.name || '').toLowerCase();
-        var desc = (x.description || '').toLowerCase();
-        if (name.indexOf(q) < 0 && desc.indexOf(q) < 0) return false;
+        var name = String(x.name || x.id || '').toLowerCase();
+        var desc = String(x.description || '').toLowerCase();
+        var zh = String(skillDescriptionZh(x)).toLowerCase();
+        if (name.indexOf(q) < 0 && desc.indexOf(q) < 0 && zh.indexOf(q) < 0) return false;
       }
       // 2) enabled/disabled filter
       if (filter === 'enabled' || filter === 'disabled') {
-        var id = x.id || x.name || '';
-        var sEntry = skillsState.states[id];
-        var en = (sEntry && typeof sEntry.enabled === 'boolean') ? sEntry.enabled : (typeof x.enabled === 'boolean' ? x.enabled : true);
+        var en = skillEnabled(x);
         if (filter === 'enabled' && !en) return false;
         if (filter === 'disabled' && en) return false;
       }
@@ -958,28 +996,29 @@
     });
     clearChildren(list);
     if (errMsg) {
-      list.appendChild(emptyBlock('Failed to load skills', errMsg));
+      list.appendChild(emptyBlock('技能列表加载失败', errMsg));
       return;
     }
     if (!items.length) {
-      var msg = filter === 'enabled' ? 'No enabled skills'
-              : filter === 'disabled' ? 'No disabled skills'
-              : (q ? 'No skills match this search' : '~/.claude/skills 暂为空');
-      list.appendChild(emptyBlock('No skills available', msg));
+      var msg = filter === 'enabled' ? '当前没有启用的技能'
+              : filter === 'disabled' ? '当前没有禁用的技能'
+              : (q ? '没有找到匹配的技能' : '~/.claude/skills 暂为空');
+      list.appendChild(emptyBlock('没有可用的技能', msg));
       return;
     }
     items.forEach(function (s) {
-      var id = s.id || s.name || '';
-      var sEntry = skillsState.states[id];
-      var enabled = (sEntry && typeof sEntry.enabled === 'boolean') ? sEntry.enabled : (typeof s.enabled === 'boolean' ? s.enabled : true);
+      var id = skillIdOf(s);
+      var enabled = skillEnabled(s);
       var hits = (typeof s.hits === 'number') ? s.hits : 0;
       var lastUsed = s.lastUsed || '';
+      var desc = String(s.description || '').trim();
+      var zh = skillDescriptionZh(s);
       var card = el('div', { class: 'skill-card' }, [
         el('div', { class: 'skill-head' }, [
-          el('div', { class: 'skill-name', text: s.name || '(unnamed)' }),
-          el('span', { class: 'pill pill-blue', text: s.source || '?' })
+          el('div', { class: 'skill-name', text: skillNameOf(s) }),
+          el('span', { class: 'pill pill-blue', text: s.source || 'skill' })
         ]),
-        el('p', { class: 'skill-desc', text: s.description || 'No description' }),
+        el('p', { class: 'skill-desc', text: (zh || desc || '暂无介绍') }),
         el('div', { class: 'skill-foot' }, [
           tspan('hits ' + hits + (lastUsed ? (' · ' + fmtTime(lastUsed)) : '')),
           el('button', {
@@ -1003,8 +1042,12 @@
       if (r && r.ok) {
         skillsState.states[skillId] = { enabled: !!r.enabled, updatedAt: r.updatedAt || Date.now() };
         paintSkills();
+      } else {
+        throw new Error((r && r.error) || 'toggle_failed');
       }
-    } catch (e) { /* 静默失败 */ }
+    } catch (e) {
+      paintSkills('切换失败：' + userFacingError(e, '请稍后重试'));
+    }
   }
 
   // ---------------- Agents ----------------
@@ -1326,6 +1369,28 @@
     }
   }
 
+  // ---------------- Chat bubbles (Phase CHAT-P1) ----------------
+  function appendChatBubble(targetSel, role, text, status) {
+    var box = $(targetSel);
+    if (!box) return;
+    // 首次发消息时去掉 empty placeholder
+    if (box.querySelector && box.querySelector('.empty')) {
+      var empty = box.querySelector('.empty');
+      if (empty) empty.remove();
+    }
+    var bubble = el('div', { class: 'chat-bubble chat-bubble-' + role }, [
+      el('div', { class: 'chat-bubble-role', text: role === 'user' ? 'You' : (role === 'agent' ? 'Agent' : 'System') }),
+      el('div', { class: 'chat-bubble-text', text: text }),
+      status ? el('div', { class: 'chat-bubble-meta', text: status }) : null
+    ]);
+    box.appendChild(bubble);
+  }
+  function scrollChatToBottom(targetSel) {
+    var box = $(targetSel);
+    if (!box) return;
+    try { box.scrollTop = box.scrollHeight; } catch (_) {}
+  }
+
   // Phase UI-A5：根据 sessionId 从后端拉 messages 并渲染
   // 走 /api/mobile/sessions/:id/messages（受 mobile-sessions.js scrub 安全过滤）
   async function loadSessionMessages(sessionId) {
@@ -1456,7 +1521,261 @@
     showTab('files');
   }
 
-  // ---------------- Send (Phase UI-A2) ----------------
+  // ---------------- Slash Skill Palette + Composer State (Phase CHAT-P1) ----------------
+  var composerState = {
+    selectedSkill: null,
+    slashOpen: false,
+    slashIndex: 0,
+    slashItems: [],
+    slashSource: 'home',
+    slashError: false
+  };
+
+  function searchSkills(query) {
+    var q = String(query || '').toLowerCase().trim();
+    var items = (skillsState.items || []).filter(function (x) { return !!(x && (x.id || x.name)); });
+    if (!q) return items.slice(0, 8);
+    var ranked = [];
+    for (var i = 0; i < items.length; i++) {
+      var s = items[i];
+      var id = skillIdOf(s).toLowerCase();
+      var name = skillNameOf(s).toLowerCase();
+      var desc = String(s.description || '').toLowerCase();
+      var zh = String(skillDescriptionZh(s)).toLowerCase();
+      var score = 0;
+      if (name === q) score += 100;
+      else if (name.indexOf(q) === 0) score += 60;
+      else if (name.indexOf(q) >= 0) score += 40;
+      if (id === q) score += 90;
+      else if (id.indexOf(q) === 0) score += 50;
+      else if (id.indexOf(q) >= 0) score += 20;
+      if (zh.indexOf(q) >= 0) score += 30;
+      if (desc.indexOf(q) >= 0) score += 20;
+      if (score > 0) ranked.push({ s: s, score: score });
+    }
+    ranked.sort(function (a, b) { return b.score - a.score; });
+    return ranked.slice(0, 8).map(function (x) { return x.s; });
+  }
+
+  function slashPaletteSel(source) {
+    return (source === 'home') ? '#home-slash-palette' : '#agent-slash-palette';
+  }
+  function slashInputSel(source) {
+    return (source === 'home') ? '#home-input' : '#agent-input';
+  }
+  function slashIndicatorSel(source) {
+    return (source === 'home') ? '#home-skill-indicator' : '#agent-skill-indicator';
+  }
+
+  function closeSlashPalette(source) {
+    composerState.slashOpen = false;
+    composerState.slashItems = [];
+    composerState.slashIndex = 0;
+    var box = $(slashPaletteSel(source));
+    if (box) {
+      box.hidden = true;
+      clearChildren(box);
+    }
+  }
+
+  function paintSlashPalette(source) {
+    var box = $(slashPaletteSel(source));
+    var input = $(slashInputSel(source));
+    if (!box || !input) return;
+    clearChildren(box);
+    if (composerState.slashError) {
+      box.hidden = false;
+      box.appendChild(el('div', { class: 'slash-empty', text: '技能列表加载失败，请稍后重试' }));
+      return;
+    }
+    var items = composerState.slashItems || [];
+    if (!items.length) {
+      box.hidden = false;
+      box.appendChild(el('div', { class: 'slash-empty', text: '未找到匹配技能' }));
+      return;
+    }
+    box.hidden = false;
+    items.forEach(function (s, idx) {
+      var id = skillIdOf(s);
+      var name = skillNameOf(s);
+      var zh = skillDescriptionZh(s);
+      var desc = String(s.description || '').trim();
+      var enabled = skillEnabled(s);
+      var row = el('button', {
+        class: 'slash-item' + (idx === composerState.slashIndex ? ' is-active' : ''),
+        type: 'button',
+        'data-skill-id': id
+      }, [
+        el('div', { class: 'slash-item-name', text: '/' + name }),
+        el('div', { class: 'slash-item-desc', text: (zh || desc || '暂无介绍') }),
+        el('div', { class: 'slash-item-meta', text: (s.source || 'skill') + ' · ' + (enabled ? 'enabled' : 'disabled') })
+      ]);
+      row.addEventListener('click', function () { selectSkill(source, s); });
+      box.appendChild(row);
+    });
+  }
+
+  async function loadSkillsForPalette() {
+    if (skillsState.items && skillsState.items.length) return skillsState.items;
+    composerState.slashError = false;
+    try {
+      var j = await api('/api/mobile/skills');
+      skillsState.items = pickList(j).filter(function (x) { return !!(x && (x.id || x.name)); });
+    } catch (e) {
+      skillsState.items = [];
+      composerState.slashError = true;
+    }
+    try {
+      var s = await api('/api/mobile/skills-state');
+      skillsState.states = (s && s.states && typeof s.states === 'object') ? s.states : {};
+    } catch (e) {
+      skillsState.states = {};
+    }
+    return skillsState.items || [];
+  }
+
+  async function updateSlashPalette(source) {
+    var input = $(slashInputSel(source));
+    if (!input) return;
+    var text = input.value || '';
+    if (text.indexOf('/') !== 0) {
+      closeSlashPalette(source);
+      return;
+    }
+    composerState.slashSource = source;
+    // 首次打开 palette 时异步加载 skills；失败会在 paintSlashPalette 中展示
+    if (!skillsState.items || !skillsState.items.length) {
+      await loadSkillsForPalette();
+    }
+    var query = text.slice(1);
+    composerState.slashItems = searchSkills(query);
+    composerState.slashIndex = 0;
+    paintSlashPalette(source);
+  }
+
+  function selectSkill(source, s, remainingText) {
+    var input = $(slashInputSel(source));
+    if (input) {
+      input.value = (remainingText || '').trim();
+      input.focus();
+      // 触发 autosize / send button 更新
+      var ev = document.createEvent('Event');
+      ev.initEvent('input', true, true);
+      input.dispatchEvent(ev);
+    }
+    composerState.selectedSkill = {
+      id: skillIdOf(s),
+      name: skillNameOf(s),
+      description: String(s.description || '').trim(),
+      zhDescription: skillDescriptionZh(s),
+      source: s.source || 'skill'
+    };
+    closeSlashPalette(source);
+    paintSkillIndicator(source);
+    updateComposerSendButton(source);
+  }
+
+  function paintSkillIndicator(source) {
+    var box = $(slashIndicatorSel(source));
+    if (!box) return;
+    clearChildren(box);
+    var sk = composerState.selectedSkill;
+    if (!sk) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    box.appendChild(el('span', { class: 'skill-indicator-chip' }, [
+      tspan('Using skill: ' + sk.name)
+    ]));
+    var clear = el('button', { class: 'skill-indicator-clear', type: 'button', 'aria-label': '清除技能' }, [tspan('×')]);
+    clear.addEventListener('click', function () {
+      composerState.selectedSkill = null;
+      paintSkillIndicator(source);
+      updateComposerSendButton(source);
+      var input = $(slashInputSel(source));
+      if (input) input.focus();
+    });
+    box.appendChild(clear);
+  }
+
+  function updateComposerSendButton(source) {
+    if (source === 'home') updateHomeSendButtonState();
+    else updateSendButtonState();
+  }
+
+  function injectSkillPrompt(text, skill) {
+    var sk = skill || composerState.selectedSkill;
+    if (!sk) return text;
+    var header = 'Use the following FanBox skill for this request:\n' +
+                 'Skill: ' + sk.name + '\n' +
+                 'Description: ' + (sk.zhDescription || sk.description || '暂无介绍') + '\n';
+    if (sk.source) header += 'Source: ' + sk.source + '\n';
+    header += '\nUser request:\n' + text;
+    return header;
+  }
+
+  function clearComposer(source) {
+    var input = $(slashInputSel(source));
+    if (input) {
+      input.value = '';
+      input.style.height = '';
+    }
+    composerState.selectedSkill = null;
+    closeSlashPalette(source);
+    paintSkillIndicator(source);
+    updateComposerSendButton(source);
+  }
+
+  function restoreComposer(source, text, skill) {
+    var input = $(slashInputSel(source));
+    if (input) {
+      input.value = text || '';
+      input.focus();
+      try {
+        input.setSelectionRange(input.value.length, input.value.length);
+      } catch (_) {}
+      var ev = document.createEvent('Event');
+      ev.initEvent('input', true, true);
+      input.dispatchEvent(ev);
+    }
+    if (skill) {
+      composerState.selectedSkill = skill;
+      paintSkillIndicator(source);
+      updateComposerSendButton(source);
+    }
+  }
+
+  function handleSlashKeydown(e, source) {
+    if (!composerState.slashOpen) return false;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      composerState.slashIndex = (composerState.slashIndex + 1) % (composerState.slashItems.length || 1);
+      paintSlashPalette(source);
+      return true;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      var len = composerState.slashItems.length || 1;
+      composerState.slashIndex = (composerState.slashIndex - 1 + len) % len;
+      paintSlashPalette(source);
+      return true;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      var item = composerState.slashItems[composerState.slashIndex];
+      if (item) selectSkill(source, item);
+      return true;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeSlashPalette(source);
+      return true;
+    }
+    return false;
+  }
+
+  // ---------------- Send (Phase UI-A2 + CHAT-P1) ----------------
   // 普通消息 → stub runner → done
   // 红线消息 → audit → runner → done
   // 来源：'home'（Home 顶部对话框）或 'agent'（Agent 独立页）
@@ -1488,14 +1807,60 @@
       flashInputError(input, 'Agent 正在运行，请等待完成');
       return;
     }
-    // Phase UI-A5：Home 顶部发消息后立刻切到 Agent 独立对话页
-    if (src === 'home') {
-      try { showTab('agent'); } catch (_) { /* ignore */ }
+
+    // Slash skill 处理（CHAT-P1）
+    var selectedSkill = composerState.selectedSkill;
+    var originalSkill = selectedSkill;
+    var originalText = text;
+    if (text.indexOf('/') === 0 && !selectedSkill) {
+      var afterSlash = text.slice(1);
+      var sp = afterSlash.indexOf(' ');
+      var slashName = (sp >= 0 ? afterSlash.slice(0, sp) : afterSlash).trim();
+      var rest = (sp >= 0 ? afterSlash.slice(sp + 1).trim() : '');
+      if (slashName) {
+        var matched = searchSkills(slashName);
+        if (matched.length) {
+          selectedSkill = {
+            id: skillIdOf(matched[0]),
+            name: skillNameOf(matched[0]),
+            description: String(matched[0].description || ''),
+            zhDescription: skillDescriptionZh(matched[0]),
+            source: matched[0].source || 'skill'
+          };
+          composerState.selectedSkill = selectedSkill;
+          selectSkill(src, matched[0], rest);
+          paintSkillIndicator(src);
+          updateComposerSendButton(src);
+          if (!rest) return;
+          text = rest;
+          originalText = rest;
+        } else {
+          appendChatBubble('#agent-messages', 'system', '没有找到名为 /' + esc(slashName) + ' 的技能。你可以从技能菜单中选择一个技能，或直接输入普通消息。', 'failed');
+          scrollChatToBottom('#agent-messages');
+          return;
+        }
+      }
     }
+
+    var textToSend = selectedSkill ? injectSkillPrompt(text, selectedSkill) : text;
+    var displayText = text;
+
+    // 发送前立即清空 composer，给用户即时反馈；失败后再恢复
+    clearComposer(src);
     btn.disabled = true;
     agentState.runStatus = 'running';
     paintAgentStatus();
     paintAgentHeaderStatus();
+
+    // Phase UI-A5：Home 顶部发消息后立刻切到 Agent 独立对话页
+    if (src === 'home') {
+      try { showTab('agent'); } catch (_) { /* ignore */ }
+    }
+
+    // 立即显示 user bubble
+    appendChatBubble('#agent-messages', 'user', displayText, 'sending');
+    scrollChatToBottom('#agent-messages');
+
     try {
       // 1) 找/创建 sessionId
       var sessionId = agentState.sessionId;
@@ -1510,29 +1875,37 @@
       }
       // 2) POST /messages（后端直接跑 runner；redline 仅 audit）
       var r = await apiPost('/api/mobile/sessions/' + encodeURIComponent(sessionId) + '/messages', {
-        text: text,
+        text: textToSend,
         cwd: agentState.cwd,
         agentId: agentState.agentId,
         contextFiles: []
       });
       if (!r || !r.ok) throw new Error((r && r.error) || 'send_failed');
       // 3) 红线也走 runner；UI 不再显示 approval bar
-      input.value = '';
       agentState.runStatus = (r.status === 'failed') ? 'failed' : (r.status || 'done');
       paintAgentStatus();
       paintAgentHeaderStatus();
-      // 拉一次 events 显示 agent bubble
-      try { await refreshEvents(); } catch (_) {}
+      // 拉取并渲染完整 messages（replace 避免重复追加）
+      var box = $('#agent-messages');
+      if (box) clearChildren(box);
+      try { await loadSessionMessages(sessionId); } catch (_) {}
       // 跑完后刷新 Home sessions 列表（Running / Recent）
       try { if (typeof renderHome === 'function') await renderHome(); } catch (_) {}
       // 如果用户在 Agent 独立页：刷新 messages
       if (src === 'agent') {
         await refreshAgentSessions();
       }
+      scrollChatToBottom('#agent-messages');
     } catch (e) {
+      // 失败：恢复原文与 skill，方便用户修改/重试
+      restoreComposer(src, originalText);
+      composerState.selectedSkill = originalSkill;
+      paintSkillIndicator(src);
       agentState.runStatus = 'failed';
       paintAgentStatus();
       paintAgentHeaderStatus();
+      appendChatBubble('#agent-messages', 'system', userFacingSendError(e), 'failed');
+      scrollChatToBottom('#agent-messages');
     } finally {
       btn.disabled = false;
       if (src === 'home') updateHomeSendButtonState(); else updateSendButtonState();
@@ -1579,6 +1952,24 @@
     if (input.value === '') input.placeholder = msg;
     setTimeout(function () { input.style.borderColor = ''; }, 1500);
   }
+
+  // 把底层错误翻译成用户可读中文，避免 TypeError / ENOENT / raw 堆栈直接暴露
+  function userFacingError(e, fallback) {
+    var msg = String((e && (e.message || e)) || fallback || '未知错误');
+    if (/no_token|unauthorized|会话已失效/.test(msg)) return '会话已失效，请重新配对';
+    if (/fetch|network|TypeError.*fetch/.test(msg)) return '网络连接失败，请检查 LAN 或稍后重试';
+    if (/empty_text/.test(msg)) return '发送内容不能为空';
+    if (/text_too_long/.test(msg)) return '发送内容过长';
+    if (/invalid_agent|missing_agent/.test(msg)) return '请先选择 agent';
+    if (/missing_cwd/.test(msg)) return '请先在 Files 选择工作目录';
+    if (/session_busy|running/.test(msg)) return '当前 session 正在运行，请等待完成';
+    if (/session_not_found/.test(msg)) return '会话不存在，请新建对话';
+    if (/send_failed|draft_failed/.test(msg)) return '发送失败，请稍后重试';
+    if (/toggle_failed/.test(msg)) return '切换失败，请稍后重试';
+    if (/ENOENT/.test(msg)) return '未找到可执行文件，请检查是否安装';
+    return fallback || msg;
+  }
+  function userFacingSendError(e) { return userFacingError(e, '发送失败，请稍后重试'); }
 
   function updateSendButtonState() {
     var btn = $('#agent-send');
@@ -1755,8 +2146,12 @@
     // Phase UI-A3: Home 顶部对话框
     var homeInput = document.getElementById('home-input');
     if (homeInput) {
-      homeInput.addEventListener('input', updateHomeSendButtonState);
+      homeInput.addEventListener('input', function () {
+        updateHomeSendButtonState();
+        updateSlashPalette('home');
+      });
       homeInput.addEventListener('keydown', function (e) {
+        if (handleSlashKeydown(e, 'home')) return;
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           onSendMessage('home');
@@ -1787,8 +2182,12 @@
     // Agent 独立页：Send
     var agentInput = document.getElementById('agent-input');
     if (agentInput) {
-      agentInput.addEventListener('input', updateSendButtonState);
+      agentInput.addEventListener('input', function () {
+        updateSendButtonState();
+        updateSlashPalette('agent');
+      });
       agentInput.addEventListener('keydown', function (e) {
+        if (handleSlashKeydown(e, 'agent')) return;
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           onSendMessage('agent');
@@ -1897,6 +2296,7 @@
       onToggleSkill: onToggleSkill,
       // 状态
       skillsState: skillsState,
+      composerState: composerState,
       filesState: filesState,
       agentState: agentState,
       AGENT_FALLBACK: AGENT_FALLBACK,
@@ -1904,6 +2304,15 @@
       ASSISTANT_CARDS: ASSISTANT_CARDS,
       POST_ALLOWLIST: POST_ALLOWLIST,
       isAllowedPost: isAllowedPost,
+      // Phase CHAT-P1
+      searchSkills: searchSkills,
+      injectSkillPrompt: injectSkillPrompt,
+      selectSkill: selectSkill,
+      closeSlashPalette: closeSlashPalette,
+      updateSlashPalette: updateSlashPalette,
+      handleSlashKeydown: handleSlashKeydown,
+      clearComposer: clearComposer,
+      restoreComposer: restoreComposer,
       // API（mock 时可换）
       api: api,
       apiPost: apiPost
