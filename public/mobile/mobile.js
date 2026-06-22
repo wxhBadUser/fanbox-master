@@ -1534,11 +1534,13 @@ async function loadSkills () {
   const listEl = $("skills-list");
   listEl.innerHTML = `<div class="skeleton" style="height:84px;margin-bottom:8px"></div><div class="skeleton" style="height:84px;margin-bottom:8px"></div>`;
 
-  // 1) 拉 skills
+  // 1) 拉 skills (后端返回 { ok:true, items: [...] })
   let rawSkills = [];
   try {
     const data = await api("/api/mobile/skills");
-    rawSkills = Array.isArray(data) ? data : (data?.skills || []);
+    if (Array.isArray(data)) rawSkills = data;
+    else if (data && Array.isArray(data.items)) rawSkills = data.items;
+    else if (data && Array.isArray(data.skills)) rawSkills = data.skills;
   } catch (e) {
     listEl.innerHTML = `<div class="skills-empty"><div class="skills-empty-strong">加载失败</div>${htmlEscape(e.message || String(e))}</div>`;
     return;

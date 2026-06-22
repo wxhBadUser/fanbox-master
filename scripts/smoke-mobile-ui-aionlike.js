@@ -406,6 +406,7 @@ function req(opts, body) {
   ok('CSS .skill-toggle 开关', /\.skill-toggle\s*\{/.test(css));
   ok('mobile.js filterSkills 支持 search + filter', /function\s+filterSkills[\s\S]{0,500}filter/.test(js));
   ok('mobile.js 拉 /api/mobile/skills', /loadSkills[\s\S]{0,500}\/api\/mobile\/skills/.test(js));
+  ok('mobile.js loadSkills 读 data.items (而非 data.skills)', /loadSkills[\s\S]{0,1500}data\.items[\s\S]{0,200}data\.skills/.test(js));
   // toggle 不改真实 skill 文件
   const rSS = await req({ path: '/api/mobile/skills-state', method: 'GET', headers: auth });
   const jSS = JSON.parse(rSS.body);
