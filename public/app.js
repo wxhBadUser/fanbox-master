@@ -86,6 +86,12 @@ function iconColorFor(e) {
     if (e.kind === 'data' || ['csv', 'tsv'].includes(ex)) return '#00a33e';
     return '#0a0a0a';
   }
+  if (t === 'soft') {
+    if (e.isDir) return '#d79d55';
+    if (['md', 'markdown', 'txt'].includes(ex)) return '#8a8178';
+    if (e.kind === 'data' || ['csv', 'tsv', 'sql'].includes(ex)) return '#2f8f5b';
+    return '#7d8793';
+  }
   // terminal：暖色多彩，文件夹用中性灰绿不抢 volt
   if (e.isDir) return '#9aa08a';
   if (EXT_KIND[ex]) return EXT_KIND[ex][1];
@@ -2606,6 +2612,9 @@ function bindEvents() {
   // 启动时点一下连接状态，连着就给终端里的微信按钮点绿点（不挡初始化）
   if (window.fanboxWechat) window.fanboxWechat.env().then((e) => wechatView.syncDot(!!(e && e.connected))).catch(() => {});
   $('#btn-terminal').onclick = () => term.toggle();
+  $('#terminal-session-switcher').onclick = (e) => { e.stopPropagation(); term.toggleSessionMenu(); };
+  document.addEventListener('click', (e) => { if (!e.target.closest('.term-session-area')) term.closeSessionMenu(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') term.closeSessionMenu(); });
   $('#term-claude').onclick = () => { wechatView.close(); term.launchAgent('claude --dangerously-skip-permissions'); };
   $('#term-codex').onclick = () => { wechatView.close(); term.launchAgent('codex'); };
   // OpenCode / Qoder CLI：探测后启动，未安装给友好提示
@@ -2824,7 +2833,7 @@ function updateGridSizeVisibility() {
 
 // ---------- 主题 / 皮肤 ----------
 function applyTheme(skin, rerender = true) {
-  if (!['terminal', 'warm', 'editorial'].includes(skin)) skin = 'terminal';
+  if (!['terminal', 'warm', 'editorial', 'soft'].includes(skin)) skin = 'terminal';
   state.theme = skin;
   document.documentElement.dataset.theme = skin;
   localStorage.setItem('fb_theme', skin);
@@ -3247,6 +3256,11 @@ const term = {
       background: '#eae5d8', foreground: '#1a1a1a', cursor: '#ff433d', cursorAccent: '#eae5d8', selectionBackground: '#ff433d22',
       black: '#0a0a0a', red: '#cc1f1a', green: '#00803a', yellow: '#8a6d00', blue: '#0000cc', magenta: '#9a2a8a', cyan: '#007a8a', white: '#57534a',
       brightBlack: '#57534a', brightRed: '#e8302a', brightGreen: '#00a33e', brightYellow: '#a67c00', brightBlue: '#2222dd', brightMagenta: '#b03aa0', brightCyan: '#008a9a', brightWhite: '#0a0a0a',
+    },
+    soft: {
+      background: '#0d0f0c', foreground: '#e7e3dc', cursor: '#c67a4c', cursorAccent: '#0d0f0c', selectionBackground: '#c67a4c36',
+      black: '#1b1d18', red: '#e07a5f', green: '#7fc29a', yellow: '#d8b65b', blue: '#8fb8d8', magenta: '#d69ac5', cyan: '#86c9bd', white: '#e7e3dc',
+      brightBlack: '#686963', brightRed: '#ef9278', brightGreen: '#9ad8af', brightYellow: '#eccd78', brightBlue: '#a9cce6', brightMagenta: '#e7b0d5', brightCyan: '#a1ded2', brightWhite: '#fbfaf8',
     },
   },
   theme() { return this.themes[state.theme] || this.themes.terminal; },
@@ -3886,6 +3900,60 @@ const term = {
       else if (Notification.permission !== 'denied') Notification.requestPermission().then((p) => { if (p === 'granted') fire(); });
     } catch { /* 通知不可用就算了 */ }
   },
+  sessionState(s) { return s && s.dead ? 'dead' : (s && s.status === 'busy' ? 'busy' : 'idle'); },
+  sessionStateLabel(s) { return s && s.dead ? '已退出' : (s && s.status === 'busy' ? '运行中' : '空闲'); },
+  sessionPlace(s) {
+    const p = (s && (s.cwd || s.startDir)) || '';
+    return p ? (baseOf(p) || p.replace(state.home, '~')) : '未定位目录';
+  },
+  updateSessionSwitcher() {
+    const btn = $('#terminal-session-switcher');
+    const title = $('#terminal-session-title');
+    if (!btn || !title) return;
+    const cur = this.sessions.find((x) => x.id === this.active);
+    title.textContent = cur ? (cur.title || this.sessionPlace(cur) || '会话') : '会话';
+    const dot = btn.querySelector('.session-dot');
+    if (dot) dot.className = 'session-dot ' + this.sessionState(cur);
+    btn.title = cur ? `当前会话：${cur.title || 'shell'} · ${this.sessionPlace(cur)}` : '选择终端会话';
+  },
+  renderSessionMenu() {
+    const menu = $('#terminal-session-menu');
+    if (!menu) return;
+    if (!this.sessions.length) {
+      menu.innerHTML = '<div class="session-empty">暂无可切换会话<br>打开一个终端或启动 agent 后会出现在这里</div>';
+      return;
+    }
+    menu.innerHTML = '<div class="session-menu-head">当前打开的终端</div>';
+    this.sessions.forEach((s) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'session-menu-item' + (s.id === this.active ? ' active' : '');
+      item.dataset.id = s.id;
+      item.innerHTML = `<span class="session-dot ${this.sessionState(s)}"></span><span><span class="session-menu-name">${escapeHtml(s.title || 'shell')}</span><span class="session-menu-cwd">${escapeHtml(this.sessionPlace(s))}</span></span><span class="session-menu-state">${escapeHtml(this.sessionStateLabel(s))}</span>`;
+      item.onclick = () => { this.open(); this.activate(s.id); this.closeSessionMenu(); };
+      menu.appendChild(item);
+    });
+    const foot = document.createElement('div');
+    foot.className = 'session-empty';
+    foot.textContent = '最近对话 / resume 暂未接入';
+    menu.appendChild(foot);
+  },
+  toggleSessionMenu() {
+    const menu = $('#terminal-session-menu');
+    const btn = $('#terminal-session-switcher');
+    if (!menu || !btn) return;
+    const open = menu.classList.contains('hidden');
+    if (open) this.renderSessionMenu();
+    menu.classList.toggle('hidden', !open);
+    btn.classList.toggle('open', open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  },
+  closeSessionMenu() {
+    const menu = $('#terminal-session-menu');
+    const btn = $('#terminal-session-switcher');
+    if (menu) menu.classList.add('hidden');
+    if (btn) { btn.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); }
+  },
   renderTabs() {
     const bar = $('#term-tabs');
     bar.innerHTML = '';
@@ -3904,6 +3972,9 @@ const term = {
       t.ondblclick = (e) => { if (e.target.classList.contains('tab-x')) return; this.locateCwd(); };
       bar.appendChild(t);
     });
+    this.updateSessionSwitcher();
+    const menu = $('#terminal-session-menu');
+    if (menu && !menu.classList.contains('hidden')) this.renderSessionMenu();
   },
   retheme() { const th = this.theme(); this.sessions.forEach((s) => { s.xterm.options.theme = th; }); },
 };
@@ -4561,7 +4632,7 @@ async function invokeSkillInTerm(name) {
 // ---------- Monaco 编辑器（本地 vendor，离线可用；加载失败回退 textarea）----------
 const mona = {
   editor: null, _p: null,
-  themeFor: { terminal: 'fb-dark', warm: 'fb-paper', editorial: 'fb-editorial' },
+  themeFor: { terminal: 'fb-dark', warm: 'fb-paper', editorial: 'fb-editorial', soft: 'fb-soft' },
   themeName() { return this.themeFor[state.theme] || 'fb-dark'; },
   // 散文类（md/txt/字幕）默认软换行，代码不换行
   wraps(ex) { return ['md', 'markdown', 'txt', 'log', 'srt', 'vtt', 'ass'].includes(ex); },
@@ -4606,6 +4677,7 @@ const mona = {
     m.editor.defineTheme('fb-dark', { base: 'vs-dark', inherit: true, rules: [], colors: { 'editor.background': '#0b0c0a', 'editor.foreground': '#d6dac9', 'editorLineNumber.foreground': '#4a4d42', 'editorCursor.foreground': '#cdf24b', 'editor.selectionBackground': '#cdf24b33', 'editor.lineHighlightBackground': '#ffffff08' } });
     m.editor.defineTheme('fb-paper', { base: 'vs', inherit: true, rules: [], colors: { 'editor.background': '#ece2d2', 'editor.foreground': '#4a3f30', 'editorLineNumber.foreground': '#b3a589', 'editorCursor.foreground': '#cc785c', 'editor.selectionBackground': '#cc785c33', 'editor.lineHighlightBackground': '#00000008' } });
     m.editor.defineTheme('fb-editorial', { base: 'vs', inherit: true, rules: [], colors: { 'editor.background': '#eae5d8', 'editor.foreground': '#1a1a1a', 'editorLineNumber.foreground': '#9a958a', 'editorCursor.foreground': '#ff433d', 'editor.selectionBackground': '#ff433d22', 'editor.lineHighlightBackground': '#00000008' } });
+    m.editor.defineTheme('fb-soft', { base: 'vs', inherit: true, rules: [], colors: { 'editor.background': '#fbfaf8', 'editor.foreground': '#20242b', 'editorLineNumber.foreground': '#b9b1a8', 'editorCursor.foreground': '#c97b4f', 'editor.selectionBackground': '#c97b4f26', 'editor.lineHighlightBackground': '#14141406' } });
   },
   retheme() { if (this.editor && window.monaco) window.monaco.editor.setTheme(this.themeName()); },
   // 只读并排 diff：HEAD 版本 vs 工作区当前内容，复用 editor 槽位让 disposeIfAny 统一回收
