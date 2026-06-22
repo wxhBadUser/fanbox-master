@@ -686,14 +686,50 @@ function badReq(res, code, error) {
 }
 
 // 移动端 allowedRoots 列表（专用：给 /api/mobile/roots 用，不复用 desktop 语义）
+// Phase UI-A8-2：扩展为包含 Windows 驱动器 + 常用目录（Desktop / Downloads / Documents），
+// 让手机端进入 Files 时可以看到真实可访问的入口。
 function mobileAllowedRoots() {
   const out = [];
-  for (const r of allowedRoots()) {
+  const seen = new Set();
+  function pushDir(p, label) {
+    if (!p) return;
+    let abs;
+    try { abs = path.resolve(p); } catch { return; }
+    if (seen.has(abs)) return;
     try {
-      const s = fs.statSync(r);
-      if (s.isDirectory()) out.push({ name: path.basename(r) || r, path: r });
-    } catch { /* skip */ }
+      const s = fs.statSync(abs);
+      if (!s.isDirectory()) return;
+    } catch { return; }
+    seen.add(abs);
+    out.push({ name: label || path.basename(abs) || abs, path: abs });
   }
+
+  // 1) Windows 驱动器（D:\ / E:\ / F:\ ...），仅在 win32 上
+  if (process.platform === 'win32') {
+    try {
+      const letters = 'CDEFGHIJKLMNOPQRSTUVWXYZ';
+      for (const ch of letters) {
+        const drive = `${ch}:\\`;
+        try {
+          const s = fs.statSync(drive);
+          if (s.isDirectory()) pushDir(drive, `${ch}:`);
+        } catch { /* 驱动器不存在，继续下一个 */ }
+      }
+    } catch { /* */ }
+  }
+
+  // 2) 常用目录（Home + Desktop / Downloads / Documents / Pictures / Music / Videos）
+  pushDir(HOME, 'Home');
+  pushDir(path.join(HOME, 'Desktop'),   'Desktop');
+  pushDir(path.join(HOME, 'Downloads'), 'Downloads');
+  pushDir(path.join(HOME, 'Documents'), 'Documents');
+  pushDir(path.join(HOME, 'Pictures'),  'Pictures');
+  pushDir(path.join(HOME, 'Music'),     'Music');
+  pushDir(path.join(HOME, 'Videos'),    'Videos');
+
+  // 3) allowedRoots 自身（HOME + 项目 cwd）
+  for (const r of allowedRoots()) pushDir(r, path.basename(r) || r);
+
   return out;
 }
 
@@ -1394,6 +1430,8 @@ async function handleMobileApiV2(req, res, url) {
       platform: process.platform,
       sep: path.sep,
       roots: mobileAllowedRoots(),
+      // recentCwds 暂留空数组；后续 Phase 接 mobile-sessions.cwdHistory
+      recentCwds: [],
     });
   }
 

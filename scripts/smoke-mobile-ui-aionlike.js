@@ -83,6 +83,15 @@ function req(opts, body) {
   const cwdMock = path.join(TMP_HOME, 'fanbox-cwd-UI-A7');
   fs.mkdirSync(cwdMock, { recursive: true });
 
+  // 注入 Home 下的常见目录（让 /api/mobile/roots 包含 Desktop/Downloads/Documents）
+  for (const d of ['Desktop', 'Downloads', 'Documents', 'Pictures', 'Music', 'Videos']) {
+    fs.mkdirSync(path.join(TMP_HOME, d), { recursive: true });
+  }
+  // 注入 README.md 用来测试 search
+  fs.writeFileSync(path.join(cwdMock, 'README.md'), '# UI-A8-2 test\n', 'utf8');
+  // 注入 package.json
+  fs.writeFileSync(path.join(cwdMock, 'package.json'), '{"name":"smoke-a8-2"}', 'utf8');
+
   // 注入 desktop sessions (与电脑端互通)
   const desktopPath = path.join(process.env.FANBOX_SESSIONS_DIR, 'index.json');
   const now = Date.now();
@@ -285,9 +294,9 @@ function req(opts, body) {
   ok('CSS html, body 默认无横向 overflow (overflow-x)', /overflow-x/.test(css));
 
   // ============================================================
-  // [F] Files (手机文件管理器)
+  // [F] Files · Phase UI-A8-2 (手机文件管理器 · 真实数据)
   // ============================================================
-  section('F) Files · 手机文件管理器');
+  section('F) Files · 手机文件管理器 · UI-A8-2');
   ok('HTML 含 #files-back (返回)', /id="files-back"/.test(html));
   ok('HTML 含 #files-title (Files 标题)', /id="files-title"/.test(html));
   ok('HTML 含 #files-refresh', /id="files-refresh"/.test(html));
@@ -296,24 +305,76 @@ function req(opts, body) {
   ok('HTML 含 #files-cwd-label (当前路径)', /id="files-cwd-label"/.test(html));
   ok('HTML 含 #files-open-agent (Ask AI in this folder)', /id="files-open-agent"/.test(html));
   ok('HTML 含 #files-preview (预览)', /id="files-preview"/.test(html));
-  ok('CSS .file-row 一行一个 (display: flex, min-height: 60px)',
-    /\.file-row\s*\{[^}]*display:\s*flex[\s\S]{0,400}min-height:\s*60px/.test(css));
-  ok('CSS .file-name ellipsis', /\.file-name[\s\S]{0,300}text-overflow:\s*ellipsis/.test(css));
-  // 类型图标
+  // [F.1] Files data
+  ok('UI-A8-2: mobile.js 调 /api/mobile/files?path=...', /\/api\/mobile\/files\?path=/.test(js));
+  ok('UI-A8-2: mobile.js 调 /api/mobile/roots (cwd 空时)', /\/api\/mobile\/roots/.test(js));
+  ok('UI-A8-2: mobile.js 调 /api/mobile/search (>=3 字符)', /\/api\/mobile\/search\?q=/.test(js));
+  ok('UI-A8-2: mobile.js 调 /api/mobile/file?path= (预览)', /\/api\/mobile\/file\?path=/.test(js));
+  ok('UI-A8-2: mobile.js loadFiles 读 data.items (而非 data.files)', /normalizeFiles\(data\.items\s*\|\|\s*data\.files/.test(js));
+  ok('UI-A8-2: mobile.js loadFilesRoots 在 S.cwd 为空时调用', /if\s*\(\s*!path\s*&&\s*!S\.cwd\s*\)\s*\{[\s\S]{0,80}loadFilesRoots/.test(js));
+  ok('UI-A8-2: mobile.js openAgentInCurrentFolder POST /api/mobile/context/cwd',
+    /openAgentInCurrentFolder[\s\S]{0,500}\/api\/mobile\/context\/cwd/.test(js));
+  ok('UI-A8-2: openAgentInCurrentFolder 切回 home', /openAgentInCurrentFolder[\s\S]{0,800}showTab\(\s*['"]home['"]\s*\)/.test(js));
+  ok('UI-A8-2: api() 401 自动 clearToken + showPair', /clearToken\s*\(\s*\)/.test(js) && /showPair\s*\(\s*\)/.test(js));
+  ok('UI-A8-2: renderFilesError 403 提示 无权限', /无权限访问该路径/.test(js));
+  ok('UI-A8-2: filterFiles cwd 空提示先选文件夹', /先选择一个文件夹/.test(js));
+  // [F.2] Files UI
+  ok('UI-A8-2: CSS .file-row min-height: 64px', /\.file-row\s*\{[^}]*min-height:\s*64px/.test(css));
+  ok('CSS .file-name ellipsis', /\.file-name[\s\S]{0,400}text-overflow:\s*ellipsis/.test(css));
+  ok('CSS .file-meta ellipsis', /\.file-meta[\s\S]{0,400}text-overflow:\s*ellipsis/.test(css));
+  // 颜色化文件类型图标
   for (const t of ['folder', 'pdf', 'word', 'excel', 'ppt', 'md', 'code', 'txt', 'image', 'zip']) {
-    ok('mobile.js FILE_ICONS 含 ' + t, new RegExp("\\b" + t + ":\\s*`").test(js));
-    ok('CSS .file-icon.' + t + ' 配色', new RegExp("\\.file-icon\\." + t).test(css));
+    ok('mobile.js FILE_ICONS 含 ' + t, new RegExp("\\b" + t + ":\\s*`<svg").test(js));
   }
-  // 文件夹优先
-  ok('mobile.js 文件夹排在前面 (sort isFolder 优先)', /isFolder\s*\?\s*-1\s*:\s*1/.test(js));
+  // 多色 SVG (无 stroke="currentColor" 即可识别为非单色)
+  ok('UI-A8-2: pdf 用红色 fill (#DC2626/#B91C1C/#EF4444)', /#(?:DC2626|B91C1C|EF4444)/.test(js));
+  ok('UI-A8-2: word 用蓝色 fill (#2563EB/#1D4ED8)', /#(?:2563EB|1D4ED8|3B82F6)/.test(js));
+  ok('UI-A8-2: excel 用绿色 fill (#16A34A/#15803D)', /#(?:16A34A|15803D|22C55E)/.test(js));
+  ok('UI-A8-2: ppt 用橙色 fill (#EA580C/#C2410C)', /#(?:EA580C|C2410C|F97316)/.test(js));
+  // 文件夹优先（sort dir 优先）
+  ok('UI-A8-2: mobile.js 文件夹排在前面 (sort isDir 优先)', /aDir\s*\?\s*-1\s*:\s*1/.test(js) || /aDir\s*!==\s*bDir\s*\?\s*-1\s*:\s*1/.test(js));
   // 三个点
   ok('CSS .file-extra 三个点按钮', /\.file-extra\s*\{/.test(css));
   // 搜索过滤
-  ok('mobile.js filterFiles 过滤 name', /function\s+filterFiles[\s\S]{0,200}name\.toLowerCase\(\)\.includes/.test(js));
+  ok('UI-A8-2: mobile.js filterFiles 调 /api/mobile/search (含 q)',
+    /filterFiles[\s\S]{0,2000}\/api\/mobile\/search\?q=/.test(js));
   // 路径/navigation
   ok('mobile.js filesNavigateBack 处理 back', /function\s+filesNavigateBack\s*\(/.test(js));
-  // Ask AI
-  ok('mobile.js openAgentInCurrentFolder 设置 cwd + showTab(home)', /openAgentInCurrentFolder[\s\S]{0,500}showTab\(['"]home['"]\)/.test(js));
+  // [F.3] fileTypeFor / fileIconFor
+  ok('UI-A8-2: mobile.js 定义 fileTypeFor', /function\s+fileTypeFor\s*\(/.test(js));
+  ok('UI-A8-2: mobile.js 定义 fileIconFor', /function\s+fileIconFor\s*\(/.test(js));
+  ok('UI-A8-2: fileTypeFor 处理 isDir', /fileTypeFor[\s\S]{0,200}isDir/.test(js));
+  // drive 图标
+  ok('UI-A8-2: FILE_ICONS 含 drive (供 roots 用)', /drive:\s*`<svg/.test(js));
+  // [F.4] toast
+  ok('UI-A8-2: mobile.js 定义 toast', /function\s+toast\s*\(/.test(js));
+  ok('UI-A8-2: CSS .app-toast 圆角胶囊', /\.app-toast\s*\{[^}]*border-radius:\s*999/.test(css));
+  // [F.5] 后端：roots 包含常见目录
+  const rRoots = await req({ path: '/api/mobile/roots', method: 'GET', headers: auth });
+  const jRoots = JSON.parse(rRoots.body);
+  ok('GET /api/mobile/roots 200', rRoots.status === 200);
+  ok('roots 含 home / desktop / downloads / documents (UI-A8-2)',
+    jRoots.roots && jRoots.roots.some(r => r.name === 'Home' || r.path === jRoots.home) &&
+    jRoots.roots.some(r => r.name === 'Desktop' || /\\Desktop$|\/Desktop$/.test(r.path)) &&
+    jRoots.roots.some(r => r.name === 'Downloads' || /\\Downloads$|\/Downloads$/.test(r.path)) &&
+    jRoots.roots.some(r => r.name === 'Documents' || /\\Documents$|\/Documents$/.test(r.path)));
+  // [F.6] 后端：/api/mobile/files 实际返回真实 items
+  const rFiles = await req({ path: '/api/mobile/files?path=' + encodeURIComponent(jRoots.home), method: 'GET', headers: auth });
+  const jFiles = JSON.parse(rFiles.body);
+  ok('GET /api/mobile/files?path=home 200', rFiles.status === 200);
+  ok('files 真实响应含 items 数组', Array.isArray(jFiles.items));
+  ok('files 真实响应每个 item 含 name/path/isDir', jFiles.items && jFiles.items.every(it => it.name && 'path' in it && 'isDir' in it));
+  ok('UI-A8-2: files 真实响应 items 至少 1 个 (fanbox 项目本身)', jFiles.items && jFiles.items.length >= 1);
+  // [F.7] 后端：search (用 cwdMock 缩范围)
+  const rSearch = await req({ path: '/api/mobile/search?q=README&path=' + encodeURIComponent(cwdMock) + '&limit=10', method: 'GET', headers: auth });
+  const jSearch = JSON.parse(rSearch.body);
+  ok('GET /api/mobile/search?q=README 200', rSearch.status === 200);
+  ok('search README 能搜到 (UI-A8-2)', jSearch.items && jSearch.items.some(it => /readme\.md$/i.test(it.path)));
+  // [F.8] 文件预览 API
+  const rFile = await req({ path: '/api/mobile/file?path=' + encodeURIComponent(path.join(cwdMock, 'package.json')), method: 'GET', headers: auth });
+  const jFile = JSON.parse(rFile.body);
+  ok('GET /api/mobile/file?path=package.json 200', rFile.status === 200);
+  ok('file 预览返回 text (UI-A8-2)', jFile && typeof jFile.text === 'string' && jFile.text.length > 0);
   // 不含危险操作
   ok('Files 不含 Delete 按钮', !/Delete/.test(html));
   ok('Files 不含 Move 按钮', !/Move File/.test(html));

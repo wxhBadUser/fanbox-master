@@ -1130,7 +1130,7 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   text-align: left;
   cursor: pointer;
   font-family: inherit;
-  min-height: 60px;
+  min-height: 64px;            /* Phase UI-A8-2: 64px 一行一个 */
   transition: background 0.10s;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
@@ -1138,6 +1138,23 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 .file-row:hover { background: var(--bg-2); }
 .file-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .file-row.is-active { background: var(--bg-2); }
+.file-row .file-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg);
+  white-space: nowrap;         /* Phase UI-A8-2: ellipsis */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.file-row .file-meta {
+  font-size: 12px;
+  color: var(--fg-2);
+  white-space: nowrap;         /* Phase UI-A8-2: ellipsis */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
 
 .file-icon {
   width: 40px;
@@ -1217,6 +1234,33 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   font-size: 13px;
 }
 .files-empty-strong { color: var(--fg-2); font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+.files-empty-hint { color: var(--fg-3); font-size: 12px; margin-top: 2px; }
+
+/* App-level toast (Phase UI-A8-2: Ask AI feedback) */
+.app-toast {
+  position: fixed;
+  left: 50%;
+  bottom: max(96px, env(safe-area-inset-bottom, 0px));
+  transform: translate(-50%, 16px);
+  background: rgba(15, 23, 42, 0.92);
+  color: #FFFFFF;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 10px 16px;
+  border-radius: 999px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  z-index: 9999;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s, transform 0.18s;
+  max-width: 80vw;
+  text-align: center;
+  line-height: 1.4;
+}
+.app-toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
 
 /* Preview */
 .files-preview {

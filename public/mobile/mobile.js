@@ -140,31 +140,125 @@ const AGENTS = [
 ];
 
 /** 文件类型 SVG 图标（简洁 SVG） */
+// Phase UI-A8-2: 彩色多色文件类型图标 (folder 黑色线性 / drive / pdf 红色 / word 蓝色 /
+// excel 绿色 / ppt 橙色 / md 灰蓝 / code 黑色 </> / txt 蓝色 / image 紫色 / zip 黄色 / unknown)
 const FILE_ICONS = {
-  folder: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7 C3 5.9 3.9 5 5 5 H9 L11 7 H19 C20.1 7 21 7.9 21 9 V18 C21 19.1 20.1 20 19 20 H5 C3.9 20 3 19.1 3 18 V7Z"/></svg>`,
+  // 黑色线性 folder (ChatGPT/Manus 简洁风)
+  folder: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M3 7 C3 5.9 3.9 5 5 5 H9.5 L11.5 7 H19 C20.1 7 21 7.9 21 9 V18 C21 19.1 20.1 20 19 20 H5 C3.9 20 3 19.1 3 18 V7Z" fill="#FFFFFF" stroke="#1F2328" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M3 10 H21" stroke="#1F2328" stroke-width="1.5" stroke-linejoin="round"/>
+</svg>`,
 
-  pdf: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6 C4.9 2 4 2.9 4 4 V20 C4 21.1 4.9 22 6 22 H18 C19.1 22 20 21.1 20 20 V8 Z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`,
+  // Windows 驱动器（disk icon）
+  drive: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="3" y="5" width="18" height="14" rx="2" fill="#E5E7EB" stroke="#1F2328" stroke-width="1.5"/>
+  <rect x="5" y="7" width="14" height="8" rx="1" fill="#FFFFFF" stroke="#1F2328" stroke-width="1.2"/>
+  <rect x="5" y="16" width="3" height="1.5" rx="0.5" fill="#1F2328"/>
+  <rect x="9" y="16" width="3" height="1.5" rx="0.5" fill="#1F2328"/>
+</svg>`,
 
-  word: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6 C4.9 2 4 2.9 4 4 V20 C4 21.1 4.9 22 6 22 H18 C19.1 22 20 21.1 20 20 V8 Z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`,
+  // PDF · 红色
+  pdf: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M14 2H6 C4.9 2 4 2.9 4 4 V20 C4 21.1 4.9 22 6 22 H18 C19.1 22 20 21.1 20 20 V8 L14 2Z" fill="#FEE2E2" stroke="#DC2626" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M14 2 V8 H20" fill="#FECACA" stroke="#DC2626" stroke-width="1.5" stroke-linejoin="round"/>
+  <text x="12" y="17" text-anchor="middle" font-family="Arial, sans-serif" font-size="5.5" font-weight="bold" fill="#DC2626">PDF</text>
+</svg>`,
 
-  excel: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6 C4.9 2 4 2.9 4 4 V20 C4 21.1 4.9 22 6 22 H18 C19.1 22 20 21.1 20 20 V8 Z"/><polyline points="14 2 14 8 20 8"/><rect x="8" y="13" width="8" height="5" rx="1"/><line x1="8" y1="16.5" x2="16" y2="16.5"/><line x1="12" y1="13" x2="12" y2="18"/></svg>`,
+  // Word · 蓝色
+  word: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M14 2H6 C4.9 2 4 2.9 4 4 V20 C4 21.1 4.9 22 6 22 H18 C19.1 22 20 21.1 20 20 V8 L14 2Z" fill="#DBEAFE" stroke="#2563EB" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M14 2 V8 H20" fill="#BFDBFE" stroke="#2563EB" stroke-width="1.5" stroke-linejoin="round"/>
+  <text x="12" y="17" text-anchor="middle" font-family="Arial, sans-serif" font-size="5.5" font-weight="bold" fill="#2563EB">DOC</text>
+</svg>`,
 
-  ppt: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="8" y1="12" x2="16" y2="12"/><polyline points="12 8 12 16"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><line x1="8" y1="16" x2="16" y2="16"/></svg>`,
+  // Excel · 绿色
+  excel: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M14 2H6 C4.9 2 4 2.9 4 4 V20 C4 21.1 4.9 22 6 22 H18 C19.1 22 20 21.1 20 20 V8 L14 2Z" fill="#DCFCE7" stroke="#16A34A" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M14 2 V8 H20" fill="#BBF7D0" stroke="#16A34A" stroke-width="1.5" stroke-linejoin="round"/>
+  <text x="12" y="17" text-anchor="middle" font-family="Arial, sans-serif" font-size="5.5" font-weight="bold" fill="#16A34A">XLS</text>
+</svg>`,
 
-  md: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="7 8 5 12 7 16"/><polyline points="17 8 19 12 17 16"/><line x1="11" y1="8" x2="13" y2="16"/></svg>`,
+  // PPT · 橙色
+  ppt: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M14 2H6 C4.9 2 4 2.9 4 4 V20 C4 21.1 4.9 22 6 22 H18 C19.1 22 20 21.1 20 20 V8 L14 2Z" fill="#FFEDD5" stroke="#EA580C" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M14 2 V8 H20" fill="#FED7AA" stroke="#EA580C" stroke-width="1.5" stroke-linejoin="round"/>
+  <text x="12" y="17" text-anchor="middle" font-family="Arial, sans-serif" font-size="5.5" font-weight="bold" fill="#EA580C">PPT</text>
+</svg>`,
 
-  code: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`,
+  // Markdown · 灰蓝 MD
+  md: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="2" y="5" width="20" height="14" rx="2" fill="#F1F5F9" stroke="#475569" stroke-width="1.5"/>
+  <text x="6" y="15" font-family="Arial, sans-serif" font-size="6" font-weight="bold" fill="#475569">M</text>
+  <path d="M9 11 L9 15 M9 13 L11 11 L11 15 M12 11 L12 15" stroke="#475569" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M14 11 L16 13 L18 11 M16 13 L16 15" stroke="#475569" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>`,
 
-  txt: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6 C4.9 2 4 2.9 4 4 V20 C4 21.1 4.9 22 6 22 H18 C19.1 22 20 21.1 20 20 V8 Z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`,
+  // Code · 黑色 <>
+  code: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="2" y="4" width="20" height="16" rx="2" fill="#1F2328" stroke="#1F2328" stroke-width="1.5"/>
+  <path d="M9 9 L6 12 L9 15" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M15 9 L18 12 L15 15" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M13.5 8 L10.5 16" stroke="#FFFFFF" stroke-width="1.4" stroke-linecap="round"/>
+</svg>`,
 
-  image: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`,
+  // HTML · 橙色 <>
+  html: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="2" y="4" width="20" height="16" rx="2" fill="#FEF3C7" stroke="#F97316" stroke-width="1.5"/>
+  <path d="M8 9 L5 12 L8 15" stroke="#EA580C" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M16 9 L19 12 L16 15" stroke="#EA580C" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M13.5 8 L10.5 16" stroke="#EA580C" stroke-width="1.4" stroke-linecap="round"/>
+</svg>`,
 
-  zip: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="8 4 8 10"/><polyline points="16 4 16 10"/><polyline points="8 14 8 20"/><polyline points="16 14 16 20"/></svg>`,
+  // Txt · 蓝色文本
+  txt: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M14 2H6 C4.9 2 4 2.9 4 4 V20 C4 21.1 4.9 22 6 22 H18 C19.1 22 20 21.1 20 20 V8 L14 2Z" fill="#FFFFFF" stroke="#1F2328" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M14 2 V8 H20" fill="#F1F5F9" stroke="#1F2328" stroke-width="1.5" stroke-linejoin="round"/>
+  <line x1="7" y1="13" x2="17" y2="13" stroke="#2563EB" stroke-width="1.4" stroke-linecap="round"/>
+  <line x1="7" y1="16" x2="14" y2="16" stroke="#2563EB" stroke-width="1.4" stroke-linecap="round"/>
+  <line x1="7" y1="19" x2="11" y2="19" stroke="#2563EB" stroke-width="1.4" stroke-linecap="round"/>
+</svg>`,
 
-  html: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`,
+  // Image · 紫色
+  image: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="3" y="3" width="18" height="18" rx="2" fill="#EDE9FE" stroke="#7C3AED" stroke-width="1.5"/>
+  <circle cx="8.5" cy="8.5" r="1.6" fill="#7C3AED"/>
+  <path d="M3 17 L8.5 12 L13 16 L17 13 L21 17 V19 C21 20.1 20.1 21 19 21 H5 C3.9 21 3 20.1 3 19 V17Z" fill="#C4B5FD" stroke="#7C3AED" stroke-width="1.5" stroke-linejoin="round"/>
+</svg>`,
 
-  unknown: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6 C4.9 2 4 2.9 4 4 V20 C4 21.1 4.9 22 6 22 H18 C19.1 22 20 21.1 20 20 V8 Z"/><polyline points="14 2 14 8 20 8"/></svg>`,
+  // Zip · 黄色
+  zip: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M14 2H6 C4.9 2 4 2.9 4 4 V20 C4 21.1 4.9 22 6 22 H18 C19.1 22 20 21.1 20 20 V8 L14 2Z" fill="#FEF9C3" stroke="#CA8A04" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M14 2 V8 H20" fill="#FDE68A" stroke="#CA8A04" stroke-width="1.5" stroke-linejoin="round"/>
+  <rect x="11" y="10" width="2" height="2" fill="#CA8A04"/>
+  <rect x="11" y="13" width="2" height="2" fill="#CA8A04"/>
+  <rect x="11" y="16" width="2" height="2" fill="#CA8A04"/>
+  <circle cx="12" cy="6" r="1" fill="#1F2328"/>
+</svg>`,
+
+  // Unknown · 普通文件
+  unknown: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M14 2H6 C4.9 2 4 2.9 4 4 V20 C4 21.1 4.9 22 6 22 H18 C19.1 22 20 21.1 20 20 V8 L14 2Z" fill="#F1F5F9" stroke="#64748B" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M14 2 V8 H20" fill="#E2E8F0" stroke="#64748B" stroke-width="1.5" stroke-linejoin="round"/>
+  <line x1="7" y1="13" x2="17" y2="13" stroke="#94A3B8" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="7" y1="16" x2="17" y2="16" stroke="#94A3B8" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="7" y1="19" x2="13" y2="19" stroke="#94A3B8" stroke-width="1.2" stroke-linecap="round"/>
+</svg>`,
 };
+
+/** 统一入口：根据 item 返回类型 + 图标 */
+function fileTypeFor(item) {
+  if (item && item.isDir) return 'folder';
+  if (item && item.kind === 'dir') return 'folder';
+  if (item && item.kind === 'drive') return 'drive';
+  return getFileType(item && item.name ? item.name : '');
+}
+
+function fileIconFor(item) {
+  return FILE_ICONS[fileTypeFor(item)] || FILE_ICONS.unknown;
+}
+
+/** 旧别名（保留以防 UI 层未迁移） */
+function fileKindFor(item) { return fileTypeFor(item); }
 
 /** 侧边栏导航图标 */
 const NAV_ICONS = {
@@ -823,138 +917,291 @@ function openSkillPicker () {
 }
 
 /* =========================================================
-   Files View
+   Files View · Phase UI-A8-2 (真实数据：roots 优先，items 渲染，Ask AI 联动)
    ========================================================= */
 function wireFiles () {
   $("files-back").addEventListener("click", () => filesNavigateBack());
-  $("files-refresh").addEventListener("click", loadFiles);
+  $("files-refresh").addEventListener("click", () => loadFiles(S.cwd || undefined));
   $("files-open-agent").addEventListener("click", openAgentInCurrentFolder);
   $("files-q").addEventListener("input", debounce(filterFiles, 200));
   $("files-preview-close").addEventListener("click", closeFilesPreview);
+  // dblclick on desktop (touchstart + click for mobile)
+  $("files-list").addEventListener("dblclick", ev => {
+    const row = ev.target.closest(".file-row");
+    if (!row) return;
+    const idx = Number(row.getAttribute("data-idx"));
+    if (Number.isFinite(idx) && S.files[idx]) handleFileClick(S.files[idx]);
+  });
 }
 
+/** 进入 Files 视图：
+ *  - 没有 cwd → 拉 roots / drives / 常用目录
+ *  - 有 cwd   → 拉 /api/mobile/files?path=cwd
+ *  接受可选 path 形参（点击文件夹 / 根目录） */
 async function loadFiles (path) {
   const titleEl = $("files-title");
   const listEl  = $("files-list");
+  const cwdLabel = $("files-cwd-label");
+  const openBtn = $("files-open-agent");
+  if (!listEl) return;
+  // 关闭 preview
+  const pv = $("files-preview"); if (pv) pv.hidden = true;
+  // 状态：skeleton
   titleEl.textContent = "Files";
-  listEl.innerHTML = `<div class="skeleton" style="height:56px;margin-bottom:4px"></div><div class="skeleton" style="height:56px;margin-bottom:4px"></div><div class="skeleton" style="height:56px"></div>`;
+  listEl.innerHTML = `<div class="skeleton" style="height:64px;margin-bottom:6px"></div><div class="skeleton" style="height:64px;margin-bottom:6px"></div><div class="skeleton" style="height:64px"></div>`;
+  if (cwdLabel) cwdLabel.textContent = S.cwd || "未选择";
+  if (openBtn) openBtn.disabled = !S.cwd;
 
+  // 1) 没传 path 且没有 cwd → 拉 roots
+  if (!path && !S.cwd) {
+    return loadFilesRoots();
+  }
+
+  // 2) 拉取具体目录
+  const target = path || S.cwd;
   try {
-    // if path provided or use cwd
-    const target = path || S.cwd;
-    const data = await api("/api/mobile/files" + (target ? `?path=${encodeURIComponent(target)}` : ""));
+    const data = await api("/api/mobile/files?path=" + encodeURIComponent(target));
     if (!data) return;
-
-    S.files = (data.files || []).sort((a, b) => {
-      if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
-      return (a.name || "").localeCompare(b.name || "");
-    });
-
-    // track navigation
+    // 后端返回 { ok, path, items: [{name, path, isDir, kind, size, mtime}] }
+    S.files = normalizeFiles(data.items || data.files || []);
+    // 导航栈：仅当用户显式进入新目录时压栈
     if (path && path !== S.cwd) {
       S.fileHistory.push(S.cwd);
-    }
-    if (path) {
       S.cwd = path;
       localStorage.setItem(CWD_KEY, path);
       updateTopbarCwd();
+    } else if (!S.cwd && target) {
+      S.cwd = target;
+      localStorage.setItem(CWD_KEY, target);
+      updateTopbarCwd();
     }
-
-    titleEl.textContent = path ? truncate(path.split(/[/\\]/).pop() || "Files", 20) : "Files";
-    $("files-cwd-label").textContent = S.cwd || "未选择";
-    $("files-open-agent").disabled = !S.cwd;
-
+    // UI
+    const last = (S.cwd || target).split(/[/\\]/).filter(Boolean).pop() || "Files";
+    titleEl.textContent = truncate(last, 24);
+    if (cwdLabel) cwdLabel.textContent = S.cwd || "未选择";
+    if (openBtn)  openBtn.disabled  = !S.cwd;
     renderFiles(S.files);
-    $("files-preview").hidden = true;
   } catch (e) {
-    listEl.innerHTML = `<div class="files-empty"><div class="files-empty-strong">加载失败</div>${htmlEscape(e.message)}</div>`;
+    listEl.innerHTML = renderFilesError(e);
   }
 }
 
-function renderFiles (files) {
+/** 拉取并渲染 roots / drives / 常用目录（Phase UI-A8-2） */
+async function loadFilesRoots () {
+  const titleEl = $("files-title");
+  const listEl  = $("files-list");
+  const cwdLabel = $("files-cwd-label");
+  const openBtn = $("files-open-agent");
+  titleEl.textContent = "Files";
+  if (cwdLabel) cwdLabel.textContent = "未选择";
+  if (openBtn)  openBtn.disabled = true;
+  listEl.innerHTML = `<div class="skeleton" style="height:64px;margin-bottom:6px"></div><div class="skeleton" style="height:64px;margin-bottom:6px"></div>`;
+  try {
+    const data = await api("/api/mobile/roots");
+    if (!data) return;
+    const items = (data.roots || []).map(r => ({
+      name: r.name,
+      path: r.path,
+      isDir: true,
+      kind: 'drive',
+      size: 0,
+      mtime: 0,
+    }));
+    S.files = items;
+    renderFiles(items, { isRoots: true });
+  } catch (e) {
+    listEl.innerHTML = renderFilesError(e);
+  }
+}
+
+/** 把后端 items 归一化为前端需要的字段：isDir / kind / size / mtime / name / path */
+function normalizeFiles (arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr.map(it => {
+    const isDir = !!(it.isDir || it.isFolder || it.is_directory || it.kind === 'dir');
+    return {
+      name: it.name || '',
+      path: it.path || '',
+      isDir,
+      kind: isDir ? 'folder' : (it.kind || 'file'),
+      size: Number.isFinite(it.size) ? it.size : 0,
+      mtime: Number.isFinite(it.mtime) ? it.mtime : 0,
+    };
+  }).filter(it => it.name);
+}
+
+/** 渲染错误态（401/403/500/网络） */
+function renderFilesError (err) {
+  const msg = (err && err.message) ? String(err.message) : '加载失败';
+  let hint = msg;
+  // 401 → 已被 api() 拦截 clearToken + showPair，此分支实际不会触发
+  if (/403/.test(msg) || /path_not_allowed|forbidden_path/.test(msg)) {
+    hint = "无权限访问该路径";
+  } else if (/404|not_found/.test(msg)) {
+    hint = "路径不存在";
+  }
+  return `<div class="files-empty"><div class="files-empty-strong">加载失败</div><div class="files-empty-hint">${htmlEscape(hint)}</div></div>`;
+}
+
+/** 渲染文件列表。
+ *  opts.isRoots=true 时所有行都按 folder/drive 渲染 */
+function renderFiles (files, opts = {}) {
   const listEl = $("files-list");
   listEl.innerHTML = "";
-
-  if (files.length === 0) {
+  if (!Array.isArray(files) || files.length === 0) {
     listEl.innerHTML = `<div class="files-empty"><div class="files-empty-strong">空文件夹</div>这个目录没有文件</div>`;
     return;
   }
+  // 排序：dir 优先 + 名称
+  const sorted = files.slice().sort((a, b) => {
+    const aDir = !!(a.isDir || a.kind === 'dir' || a.kind === 'drive');
+    const bDir = !!(b.isDir || b.kind === 'dir' || b.kind === 'drive');
+    if (aDir !== bDir) return aDir ? -1 : 1;
+    return (a.name || "").localeCompare(b.name || "");
+  });
 
-  files.forEach(item => {
-    const type = item.isFolder ? "folder" : getFileType(item.name);
+  sorted.forEach((item, idx) => {
+    const isFolder = !!(item.isDir || item.kind === 'dir' || item.kind === 'drive' || opts.isRoots);
+    const type = isFolder ? 'folder' : fileTypeFor(item);
     const icon = FILE_ICONS[type] || FILE_ICONS.unknown;
-    const extClass = type;
+    const meta = isFolder
+      ? "文件夹"
+      : (item.size > 0 ? fmtSize(item.size) : "文件") + (item.mtime ? " · " + timeAgo(item.mtime) : "");
 
-    const row = el("button", "file-row" + (item.isFolder ? " is-folder" : ""));
+    const row = el("button", "file-row" + (isFolder ? " is-folder" : " is-file"));
     row.setAttribute("role", "listitem");
+    row.setAttribute("data-idx", String(idx));
     row.innerHTML =
-      `<span class="file-icon ${extClass}">${icon}</span>` +
+      `<span class="file-icon file-icon-${type}">${icon}</span>` +
       `<span class="file-body">` +
         `<span class="file-name">${htmlEscape(item.name)}</span>` +
-        `<span class="file-meta">${item.isFolder ? "文件夹" : fmtSize(item.size || 0)}</span>` +
+        `<span class="file-meta">${htmlEscape(meta)}</span>` +
       `</span>` +
-      `<span class="file-extra">` +
+      `<span class="file-extra" aria-hidden="true">` +
         `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>` +
       `</span>`;
 
-    row.addEventListener("click", () => {
-      if (item.isFolder) {
-        loadFiles(item.path || (S.cwd ? S.cwd + "/" + item.name : item.name));
-      } else {
-        openFilePreview(item);
-      }
-    });
-
+    row.addEventListener("click", () => handleFileClick(item, opts));
     listEl.appendChild(row);
   });
 }
 
-function filterFiles () {
-  const q = $("files-q").value.toLowerCase().trim();
-  if (!q) { renderFiles(S.files); return; }
-  renderFiles(S.files.filter(f => f.name.toLowerCase().includes(q)));
-}
-
-function filesNavigateBack () {
-  if (S.fileHistory.length > 0) {
-    const prev = S.fileHistory.pop();
-    loadFiles(prev);
-  } else if (S.cwd) {
-    // go to parent
-    const parent = S.cwd.split(/[/\\]/).slice(0, -1).join("/") || null;
-    S.cwd = parent;
-    localStorage.setItem(CWD_KEY, parent || "");
-    updateTopbarCwd();
-    loadFiles(parent);
+/** 点击/双击：folder 进去，file 预览 */
+function handleFileClick (item, opts = {}) {
+  const isFolder = !!(item.isDir || item.kind === 'dir' || item.kind === 'drive' || opts.isRoots);
+  if (isFolder) {
+    const next = item.path || (S.cwd ? S.cwd + "/" + item.name : item.name);
+    loadFiles(next);
+  } else {
+    openFilePreview(item);
   }
 }
 
-function openFilePreview (item) {
-  const type = getFileType(item.name);
-  $("files-preview-name").textContent = item.name;
-  $("files-preview-sub").textContent = fmtSize(item.size || 0) + (item.modified ? " · " + timeAgo(item.modified) : "");
-  $("files-preview").hidden = false;
+/** 搜索：
+ *  - cwd 为空时：提示"先选择一个文件夹"
+ *  - cwd 非空时：调用 /api/mobile/search?q=...&path=... （Phase UI-A8-2） */
+async function filterFiles () {
+  const qEl = $("files-q");
+  const q = (qEl.value || "").trim();
+  if (!S.cwd) {
+    if (!q) { loadFilesRoots(); return; }
+    $("files-list").innerHTML = `<div class="files-empty"><div class="files-empty-strong">先选择一个文件夹</div>请先在列表中点击进入一个文件夹，再搜索</div>`;
+    return;
+  }
+  if (!q) { renderFiles(S.files); return; }
+  // 本地快捷过滤（≤ 2 字符）
+  if (q.length <= 2) {
+    const filtered = S.files.filter(f => (f.name || "").toLowerCase().includes(q.toLowerCase()));
+    if (filtered.length === 0) {
+      $("files-list").innerHTML = `<div class="files-empty"><div class="files-empty-strong">没有匹配的文件</div>试试别的关键词</div>`;
+    } else {
+      renderFiles(filtered);
+    }
+    return;
+  }
+  // 3 字符以上 → 调用 server-side search（递归）
+  const listEl = $("files-list");
+  listEl.innerHTML = `<div class="skeleton" style="height:48px;margin-bottom:6px"></div><div class="skeleton" style="height:48px;margin-bottom:6px"></div>`;
+  try {
+    const data = await api("/api/mobile/search?q=" + encodeURIComponent(q) + "&path=" + encodeURIComponent(S.cwd));
+    if (!data) return;
+    const items = normalizeFiles(data.items || data.files || []);
+    if (items.length === 0) {
+      listEl.innerHTML = `<div class="files-empty"><div class="files-empty-strong">没有匹配的文件</div>试试别的关键词</div>`;
+    } else {
+      S.files = items;
+      renderFiles(items);
+    }
+  } catch (e) {
+    listEl.innerHTML = renderFilesError(e);
+  }
+}
 
+/** 返回上级（面包屑 / 顶部返回） */
+function filesNavigateBack () {
+  // 优先用 history 栈
+  if (S.fileHistory && S.fileHistory.length > 0) {
+    const prev = S.fileHistory.pop();
+    loadFiles(prev);
+    return;
+  }
+  if (!S.cwd) { loadFilesRoots(); return; }
+  // 上溯父目录（兼容 Windows + POSIX）
+  const hasBackslash = S.cwd.indexOf("\\") !== -1;
+  const sep = hasBackslash ? "\\" : "/";
+  const segs = S.cwd.split(/[/\\]/).filter(Boolean);
+  if (segs.length <= 1) {
+    // 已经到根了：清 cwd，回 roots
+    S.cwd = null;
+    localStorage.setItem(CWD_KEY, "");
+    updateTopbarCwd();
+    S.fileHistory = [];
+    loadFilesRoots();
+    return;
+  }
+  segs.pop();
+  let parent = segs.join(sep);
+  // Windows: 形如 "C:" 的盘符应拼一个 "\"
+  if (/^[A-Z]:$/.test(parent)) parent = parent + sep;
+  S.fileHistory = [];
+  loadFiles(parent);
+}
+
+/** 预览：调用 /api/mobile/file?path=... 拿 metadata + 文本 */
+async function openFilePreview (item) {
+  const type = fileTypeFor(item);
+  $("files-preview-name").textContent = item.name;
+  $("files-preview-sub").textContent = fmtSize(item.size || 0) + (item.mtime ? " · " + timeAgo(item.mtime) : "");
+  $("files-preview").hidden = false;
   const body = $("files-preview-body");
   body.innerHTML = `<div class="preview-empty">加载中…</div>`;
-
-  // preview text files
-  if (["md", "txt", "code", "html", "unknown"].includes(type)) {
-    api(`/api/mobile/files/read?path=${encodeURIComponent(item.path || item.name)}`)
-      .then(data => {
-        if (!data) { body.innerHTML = `<div class="preview-empty">读取失败</div>`; return; }
-        const text = data.content || data.text || "";
-        if (text.length > 50000) {
-          body.innerHTML = `<div class="preview-too-large"><strong>文件过大 (${fmtSize(text.length)})</strong>仅显示前 50,000 字符</div><pre>${htmlEscape(text.slice(0, 50000))}</pre>`;
-        } else {
-          body.innerHTML = `<pre>${htmlEscape(text)}</pre>`;
-        }
-      })
-      .catch(() => { body.innerHTML = `<div class="preview-empty">读取失败</div>`; });
-  } else if (type === "image") {
-    body.innerHTML = `<img src="/api/mobile/files/preview?path=${encodeURIComponent(item.path || item.name)}" alt="${htmlEscape(item.name)}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=preview-empty>图片加载失败</div>'">`;
-  } else {
-    body.innerHTML = `<div class="preview-empty">暂不支持预览此文件类型</div>`;
+  try {
+    const data = await api("/api/mobile/file?path=" + encodeURIComponent(item.path));
+    if (!data) { body.innerHTML = `<div class="preview-empty">读取失败</div>`; return; }
+    if (data.previewTooLarge) {
+      body.innerHTML = `<div class="preview-too-large"><strong>文件过大 (${fmtSize(data.size)})</strong>仅显示前 ${fmtSize(data.max)} 字符</div>` +
+        `<div class="preview-empty">请在电脑端打开完整文件</div>`;
+      return;
+    }
+    if (type === "image") {
+      const img = data.thumbUrl
+        ? `<img src="${htmlEscape(data.thumbUrl)}" alt="${htmlEscape(item.name)}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=preview-empty>图片加载失败</div>'">`
+        : `<div class="preview-empty">无缩略图</div>`;
+      body.innerHTML = img;
+    } else if (data.text && (type === "md" || type === "txt" || type === "code" || type === "html" || type === "unknown")) {
+      const text = data.text;
+      if (text.length > 50000) {
+        body.innerHTML = `<div class="preview-too-large"><strong>文件过大 (${fmtSize(text.length)})</strong>仅显示前 50,000 字符</div><pre>${htmlEscape(text.slice(0, 50000))}</pre>`;
+      } else {
+        body.innerHTML = `<pre>${htmlEscape(text)}</pre>`;
+      }
+    } else if (data.kind === "pdf") {
+      body.innerHTML = `<div class="preview-empty">PDF 暂不支持直接预览<br>${htmlEscape(data.name)} · ${fmtSize(data.size)}</div>`;
+    } else {
+      body.innerHTML = `<div class="preview-empty">暂不支持预览此文件类型<br>${htmlEscape(data.name)} · ${fmtSize(data.size || 0)}</div>`;
+    }
+  } catch (e) {
+    body.innerHTML = `<div class="preview-empty">读取失败: ${htmlEscape(e.message || String(e))}</div>`;
   }
 }
 
@@ -962,12 +1209,38 @@ function closeFilesPreview () {
   $("files-preview").hidden = true;
 }
 
-function openAgentInCurrentFolder () {
+/** Ask AI in this folder：更新 server 端 current.cwd + 切回 Home */
+async function openAgentInCurrentFolder () {
   if (!S.cwd) return;
+  // 调用 /api/mobile/context/cwd 写回 server preferences（不启动 agent）
+  try {
+    await api("/api/mobile/context/cwd", {
+      method: "POST",
+      body: JSON.stringify({ cwd: S.cwd })
+    });
+  } catch (e) {
+    // 不阻塞 UI 切换；用户至少能在 Home 看到当前 cwd
+  }
   localStorage.setItem(CWD_KEY, S.cwd);
   updateTopbarCwd();
   closeSidebar();
   showTab("home");
+  // 切回 Home 后，给用户一个 toast 提示
+  toast("已切换到当前文件夹：AI 现在会以这个目录作为工作区");
+}
+
+/** 简单 toast */
+function toast (msg) {
+  let t = $("app-toast");
+  if (!t) {
+    t = el("div", "app-toast");
+    t.id = "app-toast";
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.classList.add("is-visible");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove("is-visible"), 2400);
 }
 
 /* =========================================================
