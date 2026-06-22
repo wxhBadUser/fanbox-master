@@ -30,6 +30,8 @@ const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
 const { writeJsonAtomicSync, readJsonSafe } = require('./atomic-json');
+// Mobile Access（Phase 0A）—— 局域网手机配对 / 独立 HTTP server
+const mobile = require('./mobile.js');
 
 // 复用现有后端：require 即 listen 127.0.0.1:PORT，不自动开浏览器
 process.env.FANBOX_NO_OPEN = '1';
@@ -430,7 +432,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 // 退出兜底：无论怎么退（⌘Q、崩溃前的正常退出），都恢复系统休眠，绝不留禁休眠的烂摊子
-app.on('will-quit', () => { if (process.platform === 'darwin') trySetDisableSleep(false); });
+app.on('will-quit', () => { if (process.platform === 'darwin') trySetDisableSleep(false); if (typeof teardownMobile === 'function') teardownMobile(); });
 
 // ---------- 终端录制（黑匣子）：把 PTY 字节流旁路成 asciinema v2 .cast ----------
 // 设计铁律：录制器是一根哑管子——只异步旁路字节，全程 try/catch，写失败就静默自废，
@@ -1049,3 +1051,145 @@ ipcMain.handle('fs:watch', (e, { dir }) => {
   startWatch(dir);
   return { ok: true };
 });
+
+// ---------- Mobile Access（Phase 0A）----------
+// 独立的 mobile HTTP server 引用：默认 null；enable 时启动，disable 时关闭
+let _mobileHttpServer = null;
+// 应用启动时读取 config —— 如果上次崩溃前 enabled = true 但 server 实际没起来，自动停掉避免悬挂状态
+(async function reconcileMobileOnBoot() {
+  try {
+    const cfg = await mobile.getConfig();
+    if (cfg && cfg.enabled === false) {
+      // 桌面启动时永远不自动开 mobile：上次开着，这次默认关，用户需手动再点「开启」
+      // 这是 Mobile Access 的强约束 —— 不允许「自启」。
+    }
+  } catch (e) { /* ignore */ }
+})();
+
+ipcMain.handle('mobile:status', async () => {
+  return { ok: true, ...(await mobile.publicStatus()), running: !!_mobileHttpServer };
+});
+
+ipcMain.handle('mobile:enable', async () => {
+  const cfg = await mobile.getConfig();
+  await mobile.saveConfig({ enabled: true });
+  if (!_mobileHttpServer) {
+    _mobileHttpServer = mobile.startMobileServer({
+      port: cfg.port || mobile.DEFAULT_PORT,
+      onError: (e) => {
+        console.error('[fanbox] mobile server 错误：', e.message);
+        _mobileHttpServer = null;
+      },
+    });
+  }
+  return { ok: true, ...(await mobile.publicStatus()), running: true };
+});
+
+ipcMain.handle('mobile:disable', async () => {
+  if (_mobileHttpServer) {
+    try { _mobileHttpServer.close(); } catch {}
+    _mobileHttpServer = null;
+  }
+  await mobile.revokeAllTokens();
+  await mobile.saveConfig({ enabled: false, pairCodeHash: null, pairCodeExpiresAt: 0 });
+  return { ok: true, ...(await mobile.publicStatus()), running: false };
+});
+
+ipcMain.handle('mobile:pair-start', async () => {
+  const cfg = await mobile.getConfig();
+  if (!cfg.enabled) return { ok: false, error: 'mobile_disabled' };
+  if (!_mobileHttpServer) {
+    // 用户还没开 mobile 入口但要生成配对码 —— 强制要求先 enable
+    return { ok: false, error: 'mobile_not_running' };
+  }
+  const r = await mobile.startPairCode();
+  const urls = mobile.listLanUrls(cfg.port || mobile.DEFAULT_PORT);
+  const pick = mobile.pickBestLanUrls(cfg.port || mobile.DEFAULT_PORT);
+  return {
+    ok: true,
+    pairCode: r.pairCode,
+    expiresIn: r.expiresIn,
+    expiresAt: r.expiresAt,
+    lanUrls: urls,
+    primaryLanUrl: pick.primary ? pick.primary.url : null,
+    primaryIface: pick.primary ? pick.primary.iface : null,
+  };
+});
+
+ipcMain.handle('mobile:tokens-revoke', async (e, { deviceId }) => {
+  if (!deviceId || typeof deviceId !== 'string') return { ok: false, error: 'missing_deviceId' };
+  await mobile.revokeToken(deviceId);
+  return { ok: true, ...(await mobile.publicStatus()) };
+});
+
+// ---------- Phase 2A-2.1：Mobile Approval Loop (desktop IPC) ----------
+// 注意：renderer → IPC → main 是安全的（main 是唯一拥有 IPC 通道的进程）。
+// 这里直接调用 mobile.mobileSessions.* 等价于走 loopback HTTP，但省一层 HTTP 开销。
+
+ipcMain.handle('mobile:approvals-list', async (e, { status, agentId, limit } = {}) => {
+  try {
+    const items = await mobile.mobileSessions.listApprovals({
+      status: status || undefined,
+      limit: limit || 100
+    });
+    let filtered = items;
+    if (agentId) {
+      filtered = filtered.filter(function (x) { return x.agentId === agentId; });
+    }
+    return { ok: true, items: filtered };
+  } catch (err) {
+    return { ok: false, error: 'list_failed', message: String(err && err.message || err) };
+  }
+});
+
+ipcMain.handle('mobile:approval-decide', async (e, { approvalId, decision } = {}) => {
+  if (!approvalId || typeof approvalId !== 'string') {
+    return { ok: false, error: 'missing_approvalId' };
+  }
+  if (decision !== 'approved' && decision !== 'rejected') {
+    return { ok: false, error: 'invalid_decision' };
+  }
+  // 二次确认 desktop 状态：mobile access 必须开启
+  const cfg = await mobile.getConfig();
+  if (!cfg.enabled) {
+    return { ok: false, error: 'mobile_disabled' };
+  }
+  try {
+    const r = await mobile.mobileSessions.decideApproval(approvalId, decision, 'desktop');
+    if (!r.ok) {
+      return { ok: false, error: r.error, status: r.status || 400 };
+    }
+    return {
+      ok: true,
+      approvalId: r.approvalId,
+      status: r.status,
+      decision: r.decision,
+      note: r.note || ''
+    };
+  } catch (err) {
+    return { ok: false, error: 'decide_failed', message: String(err && err.message || err) };
+  }
+});
+
+ipcMain.handle('mobile:approval-get', async (e, { approvalId } = {}) => {
+  if (!approvalId || typeof approvalId !== 'string') {
+    return { ok: false, error: 'missing_approvalId' };
+  }
+  try {
+    const a = await mobile.mobileSessions.getApprovalById(approvalId);
+    if (!a) return { ok: false, error: 'not_found' };
+    return { ok: true, approval: a };
+  } catch (err) {
+    return { ok: false, error: 'get_failed', message: String(err && err.message || err) };
+  }
+});
+
+// 应用退出兜底：保证 mobile server 不留悬挂 socket
+function teardownMobile() {
+  if (_mobileHttpServer) {
+    try { _mobileHttpServer.close(); } catch {}
+    _mobileHttpServer = null;
+  }
+}
+// 注意：will-quit 在 electron/main.js 已有处理器（恢复 Mac 禁睡眠），这里仅在原处理器中追加 teardownMobile 调用。
+// 实际整合见文件末尾追加段。

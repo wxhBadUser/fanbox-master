@@ -86,6 +86,12 @@ function iconColorFor(e) {
     if (e.kind === 'data' || ['csv', 'tsv'].includes(ex)) return '#00a33e';
     return '#0a0a0a';
   }
+  if (t === 'soft') {
+    if (e.isDir) return '#d79d55';
+    if (['md', 'markdown', 'txt'].includes(ex)) return '#8a8178';
+    if (e.kind === 'data' || ['csv', 'tsv', 'sql'].includes(ex)) return '#2f8f5b';
+    return '#7d8793';
+  }
   // terminal：暖色多彩，文件夹用中性灰绿不抢 volt
   if (e.isDir) return '#9aa08a';
   if (EXT_KIND[ex]) return EXT_KIND[ex][1];
@@ -2606,6 +2612,9 @@ function bindEvents() {
   // 启动时点一下连接状态，连着就给终端里的微信按钮点绿点（不挡初始化）
   if (window.fanboxWechat) window.fanboxWechat.env().then((e) => wechatView.syncDot(!!(e && e.connected))).catch(() => {});
   $('#btn-terminal').onclick = () => term.toggle();
+  $('#terminal-session-switcher').onclick = (e) => { e.stopPropagation(); term.toggleSessionMenu(); };
+  document.addEventListener('click', (e) => { if (!e.target.closest('.term-session-area')) term.closeSessionMenu(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') term.closeSessionMenu(); });
   $('#term-claude').onclick = () => { wechatView.close(); term.launchAgent('claude --dangerously-skip-permissions'); };
   $('#term-codex').onclick = () => { wechatView.close(); term.launchAgent('codex'); };
   // OpenCode / Qoder CLI：探测后启动，未安装给友好提示
@@ -2631,6 +2640,7 @@ function bindEvents() {
     const qd = $('#term-qoder'); if (qd) { qd.classList.add('agent-missing'); qd.title = AGENT_REGISTRY.qoder.installHint; }
   }
   usagePanel.bind();
+  mobileAccess.bind();
   shotTray.init();
   $('#skills-entry').onclick = () => skillsView.show();
   $('#term-newtab').onclick = () => { wechatView.close(); term.newTab(); };
@@ -2823,7 +2833,7 @@ function updateGridSizeVisibility() {
 
 // ---------- 主题 / 皮肤 ----------
 function applyTheme(skin, rerender = true) {
-  if (!['terminal', 'warm', 'editorial'].includes(skin)) skin = 'terminal';
+  if (!['terminal', 'warm', 'editorial', 'soft'].includes(skin)) skin = 'terminal';
   state.theme = skin;
   document.documentElement.dataset.theme = skin;
   localStorage.setItem('fb_theme', skin);
@@ -3247,6 +3257,11 @@ const term = {
       black: '#0a0a0a', red: '#cc1f1a', green: '#00803a', yellow: '#8a6d00', blue: '#0000cc', magenta: '#9a2a8a', cyan: '#007a8a', white: '#57534a',
       brightBlack: '#57534a', brightRed: '#e8302a', brightGreen: '#00a33e', brightYellow: '#a67c00', brightBlue: '#2222dd', brightMagenta: '#b03aa0', brightCyan: '#008a9a', brightWhite: '#0a0a0a',
     },
+    soft: {
+      background: '#0d0f0c', foreground: '#e7e3dc', cursor: '#c67a4c', cursorAccent: '#0d0f0c', selectionBackground: '#c67a4c36',
+      black: '#1b1d18', red: '#e07a5f', green: '#7fc29a', yellow: '#d8b65b', blue: '#8fb8d8', magenta: '#d69ac5', cyan: '#86c9bd', white: '#e7e3dc',
+      brightBlack: '#686963', brightRed: '#ef9278', brightGreen: '#9ad8af', brightYellow: '#eccd78', brightBlue: '#a9cce6', brightMagenta: '#e7b0d5', brightCyan: '#a1ded2', brightWhite: '#fbfaf8',
+    },
   },
   theme() { return this.themes[state.theme] || this.themes.terminal; },
   toggle() {
@@ -3328,6 +3343,7 @@ const term = {
   // 一键在终端启动 coding agent：当前标签是空闲 shell 就地启动；正跑着东西（claude/codex/任何前台程序）
   // 则新开标签，不打断也不把命令打进别的程序里
   async launchAgent(cmd) {
+    if (this.sessions.length >= 4) { toast('最多同时打开 4 个终端会话，请先关闭一个', true); return; }
     if (!this.available()) { openWith(state.cwd, 'terminal'); return; } // 网页版降级到系统终端
     let sess = null;
     if (this.sessions.length) {
@@ -3337,6 +3353,13 @@ const term = {
     }
     if (!sess) sess = await this.openInDir(state.cwd); // 等 spawn 完，拿确切 session 写入
     if (sess && !sess.dead) {
+      // 记录 agent 类型，供会话菜单第二行显示
+      const cmdLow = cmd.toLowerCase().replace(/^--[\w-]+\s+/, ''); // 去掉前置 flag
+      if (cmdLow.startsWith('claude --dangerously-skip-permissions') || cmdLow.startsWith('claude --skip')) sess.agent = 'Claude Code';
+      else if (cmdLow.startsWith('codex')) sess.agent = 'Codex';
+      else if (cmdLow.startsWith('opencode')) sess.agent = 'OpenCode';
+      else if (cmdLow.startsWith('qoder')) sess.agent = 'Qoder';
+      else sess.agent = ''; // 未知命令不留 agent 标签
       this.input(sess.id, cmd + '\r'); sess.xterm.focus(); toast('已在终端启动 ' + cmd);
     }
     else toast('终端启动失败', true);
@@ -3546,6 +3569,7 @@ const term = {
     } catch { /* 取不到就保持原标题 */ }
   },
   async newTab(cwdOverride) {
+    if (this.sessions.length >= 4) { toast('最多同时打开 4 个终端会话，请先关闭一个', true); return null; }
     const startDir = cwdOverride || state.cwd;
     const id = 't' + (++this.seq);
     const host = document.createElement('div');
@@ -3598,7 +3622,7 @@ const term = {
       } catch { /* 回退默认 DOM renderer */ }
     }
     if (fit) try { fit.fit(); } catch { /* */ }
-    const sess = { id, xterm, fit, host, dead: false, status: 'idle', unread: false, startDir, title: baseOf(startDir || '') || 'shell' };
+    const sess = { id, xterm, fit, host, dead: false, status: 'idle', unread: false, startDir, title: baseOf(startDir || '') || 'shell', agent: '' };
     this.sessions.push(sess);
     this.activate(id);
     updateWatches(); // 新终端的项目目录也纳入监听
@@ -3885,24 +3909,225 @@ const term = {
       else if (Notification.permission !== 'denied') Notification.requestPermission().then((p) => { if (p === 'granted') fire(); });
     } catch { /* 通知不可用就算了 */ }
   },
+  sessionState(s) { return s && s.dead ? 'dead' : (s && s.status === 'busy' ? 'busy' : 'idle'); },
+  sessionStateLabel(s) { return s && s.dead ? '已退出' : (s && s.status === 'busy' ? '运行中' : '空闲'); },
+  sessionPlace(s) {
+    const p = (s && (s.cwd || s.startDir)) || '';
+    return p ? (baseOf(p) || p.replace(state.home, '~')) : '未定位目录';
+  },
+  updateSessionSwitcher() {
+    const btn = $('#terminal-session-switcher');
+    const title = $('#terminal-session-title');
+    if (!btn || !title) return;
+    const cur = this.sessions.find((x) => x.id === this.active);
+    title.textContent = cur ? (cur.title || this.sessionPlace(cur) || '会话') : '会话';
+    const dot = btn.querySelector('.session-dot');
+    if (dot) dot.className = 'session-dot ' + this.sessionState(cur);
+    btn.title = cur ? `当前会话：${cur.title || 'shell'} · ${this.sessionPlace(cur)}` : '选择终端会话';
+  },
+  renderSessionMenu() {
+    const menu = $('#terminal-session-menu');
+    if (!menu) return;
+    if (!this.sessions.length) {
+      menu.innerHTML = '<div class="session-empty">暂无可切换会话<br>打开一个终端或启动 agent 后会出现在这里</div>';
+      return;
+    }
+    let h = '<div class="session-menu-head">当前打开的终端</div>';
+    this.sessions.forEach((s) => {
+      const ac = s.id === this.active ? ' active' : '';
+      const st = `session-dot ${this.sessionState(s)}`;
+      const name = escapeHtml(s.title || 'shell');
+            const baseAgent = s.agent ? s.agent : 'Terminal';
+      // 同项目同 agent 编号（#1 / #2 ...）
+      let agentLabel = baseAgent;
+      const sameKey = baseOf(s.cwd || s.startDir || '') + '|' + baseAgent;
+      const sameCount = this.sessions.filter((x) => (baseOf(x.cwd || x.startDir || '') + '|' + (x.agent || 'Terminal')) === sameKey).length;
+      if (sameCount > 1) {
+        const idx = this.sessions.filter((x) => (baseOf(x.cwd || x.startDir || '') + '|' + (x.agent || 'Terminal')) === sameKey && this.sessions.indexOf(x) <= this.sessions.indexOf(s)).length;
+        agentLabel += ' #' + idx;
+      }
+      const subtitle = escapeHtml(agentLabel);
+      const label = escapeHtml(this.sessionStateLabel(s));
+      h += `<button type="button" class="session-menu-item${ac}" data-sid="${s.id}"><span class="${st}"></span><span><span class="session-menu-name">${name}</span><span class="session-menu-cwd">${subtitle}</span></span><span class="session-menu-state">${label}</span><span class="session-menu-close" data-close="${s.id}" title="关闭此终端">✕</span></button>`;
+    });
+    // 跟随状态
+    const fol = follow.on && follow.sid;
+    h += '<hr class="session-section-divider">';
+    h += '<div class="section-head">当前跟随</div>';
+    if (fol) {
+      const s = this.sessions.find((x) => x.id === follow.sid);
+      const baseFollowAgent = s ? (s.agent || 'Terminal') : '—';
+      let followLabel = baseFollowAgent;
+      if (s && s.agent) {
+        const key = baseOf(s.cwd || s.startDir || '') + '|' + s.agent;
+        const sameCount = this.sessions.filter((x) => (baseOf(x.cwd || x.startDir || '') + '|' + (x.agent || 'Terminal')) === key).length;
+        if (sameCount > 1) {
+          const idx = this.sessions.filter((x) => (baseOf(x.cwd || x.startDir || '') + '|' + (x.agent || 'Terminal')) === key && this.sessions.indexOf(x) <= this.sessions.indexOf(s)).length;
+          followLabel = s.agent + ' #' + idx;
+        }
+      }
+      const label = s ? escapeHtml(followLabel) : '—';
+      h += `<div class="follow-info follow-active">正在跟随：<span class="follow-label">${label}</span><span class="fn-sep">/</span>正在关注文件改动</div>`;
+    } else {
+      h += '<div class="follow-info">当前未跟随任何对话</div>';
+    }
+    // 跟随文件改动
+    const changedFiles = this.getFollowChangedFiles();
+    h += '<hr class="session-section-divider">';
+    h += '<div class="section-head">跟随中的文件改动</div>';
+    if (fol) {
+      if (changedFiles.length) {
+        changedFiles.forEach((f) => {
+          const expanded = menu._expandedFile === f.path ? 'expanded' : '';
+          const arrow = menu._expandedFile === f.path ? '▾' : '▸';
+          h += `<div class="follow-file-row" data-ffpath="${f.path}" data-ffdisp="${escapeHtml(f.display)}"><span class="ff-name">${escapeHtml(f.display)}</span><span class="ff-status">${escapeHtml(f.status || '修改')}</span><span class="ff-expand ${expanded}">${arrow}</span></div>`;
+        });
+      } else {
+        h += '<div class="follow-info">当前跟随会话还没有检测到文件改动</div>';
+      }
+    } else {
+      h += '<div class="follow-info">开始跟随一个对话后，这里会显示它改动过的文件</div>';
+    }
+    // 操作提示
+    h += '<hr class="session-section-divider">';
+    h += '<div class="session-empty" style="padding:8px 8px 4px;font-size:11px;color:var(--text-faint)">点击<strong>✕</strong>关闭终端 · 点击行主体切换 · 点击文件展开 diff</div>';
+    menu.innerHTML = h;
+    // 事件绑定
+    menu.querySelectorAll('.session-menu-item').forEach((item) => {
+      item.onclick = (e) => {
+        if (e.target.classList.contains('session-menu-close')) {
+          e.stopPropagation();
+          const sid = e.target.dataset.close;
+          if (sid && confirm('结束这个终端会话？')) { this.closeTab(sid); }
+          return;
+        }
+        const sid = item.dataset.sid;
+        if (sid) { this.open(); this.activate(sid); this.closeSessionMenu(); }
+      };
+    });
+    menu.querySelectorAll('.follow-file-row').forEach((row) => {
+      row.onclick = (e) => {
+        e.stopPropagation();
+        const path = row.dataset.ffpath;
+        if (!path) return;
+        const wasExpanded = menu._expandedFile === path;
+        menu._expandedFile = wasExpanded ? null : path;
+        this.renderSessionMenu();
+        if (!wasExpanded) this.showDiffPanel(path, menu);
+      };
+    });
+  },
+  // R1.6: 获取跟随会话改动过的文件列表
+  getFollowChangedFiles() {
+    if (!follow.on || !follow.sid) return [];
+    const s = this.sessions.find((x) => x.id === follow.sid);
+    if (!s) return [];
+    // 基于 state.changeLog 过滤属于该终端目录的变更
+    const root = (s.cwd || s.startDir || '').replace(/\/$/, '');
+    const changed = state.changeLog.filter((c) => {
+      if (!root) return false;
+      return c.path === root || c.path.startsWith(root + '/');
+    });
+    return changed.slice(0, 20).map((c) => {
+      const rel = c.path.startsWith(root + '/') ? c.path.slice(root.length + 1) : c.name;
+      return { display: rel, path: c.path, status: '修改' };
+    });
+  },
+  // R1.6: 显示 diff 面板
+  async showDiffPanel(path, menu) {
+    const existing = menu.querySelector(`.diff-panel[data-dfpath="${path}"]`);
+    if (existing) { existing.remove(); return; }
+    // 移除旧的 diff panel
+    const oldPanel = menu.querySelector('.diff-panel');
+    if (oldPanel) oldPanel.remove();
+    const row = menu.querySelector(`.follow-file-row[data-ffpath="${path}"]`);
+    if (!row) return;
+    const panel = document.createElement('div');
+    panel.className = 'diff-panel';
+    panel.dataset.dfpath = path;
+    panel.innerHTML = '<pre style="padding:12px;text-align:center;color:var(--text-faint)">加载中…</pre>';
+    row.after(panel);
+    try {
+      const s2 = this.sessions.find(x => x.id === follow.sid);
+      const root = s2 ? (s2.cwd || s2.startDir || '').replace(/\/+$/, '') : '';
+      const url = root && !path.startsWith('/') && !path.includes(':/') ? `/api/git-file?path=${encodeURIComponent(root + '/' + path)}` : `/api/git-file?path=${encodeURIComponent(path)}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (!data.diffable) {
+        panel.innerHTML = '<pre style="padding:12px;text-align:center;color:var(--text-faint)">无可对比的 diff（新文件或非 git 文件）</pre>';
+        return;
+      }
+      const diff = this.computeDiff(data.original || '', data.modified || '');
+      this.renderDiff(panel, diff);
+    } catch (e) {
+      panel.innerHTML = '<pre style="padding:12px;text-align:center;color:var(--text-faint)">加载 diff 失败</pre>';
+    }
+  },
+  // R1.6: 计算 diff（简易 unified diff）
+  computeDiff(original, modified) {
+    const origLines = original.split('\n');
+    const modLines = modified.split('\n');
+    // 简易行 diff：只比较行是否相同
+    const maxLen = Math.max(origLines.length, modLines.length);
+    const diff = [];
+    let lineNum = 0;
+    let i = 0, j = 0;
+    // 简单的行对行数对比
+    while (i < origLines.length || j < modLines.length) {
+      lineNum++;
+      if (i >= origLines.length) {
+        diff.push({ type: 'added', line: modLines[j++] });
+      } else if (j >= modLines.length) {
+        diff.push({ type: 'removed', line: origLines[i++] });
+      } else if (origLines[i] === modLines[j]) {
+        diff.push({ type: 'context', line: modLines[j++] }); i++;
+      } else {
+        diff.push({ type: 'removed', line: origLines[i++] });
+        diff.push({ type: 'added', line: modLines[j++] });
+      }
+    }
+    return diff;
+  },
+  // R1.6: 渲染 VSCode 风格 diff
+  renderDiff(panel, diff) {
+    const maxLines = 200;
+    const truncated = diff.length > maxLines;
+    if (truncated) diff = diff.slice(0, maxLines);
+    let h = '<pre>';
+    let ln = 0;
+    diff.forEach((d) => {
+      ln++;
+      const gutter = d.type === 'added' ? '+' : (d.type === 'removed' ? '-' : ' ');
+      const cls = d.type === 'added' ? 'added' : (d.type === 'removed' ? 'removed' : 'context');
+      const content = escapeHtml(d.line);
+      h += `<div class="diff-line ${cls}"><span class="dg">${ln}</span><span class="dc">${gutter}</span><span class="dt">${content}</span></div>`;
+    });
+    if (truncated) h += '<div class="diff-truncated">diff 较长，已截断 (200 行)</div>';
+    h += '</pre>';
+    panel.innerHTML = h;
+  },
+  toggleSessionMenu() {
+    const menu = $('#terminal-session-menu');
+    const btn = $('#terminal-session-switcher');
+    if (!menu || !btn) return;
+    const open = menu.classList.contains('hidden');
+    if (open) this.renderSessionMenu();
+    menu.classList.toggle('hidden', !open);
+    btn.classList.toggle('open', open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  },
+  closeSessionMenu() {
+    const menu = $('#terminal-session-menu');
+    const btn = $('#terminal-session-switcher');
+    if (menu) menu.classList.add('hidden');
+    if (btn) { btn.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); }
+  },
   renderTabs() {
     const bar = $('#term-tabs');
-    bar.innerHTML = '';
-    this.sessions.forEach((s) => {
-      const t = document.createElement('div');
-      const dotState = s.dead ? 'dead' : (s.status === 'busy' ? 'busy' : 'idle');
-      const followed = follow.on && follow.sid === s.id; // 文件跟随正盯着这个 tab
-      t.className = 'term-tab' + (s.id === this.active ? ' active' : '') + (s.unread ? ' unread' : '') + (followed ? ' following' : '');
-      const dotTitle = s.dead ? '进程已退出' : (s.status === 'busy' ? 'agent 运行中' : '空闲');
-      // 终端图标按项目路径染色：同项目同色，和面包屑的配对色点呼应
-      const hue = this.hueOf(s.cwd || s.startDir);
-      t.title = followed ? '文件跟随正盯着这个终端 · 双击跳到它所在目录' : '双击：文件区跳到该终端所在目录';
-      const eye = followed ? `<span class="tab-eye" title="文件跟随盯着它">${ic('eye', 'currentColor', 11)}</span>` : '';
-      t.innerHTML = `<span class="tab-dot ${dotState}" title="${dotTitle}"></span>${eye}${ic('term', `hsl(${hue} 62% 48%)`, 12)}<span>${escapeHtml(s.title)}</span><span class="tab-x" title="关闭">✕</span>`;
-      t.onclick = (e) => { if (e.target.classList.contains('tab-x')) { this.closeTab(s.id); return; } this.activate(s.id); };
-      t.ondblclick = (e) => { if (e.target.classList.contains('tab-x')) return; this.locateCwd(); };
-      bar.appendChild(t);
-    });
+    if (bar) bar.innerHTML = '';
+    this.updateSessionSwitcher();
+    const menu = $('#terminal-session-menu');
+    if (menu && !menu.classList.contains('hidden')) this.renderSessionMenu();
   },
   retheme() { const th = this.theme(); this.sessions.forEach((s) => { s.xterm.options.theme = th; }); },
 };
@@ -4013,6 +4238,349 @@ const usagePanel = {
       this.apply();
     };
     this.apply();
+  },
+};
+
+// ---------- Mobile Access（Phase 0A）----------
+// 桌面端的控制面板：开/关/生成配对码/撤销已配对设备。
+// 安全：永远不在 UI 上显示 token / tokenHash / pairCode 二次回显；pairCode 仅在生成时一次性显示。
+const mobileApprovals = {
+  intervalId: null,
+  async refresh() {
+    if (!window.fanboxMobileApproval) return;
+    let r = null;
+    try { r = await window.fanboxMobileApproval.list({ status: 'pending' }); } catch (e) { r = null; }
+    const list = $('#mobile-approval-list');
+    const count = $('#mobile-approvals-count');
+    if (!list || !count) return;
+    list.innerHTML = '';
+    if (!r || !r.ok || !Array.isArray(r.items) || r.items.length === 0) {
+      list.innerHTML = '<li class="mobile-device-empty">暂无待确认请求</li>';
+      count.textContent = '0';
+      return;
+    }
+    count.textContent = String(r.items.length);
+    r.items.forEach((a) => {
+      list.appendChild(this._renderItem(a));
+    });
+  },
+  _renderItem(a) {
+    const li = document.createElement('li');
+    li.className = 'mobile-approval-item';
+    li.setAttribute('data-testid', 'mobile-approval-item');
+    li.setAttribute('data-approval-id', a.approvalId);
+    const head = document.createElement('div');
+    head.className = 'mobile-approval-head';
+    const meta = document.createElement('div');
+    meta.className = 'mobile-approval-meta';
+    const name = document.createElement('span');
+    name.className = 'mobile-approval-device';
+    name.textContent = a.deviceName || a.deviceId || 'mobile';
+    const dot = document.createElement('span');
+    dot.className = 'mobile-approval-sep';
+    dot.textContent = '·';
+    const agent = document.createElement('span');
+    agent.className = 'mobile-approval-agent';
+    agent.textContent = a.agentId || 'unknown';
+    const dot2 = document.createElement('span');
+    dot2.className = 'mobile-approval-sep';
+    dot2.textContent = '·';
+    const cwd = document.createElement('span');
+    cwd.className = 'mobile-approval-cwd';
+    cwd.title = a.cwd || '';
+    cwd.textContent = a.cwdLabel || (a.cwd || '').split(/[\\\/]+/).filter(Boolean).pop() || '';
+    meta.appendChild(name);
+    meta.appendChild(dot);
+    meta.appendChild(agent);
+    meta.appendChild(dot2);
+    meta.appendChild(cwd);
+    const exp = document.createElement('span');
+    exp.className = 'mobile-approval-exp';
+    exp.textContent = a.expiresAt ? this._fmtExp(a.expiresAt) : '';
+    head.appendChild(meta);
+    head.appendChild(exp);
+    const preview = document.createElement('div');
+    preview.className = 'mobile-approval-preview';
+    preview.textContent = a.inputPreview || '';
+    const ctx = document.createElement('div');
+    ctx.className = 'mobile-approval-ctx';
+    ctx.textContent = 'session ' + (a.sessionId || '?') + ' · input ' + (a.inputLen || 0) + ' chars';
+    // Phase 2A-2.1：redline reasons chips
+    let reasonsEl = null;
+    if (Array.isArray(a.redlineReasons) && a.redlineReasons.length > 0) {
+      reasonsEl = document.createElement('div');
+      reasonsEl.className = 'mobile-approval-reasons';
+      for (const r of a.redlineReasons) {
+        const chip = document.createElement('span');
+        chip.className = 'mobile-approval-reason-chip';
+        chip.textContent = String(r);
+        reasonsEl.appendChild(chip);
+      }
+    }
+    const actions = document.createElement('div');
+    actions.className = 'mobile-approval-actions';
+    const rejectBtn = document.createElement('button');
+    rejectBtn.type = 'button';
+    rejectBtn.className = 'btn-mini btn-mini-reject';
+    rejectBtn.textContent = 'Reject';
+    rejectBtn.onclick = (e) => { e.stopPropagation(); this._decide(a.approvalId, 'rejected'); };
+    const approveBtn = document.createElement('button');
+    approveBtn.type = 'button';
+    approveBtn.className = 'btn-mini btn-mini-approve';
+    approveBtn.textContent = 'Approve';
+    approveBtn.onclick = (e) => { e.stopPropagation(); this._decide(a.approvalId, 'approved'); };
+    actions.appendChild(rejectBtn);
+    actions.appendChild(approveBtn);
+    li.appendChild(head);
+    li.appendChild(preview);
+    if (reasonsEl) li.appendChild(reasonsEl);
+    li.appendChild(ctx);
+    li.appendChild(actions);
+    return li;
+  },
+  _fmtExp(expiresAt) {
+    const remain = Math.max(0, expiresAt - Date.now());
+    const sec = Math.ceil(remain / 1000);
+    return sec > 0 ? ('剩 ' + sec + 's') : '已超时';
+  },
+  async _decide(approvalId, decision) {
+    if (!window.fanboxMobileApproval) return;
+    if (!confirm('确认 ' + (decision === 'approved' ? 'Approve' : 'Reject') + '？仅更新状态；不会启动 Agent。')) return;
+    try {
+      const r = await window.fanboxMobileApproval.decide(approvalId, decision);
+      if (!r || !r.ok) {
+        alert('操作失败：' + (r && r.error || 'unknown'));
+      }
+    } catch (e) {
+      alert('操作失败：' + (e && e.message || e));
+    }
+    await this.refresh();
+  },
+  startPolling() {
+    if (this.intervalId) return;
+    this.intervalId = setInterval(() => this.refresh(), 5000);
+  },
+  stopPolling() {
+    if (this.intervalId) { clearInterval(this.intervalId); this.intervalId = null; }
+  }
+};
+
+const mobileAccess = {
+  open() { return localStorage.getItem('fb_mobile_access_open') === '1'; },
+  apply() {
+    const on = this.open();
+    $('#mobile-access-body').classList.toggle('hidden', !on);
+  },
+  async refresh() {
+    if (!window.fanboxMobile) {
+      // 非桌面 app（纯浏览器访问）—— 隐藏整个面板
+      const el = $('#mobile-access');
+      if (el) el.style.display = 'none';
+      return;
+    }
+    let s = null;
+    try { s = await window.fanboxMobile.status(); } catch (e) { s = null; }
+    if (!s) return;
+    const stateEl = $('#mobile-access-state');
+    const toggleBtn = $('#mobile-toggle-btn');
+    const pairRow = $('#mobile-pair-row');
+    const pairInfo = $('#mobile-pair-info');
+    const hint = $('#mobile-access-hint');
+    const list = $('#mobile-device-list');
+    const urlBlock = $('#mobile-url-block');
+    const primaryUrl = $('#mobile-primary-url');
+    const primaryIface = $('#mobile-primary-iface');
+    const primaryIfaceRow = $('#mobile-primary-iface-row');
+    const othersBlock = $('#mobile-others-block');
+    const othersUl = $('#mobile-others-ul');
+    const fallbackWarn = $('#mobile-fallback-warn');
+
+    if (s.enabled && s.running) {
+      stateEl.textContent = '已开启';
+      stateEl.classList.add('on');
+      toggleBtn.textContent = '关闭';
+      toggleBtn.classList.add('danger');
+      pairRow.style.display = '';
+      hint.textContent = 'Mobile Access 已开启，端口 ' + s.port;
+
+      // 推荐地址：永远不显示 0.0.0.0
+      if (s.primaryLanUrl) {
+        urlBlock.style.display = '';
+        primaryUrl.textContent = s.primaryLanUrl;
+        primaryUrl.title = s.primaryLanUrl;
+        if (s.primaryIface) {
+          primaryIface.textContent = s.primaryIface;
+          primaryIface.title = s.primaryIface;
+          primaryIfaceRow.style.display = '';
+        } else {
+          primaryIfaceRow.style.display = 'none';
+        }
+      } else {
+        urlBlock.style.display = 'none';
+      }
+
+      // 其他地址：把 primary 之外的列出来
+      const ranked = Array.isArray(s.lanUrlsRanked) ? s.lanUrlsRanked : [];
+      const others = ranked.filter(r => r.url !== s.primaryLanUrl);
+      if (others.length > 0) {
+        othersBlock.style.display = '';
+        othersUl.innerHTML = others.map(o =>
+          `<li>
+            <span class="other-url" title="${escapeHtml(o.url)}">${escapeHtml(o.url)}</span>
+            ${o.iface ? `<span class="other-iface">${escapeHtml(o.iface)}</span>` : ''}
+            <button class="btn-mini" data-copy="${escapeHtml(o.url)}">复制</button>
+          </li>`
+        ).join('');
+        othersUl.querySelectorAll('button[data-copy]').forEach(btn => {
+          btn.onclick = (e) => {
+            e.stopPropagation();
+            mobileAccess.copyText(btn.dataset.copy, btn);
+          };
+        });
+      } else {
+        othersBlock.style.display = 'none';
+      }
+
+      // Fallback 警告
+      fallbackWarn.style.display = s.lanUrlsFallback ? '' : 'none';
+
+      // 配对码区由用户点「生成配对码」才显示
+      pairInfo.style.display = 'none';
+    } else {
+      stateEl.textContent = '关闭';
+      stateEl.classList.remove('on');
+      toggleBtn.textContent = '开启';
+      toggleBtn.classList.remove('danger');
+      pairRow.style.display = 'none';
+      pairInfo.style.display = 'none';
+      urlBlock.style.display = 'none';
+      othersBlock.style.display = 'none';
+      primaryIfaceRow.style.display = 'none';
+      fallbackWarn.style.display = 'none';
+      hint.textContent = 'Mobile Access 未开启';
+    }
+
+    // 设备列表
+    const devices = s.pairedDevices || [];
+    if (devices.length === 0) {
+      list.innerHTML = '<li class="mobile-device-empty">没有已配对设备</li>';
+    } else {
+      list.innerHTML = devices.map(d => {
+        const ago = mobileAccess.ago(d.lastSeenAt || d.pairedAt);
+        return `<li data-id="${escapeHtml(d.id)}">
+          <div>
+            <div class="device-name">${escapeHtml(d.deviceName)}</div>
+            <div class="device-meta">最近活跃 ${ago}</div>
+          </div>
+          <button class="btn-mini" data-action="revoke" data-id="${escapeHtml(d.id)}">撤销</button>
+        </li>`;
+      }).join('');
+      list.querySelectorAll('button[data-action="revoke"]').forEach(btn => {
+        btn.onclick = () => mobileAccess.revoke(btn.dataset.id);
+      });
+    }
+  },
+  ago(t) {
+    if (!t) return '—';
+    const m = Math.round((Date.now() - t) / 60000);
+    if (m < 1) return '刚刚';
+    if (m < 60) return m + ' 分钟前';
+    if (m < 1440) return Math.round(m / 60) + ' 小时前';
+    return Math.round(m / 1440) + ' 天前';
+  },
+  async enable() {
+    try {
+      await window.fanboxMobile.enable();
+      await this.refresh();
+    } catch (e) {
+      toast('启用失败：' + (e && e.message || e), 'err');
+    }
+  },
+  async disable() {
+    if (!confirm('确定关闭 Mobile Access？所有已配对设备将立即断开。')) return;
+    try { await window.fanboxMobile.disable(); } catch {}
+    await this.refresh();
+  },
+  async startPair() {
+    try {
+      const r = await window.fanboxMobile.startPair();
+      if (!r || !r.ok) {
+        toast('生成配对码失败：' + (r && r.error || 'unknown'), 'err');
+        return;
+      }
+      const pairInfo = $('#mobile-pair-info');
+      const pairCode = $('#mobile-pair-code');
+      const pairExp = $('#mobile-pair-exp');
+      pairInfo.style.display = '';
+      pairCode.textContent = r.pairCode;
+      pairExp.textContent = '60 秒后失效';
+      // 启动倒计时
+      clearTimeout(this._pairTimer);
+      const expiresAt = r.expiresAt || (Date.now() + 60000);
+      const tick = () => {
+        const left = Math.max(0, expiresAt - Date.now());
+        if (left <= 0) { pairInfo.style.display = 'none'; return; }
+        pairExp.textContent = Math.ceil(left / 1000) + ' 秒后失效';
+        this._pairTimer = setTimeout(tick, 500);
+      };
+      tick();
+    } catch (e) {
+      toast('生成配对码失败：' + (e && e.message || e), 'err');
+    }
+  },
+  async revoke(deviceId) {
+    if (!confirm('确定撤销这台设备的配对？')) return;
+    try { await window.fanboxMobile.revokeToken(deviceId); } catch {}
+    await this.refresh();
+  },
+  async copyUrl() {
+    const url = $('#mobile-primary-url').textContent;
+    if (!url || url === 'http://') return;
+    const btn = $('#mobile-copy-url');
+    await mobileAccess.copyText(url, btn);
+  },
+  async copyText(text, btn) {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      if (btn) {
+        const orig = btn.textContent;
+        btn.textContent = '已复制';
+        setTimeout(() => { btn.textContent = orig; }, 1200);
+      }
+    } catch (e) { /* ignore */ }
+  },
+  bind() {
+    if (!window.fanboxMobile) return; // 非桌面 app：不挂事件
+    const head = $('#mobile-access-head');
+    if (head) head.onclick = () => {
+      localStorage.setItem('fb_mobile_access_open', this.open() ? '0' : '1');
+      this.apply();
+      if (this.open()) this.refresh();
+    };
+    const tBtn = $('#mobile-toggle-btn');
+    if (tBtn) tBtn.onclick = (e) => {
+      e.stopPropagation();
+      // 根据当前状态决定 enable/disable
+      const isOn = $('#mobile-access-state').classList.contains('on');
+      if (isOn) this.disable(); else this.enable();
+    };
+    const pBtn = $('#mobile-pair-btn');
+    if (pBtn) pBtn.onclick = (e) => { e.stopPropagation(); this.startPair(); };
+    const cBtn = $('#mobile-copy-url');
+    if (cBtn) cBtn.onclick = (e) => { e.stopPropagation(); this.copyUrl(); };
+    this.apply();
+    // 后台静默 refresh —— 拿到 status 但不强制打开面板
+    this.refresh();
+    // 设备列表 30s 刷新一次（保持活跃度显示新鲜）
+    setInterval(() => { if (this.open()) this.refresh(); }, 30000);
+    // Phase 2A-2.1：pending approvals 5s 轮询
+    if (window.fanboxMobileApproval) {
+      mobileApprovals.refresh();
+      mobileApprovals.startPolling();
+      const rBtn = $('#mobile-approvals-refresh');
+      if (rBtn) rBtn.onclick = (e) => { e.stopPropagation(); mobileApprovals.refresh(); };
+    }
   },
 };
 
@@ -4217,7 +4785,7 @@ async function invokeSkillInTerm(name) {
 // ---------- Monaco 编辑器（本地 vendor，离线可用；加载失败回退 textarea）----------
 const mona = {
   editor: null, _p: null,
-  themeFor: { terminal: 'fb-dark', warm: 'fb-paper', editorial: 'fb-editorial' },
+  themeFor: { terminal: 'fb-dark', warm: 'fb-paper', editorial: 'fb-editorial', soft: 'fb-soft' },
   themeName() { return this.themeFor[state.theme] || 'fb-dark'; },
   // 散文类（md/txt/字幕）默认软换行，代码不换行
   wraps(ex) { return ['md', 'markdown', 'txt', 'log', 'srt', 'vtt', 'ass'].includes(ex); },
@@ -4262,6 +4830,7 @@ const mona = {
     m.editor.defineTheme('fb-dark', { base: 'vs-dark', inherit: true, rules: [], colors: { 'editor.background': '#0b0c0a', 'editor.foreground': '#d6dac9', 'editorLineNumber.foreground': '#4a4d42', 'editorCursor.foreground': '#cdf24b', 'editor.selectionBackground': '#cdf24b33', 'editor.lineHighlightBackground': '#ffffff08' } });
     m.editor.defineTheme('fb-paper', { base: 'vs', inherit: true, rules: [], colors: { 'editor.background': '#ece2d2', 'editor.foreground': '#4a3f30', 'editorLineNumber.foreground': '#b3a589', 'editorCursor.foreground': '#cc785c', 'editor.selectionBackground': '#cc785c33', 'editor.lineHighlightBackground': '#00000008' } });
     m.editor.defineTheme('fb-editorial', { base: 'vs', inherit: true, rules: [], colors: { 'editor.background': '#eae5d8', 'editor.foreground': '#1a1a1a', 'editorLineNumber.foreground': '#9a958a', 'editorCursor.foreground': '#ff433d', 'editor.selectionBackground': '#ff433d22', 'editor.lineHighlightBackground': '#00000008' } });
+    m.editor.defineTheme('fb-soft', { base: 'vs', inherit: true, rules: [], colors: { 'editor.background': '#fbfaf8', 'editor.foreground': '#20242b', 'editorLineNumber.foreground': '#b9b1a8', 'editorCursor.foreground': '#c97b4f', 'editor.selectionBackground': '#c97b4f26', 'editor.lineHighlightBackground': '#14141406' } });
   },
   retheme() { if (this.editor && window.monaco) window.monaco.editor.setTheme(this.themeName()); },
   // 只读并排 diff：HEAD 版本 vs 工作区当前内容，复用 editor 槽位让 disposeIfAny 统一回收
@@ -4569,6 +5138,7 @@ function kindFromName(p) {
 const follow = {
   on: false,
   sid: null,         // 开启时绑定的终端会话 id——只跟这个 agent 项目目录里的写入
+	  agent: 'agent',    // R1.6: 当前绑定的 agent 类型名称，用于显示
   label: '',         // 绑定终端的项目名，给 UI 显示「在跟哪个 agent」
   path: null,        // 正在跟随的文件（绝对路径）
   lastContent: null, // 上次渲染的文本内容，用于定位本次改动行
@@ -4606,6 +5176,7 @@ function setFileFollow(on, offMsg) {
     const s = term.sessions.find((x) => x.id === sid);
     if (s) term.refreshCwd(s, true).catch(() => {}); // 立刻校准 cwd，scope 从第一笔就准（不靠回车后的延迟轮询）
     follow.label = s ? (baseOf(s.cwd || s.startDir || '') || s.title || '') : '';
+	      follow.agent = s ? (s.title && s.title.indexOf('Claude') >= 0 ? 'Claude Code' : s.title && s.title.indexOf('Codex') >= 0 ? 'Codex' : s.title && s.title.indexOf('opencode') >= 0 ? 'OpenCode' : s.title && s.title.indexOf('qoder') >= 0 ? 'Qoder' : 'agent') : 'agent';
   } else {
     follow.sid = null; follow.label = ''; // 浏览器版无终端：维持旧口径（全跟）
   }

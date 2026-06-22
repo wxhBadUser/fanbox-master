@@ -13,6 +13,15 @@ const fsp = require('fs/promises');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+// Mobile Access（Phase 0A）—— 独立模块，提供配对码 / token / 独立 HTTP 服务
+// 这里 require 是惰性的：load 失败不会影响主 server
+let _mobileMod = null;
+function mobileMod() {
+  if (!_mobileMod) {
+    try { _mobileMod = require('./electron/mobile.js'); } catch (e) { _mobileMod = { __loadError: e }; }
+  }
+  return _mobileMod && !_mobileMod.__loadError ? _mobileMod : null;
+}
 const { exec, spawn, execFile, execFileSync } = require('child_process');
 const { URL } = require('url');
 
@@ -926,7 +935,7 @@ async function projectMemory(p) {
     await walk(CODEX_SESS, 0);
     files.sort((a, b) => b.st.mtimeMs - a.st.mtimeMs);
     for (const { fp, st } of files.slice(0, 60)) {
-      try { if ((await readCwdFromHead(fp, 16384)) === cwd) sessions.push(await parseCodexSession(fp, st)); } catch { /* */ }
+      try { if (normalizeProjectPathForCompare(await readCwdFromHead(fp, 65536)) === normalizeProjectPathForCompare(cwd)) sessions.push(await parseCodexSession(fp, st)); } catch { /* */ }
     }
   } catch { /* 没用过 Codex */ }
   // 没有正经标题的会话（纯 warmup / 空会话）沉底，按最近活跃排
@@ -1891,21 +1900,44 @@ async function readCwdFromHead(file, bytes) {
   try {
     const buf = Buffer.alloc(bytes);
     const { bytesRead } = await fh.read(buf, 0, bytes, 0);
-    const m = buf.toString('utf8', 0, bytesRead).match(/"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-    return m ? JSON.parse('"' + m[1] + '"') : null;
+    const head = buf.toString('utf8', 0, bytesRead);
+    // 测试多个可能的 cwd 位置
+    const patterns = [
+      /"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/,
+      /"session_meta"\s*:\s*\{[^}]*?"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/,
+      /"metadata"\s*:\s*\{[^}]*?"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/,
+      /"source"\s*:\s*\{[^}]*?"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/,
+    ];
+    for (const pat of patterns) {
+      const m = head.match(pat);
+      if (m) return JSON.parse('"' + m[1] + '"');
+    }
+    return null;
   } finally { await fh.close(); }
+}
+
+// Windows 路径归一化比较：大小写、斜杠、尾部分隔符统一
+function normalizeProjectPathForCompare(p) {
+  if (!p) return '';
+  let norm = p.replace(/\\/g, '/').replace(/\/+/g, '/');
+  while (norm.endsWith('/') && norm.length > 1) norm = norm.slice(0, -1);
+  if (PLATFORM === 'win32') norm = norm.replace(/^([A-Za-z]):/, (_, d) => d.toLowerCase() + ':');
+  return norm;
 }
 
 async function agentProjects() {
   if (agentProjCache.data && Date.now() - agentProjCache.at < 60000) return agentProjCache.data;
-  const cutoff = Date.now() - 30 * 86400000;
-  const map = new Map(); // cwd -> { lastActive, agents: Set }
+  const cutoff = Date.now() - 90 * 86400000; // 90 天
+  const normHome = normalizeProjectPathForCompare(HOME);
+  const map = new Map(); // normCwd -> { lastActive, agents: Set }
   const add = (cwd, t, agent) => {
-    if (!cwd || cwd === HOME) return; // 在家目录裸跑的会话不算「项目」
-    const cur = map.get(cwd) || { lastActive: 0, agents: new Set() };
+    if (!cwd) return;
+    const ncwd = normalizeProjectPathForCompare(cwd);
+    if (!ncwd || ncwd === normHome) return; // 在家目录裸跑的会话不算「项目」
+    const cur = map.get(ncwd) || { lastActive: 0, agents: new Set() };
     cur.lastActive = Math.max(cur.lastActive, t);
     cur.agents.add(agent);
-    map.set(cwd, cur);
+    map.set(ncwd, cur);
   };
   // Claude Code：每个项目目录取最新的 jsonl，从文件头抓 cwd
   try {
@@ -1941,7 +1973,7 @@ async function agentProjects() {
     await walk(CODEX_SESS, 0);
     files.sort((a, b) => b.mtimeMs - a.mtimeMs);
     await Promise.all(files.slice(0, 40).map(async (f) => {
-      try { add(await readCwdFromHead(f.fp, 16384), f.mtimeMs, 'codex'); } catch { /* */ }
+      try { add(await readCwdFromHead(f.fp, 65536), f.mtimeMs, 'codex'); } catch { /* */ }
     }));
   } catch { /* 没用过 Codex */ }
   // 按最近活跃排序，已被删除的项目目录剔掉
@@ -2286,6 +2318,11 @@ function originAllowed(req) {
   try { return ALLOWED_HOSTS.has(new URL(o).hostname); } catch { return false; }
 }
 
+// Mobile Access（Phase 0A）—— 一个独立的 HTTP server 实例，
+// 默认关闭，仅在用户主动调用 /api/mobile-control/enable 时启动。
+// 端口不与主服务复用，关闭后立即释放 socket。
+let _mobileServer = null;
+
 const server = http.createServer(async (req, res) => {
   if (!hostAllowed(req)) { res.writeHead(403); res.end('forbidden host'); return; }
   if (req.method === 'POST' && !originAllowed(req)) { res.writeHead(403); res.end('forbidden origin'); return; }
@@ -2448,6 +2485,75 @@ const server = http.createServer(async (req, res) => {
       }
       const cfg = await readConfig();
       return sendJSON(res, 200, { favorites: cfg.favorites || [], recentOpened: cfg.recentOpened || [] });
+    }
+
+    // -------- Mobile Access 控制端点（Phase 0A，仅本机回环可调） --------
+    // 这些端点绝不能从局域网访问，校验 socket.remoteAddress
+    if (p.startsWith('/api/mobile-control/')) {
+      const sock = req.socket || req.connection;
+      const lip = (sock && sock.remoteAddress) || '';
+      if (lip !== '127.0.0.1' && lip !== '::1' && lip !== '::ffff:127.0.0.1') {
+        return sendJSON(res, 403, { ok: false, error: 'loopback_only' });
+      }
+      const m = mobileMod();
+      if (!m) return sendJSON(res, 503, { ok: false, error: 'mobile_module_unavailable' });
+
+      // status
+      if (req.method === 'GET' && p === '/api/mobile-control/status') {
+        return sendJSON(res, 200, { ok: true, ...(await m.publicStatus()) });
+      }
+      // enable
+      if (req.method === 'POST' && p === '/api/mobile-control/enable') {
+        const cfg = await m.getConfig();
+        if (!cfg.enabled) {
+          await m.saveConfig({ enabled: true });
+        }
+        // 启动或重启 mobile server
+        if (!_mobileServer) {
+          _mobileServer = m.startMobileServer({
+            port: cfg.port || m.DEFAULT_PORT,
+            onError: (e) => { console.error('  ⚠️  Mobile server 错误：', e.message); _mobileServer = null; },
+          });
+        }
+        return sendJSON(res, 200, { ok: true, ...(await m.publicStatus()) });
+      }
+      // disable
+      if (req.method === 'POST' && p === '/api/mobile-control/disable') {
+        if (_mobileServer) {
+          try { _mobileServer.close(); } catch {}
+          _mobileServer = null;
+        }
+        await m.revokeAllTokens();
+        await m.saveConfig({ enabled: false, pairCodeHash: null, pairCodeExpiresAt: 0 });
+        return sendJSON(res, 200, { ok: true, ...(await m.publicStatus()) });
+      }
+      // pair/start
+      if (req.method === 'POST' && p === '/api/mobile-control/pair/start') {
+        const cfg = await m.getConfig();
+        if (!cfg.enabled) return sendJSON(res, 409, { ok: false, error: 'mobile_disabled' });
+        const r = await m.startPairCode();
+        const urls = m.listLanUrls(cfg.port || m.DEFAULT_PORT);
+        const pick = m.pickBestLanUrls(cfg.port || m.DEFAULT_PORT);
+        return sendJSON(res, 200, {
+          ok: true,
+          pairCode: r.pairCode,
+          expiresIn: r.expiresIn,
+          expiresAt: r.expiresAt,
+          lanUrls: urls,
+          primaryLanUrl: pick.primary ? pick.primary.url : null,
+          primaryIface: pick.primary ? pick.primary.iface : null,
+        });
+      }
+      // tokens/revoke
+      if (req.method === 'POST' && p === '/api/mobile-control/tokens/revoke') {
+        let body = {};
+        try { body = await readBody(req); } catch {}
+        const id = String(body.deviceId || '').trim();
+        if (!id) return sendJSON(res, 400, { ok: false, error: 'missing_deviceId' });
+        await m.revokeToken(id);
+        return sendJSON(res, 200, { ok: true, ...(await m.publicStatus()) });
+      }
+      return sendJSON(res, 404, { ok: false, error: 'mobile_control_not_found' });
     }
 
     // 静态资源

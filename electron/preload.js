@@ -78,6 +78,23 @@ contextBridge.exposeInMainWorld('fanboxAgent', {
   which: (candidates) => ipcRenderer.invoke('agent:which', { candidates: Array.isArray(candidates) ? candidates : [] }),
 });
 
+// Mobile Access（Phase 0A）—— 局域网手机配对控制面；不暴露任何 token / hash 字段给渲染层
+contextBridge.exposeInMainWorld('fanboxMobile', {
+  status: () => ipcRenderer.invoke('mobile:status'),
+  enable: () => ipcRenderer.invoke('mobile:enable'),
+  disable: () => ipcRenderer.invoke('mobile:disable'),
+  startPair: () => ipcRenderer.invoke('mobile:pair-start'),
+  revokeToken: (deviceId) => ipcRenderer.invoke('mobile:tokens-revoke', { deviceId }),
+});
+
+// Phase 2A-2.1：Mobile Approval Loop
+// 只暴露列表 / 决策 IPC；不暴露 input 原文、token、pty、shell
+contextBridge.exposeInMainWorld('fanboxMobileApproval', {
+  list: (opts) => ipcRenderer.invoke('mobile:approvals-list', opts || {}),
+  decide: (approvalId, decision) => ipcRenderer.invoke('mobile:approval-decide', { approvalId, decision }),
+  get: (approvalId) => ipcRenderer.invoke('mobile:approval-get', { approvalId }),
+});
+
 // 微信 ClawBot：不经 openclaw，直连 iLink + 本机 claude/codex；桌面输入框也能直接和本机大脑聊
 contextBridge.exposeInMainWorld('fanboxWechat', {
   env: () => ipcRenderer.invoke('wechat:env'),            // { connected, account, target, targets, cwd, cwdName }
