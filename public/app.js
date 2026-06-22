@@ -3980,7 +3980,7 @@ const term = {
         changedFiles.forEach((f) => {
           const expanded = menu._expandedFile === f.path ? 'expanded' : '';
           const arrow = menu._expandedFile === f.path ? '▾' : '▸';
-          h += `<div class="follow-file-row" data-ffpath="${f.path}"><span class="ff-name">${escapeHtml(f.path)}</span><span class="ff-status">${escapeHtml(f.status || '修改')}</span><span class="ff-expand ${expanded}">${arrow}</span></div>`;
+          h += `<div class="follow-file-row" data-ffpath="${f.path}" data-ffdisp="${escapeHtml(f.display)}"><span class="ff-name">${escapeHtml(f.display)}</span><span class="ff-status">${escapeHtml(f.status || '修改')}</span><span class="ff-expand ${expanded}">${arrow}</span></div>`;
         });
       } else {
         h += '<div class="follow-info">当前跟随会话还没有检测到文件改动</div>';
@@ -4030,7 +4030,7 @@ const term = {
     });
     return changed.slice(0, 20).map((c) => {
       const rel = c.path.startsWith(root + '/') ? c.path.slice(root.length + 1) : c.name;
-      return { path: rel, status: '修改' };
+      return { display: rel, path: c.path, status: '修改' };
     });
   },
   // R1.6: 显示 diff 面板
@@ -4048,7 +4048,10 @@ const term = {
     panel.innerHTML = '<pre style="padding:12px;text-align:center;color:var(--text-faint)">加载中…</pre>';
     row.after(panel);
     try {
-      const resp = await fetch(`/api/git-file?path=${encodeURIComponent(path)}`);
+      const s2 = this.sessions.find(x => x.id === follow.sid);
+      const root = s2 ? (s2.cwd || s2.startDir || '').replace(/\/+$/, '') : '';
+      const url = root && !path.startsWith('/') && !path.includes(':/') ? `/api/git-file?path=${encodeURIComponent(root + '/' + path)}` : `/api/git-file?path=${encodeURIComponent(path)}`;
+      const resp = await fetch(url);
       const data = await resp.json();
       if (!data.diffable) {
         panel.innerHTML = '<pre style="padding:12px;text-align:center;color:var(--text-faint)">无可对比的 diff（新文件或非 git 文件）</pre>';
