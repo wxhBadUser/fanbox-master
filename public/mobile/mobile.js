@@ -8,24 +8,17 @@
 /* =========================================================
    Constants & Config
    ========================================================= */
-const TOKEN_KEY = "fanbox_mobile_token";
+const TOKEN_KEY  = "fanbox_mobile_token";
 const DEVICE_KEY = "fanbox_mobile_device";
 const AGENT_KEY  = "fanbox_mobile_agent";
 const CWD_KEY    = "fanbox_mobile_cwd";
+const SESSION_KEY = "fanbox_mobile_session";
 
 const TASK_CHIPS = [
   { label: "Develop app", icon: "app" },
   { label: "Website", icon: "web" },
-  { label: "Slides", icon: "slide" },
-  { label: "Image", icon: "img" },
-  { label: "Audio", icon: "audio" },
-  { label: "Video", icon: "video" },
-  { label: "Wide Research", icon: "search" },
-  { label: "Spreadsheet", icon: "table" },
   { label: "Explain project", icon: "info" },
   { label: "Fix bug", icon: "bug" },
-  { label: "Code review", icon: "review" },
-  { label: "Summarize files", icon: "file" },
 ];
 
 /** 中文简介映射表 */
@@ -313,10 +306,84 @@ const S = {
   filesPreview: null,
 };
 
-/** 映射 UI agent id → 后端 agent id（mobile-sessions 期望短名） */
+/** 映射 UI agent id → 后端 agent id（mobile-sessions 期望短名）
+ *  Phase UI-A8-5-P0：claude_code → claude，open_code → opencode，其他原样。
+ *  这是唯一允许把 UI id 转成后端 runner 短名的地方。
+ */
 function mapAgentId (id) {
+  if (!id) return 'claude';
   if (id === 'claude_code') return 'claude';
-  return id || 'claude';
+  if (id === 'open_code')   return 'opencode';
+  if (id === 'claude' || id === 'codex' || id === 'qoder' || id === 'opencode') return id;
+  return 'claude';
+}
+
+/** 后端短名 → UI 显示名 */
+function agentIdForDisplay (backendId) {
+  if (!backendId) return 'Agent';
+  if (backendId === 'claude')   return 'Claude Code';
+  if (backendId === 'codex')    return 'Codex';
+  if (backendId === 'qoder')    return 'Qoder';
+  if (backendId === 'opencode') return 'OpenCode';
+  if (backendId === 'fanbox')   return 'FanBox';
+  return String(backendId);
+}
+
+/** 后端短名 → 发送时使用的 UI id（用于显示在前端） */
+function agentIdForBackend (uiId) {
+  return mapAgentId(uiId);
+}
+
+/** 后端短名 → UI agent id */
+function agentIdForUi (backendId) {
+  if (backendId === 'claude' || backendId === 'claude_code') return 'claude_code';
+  if (backendId === 'opencode' || backendId === 'open_code') return 'opencode';
+  if (backendId === 'codex' || backendId === 'qoder') return backendId;
+  return 'claude_code';
+}
+
+/** 把 send 失败归一成友好中文（绝不暴露 raw JSON / stdout / token / path） */
+function friendlySendError (agentId, code) {
+  const name = agentIdForDisplay(agentId);
+  switch (code) {
+    case 'session_not_found':
+    case 'session_busy':
+    case 'session_waiting_approval':
+      return '当前 session 状态不允许发送，请稍后再试或新建对话。';
+    case 'invalid_agent':
+      return '当前 Agent 不被允许，请从下拉里选择 Claude Code / Codex / Qoder / OpenCode。';
+    case 'missing_cwd':
+    case 'path_not_allowed':
+    case 'forbidden_path':
+      return '当前路径不可访问，请从 Files 或 Project 页面重新选择一个工作区。';
+    case 'no_workspace':
+      return '请先选择一个工作区（Files 或 Project 页面），再和 Agent 对话。';
+    case 'text_too_long':
+    case 'message_too_long':
+      return '消息过长，请缩短后再试。';
+    case 'empty_text':
+    case 'empty_message':
+      return '消息为空，请输入内容后发送。';
+    case 'runner_unavailable':
+    case 'agent_not_allowed':
+      return `当前电脑没有检测到 ${name}，请先在电脑端安装并加入 PATH 后再试，或切换 Agent。`;
+    case 'timeout':
+    case 'session_timeout':
+      return `${name} 响应超时，请稍后再试。`;
+    default:
+      return `${name} 暂不可用，请确认电脑端已安装并登录，或切换到其他 Agent。`;
+  }
+}
+
+/** 把 fetch 阶段抛出的 raw 错误（带 "405: {...}" / "401: ..."）转成友好中文 */
+function friendlyFetchError (e) {
+  const raw = (e && e.message) ? String(e.message) : String(e || '');
+  if (/^401\b/.test(raw)) return '登录已失效，请在桌面端重新配对。';
+  if (/^403\b/.test(raw)) return '当前路径或接口无访问权限，请切换到已授权的工作区。';
+  if (/^404\b/.test(raw)) return '当前服务版本不支持该功能，请重启 FanBox 桌面端。';
+  if (/^405\b/.test(raw)) return '移动端发送接口暂不可用，请重启 FanBox 桌面端或切换 Agent。';
+  if (/^5\d\d\b/.test(raw)) return '桌面端服务暂时不可用，请稍后再试。';
+  return '当前 Agent 暂不可用，请确认电脑端已安装并登录，或切换到其他 Agent。';
 }
 
 /* =========================================================
@@ -435,6 +502,7 @@ function init () {
   S.deviceName = localStorage.getItem(DEVICE_KEY) || "";
   S.currentAgent = localStorage.getItem(AGENT_KEY) || "claude_code";
   S.cwd = localStorage.getItem(CWD_KEY) || null;
+  S.sessionId = localStorage.getItem(SESSION_KEY) || null;
 
   // wire events
   wirePairing();
@@ -665,6 +733,18 @@ function closeAgentMenu () {
 }
 
 function switchAgent (id) {
+  if (id !== S.currentAgent) {
+    S.messages = [];
+    S.sessionId = "";
+    try { localStorage.removeItem(SESSION_KEY); } catch (_) {}
+    exitChatState();
+    renderMessages();
+    const input = $("home-input");
+    if (input) {
+      input.value = "";
+      autoResize(input);
+    }
+  }
   S.currentAgent = id;
   localStorage.setItem(AGENT_KEY, id);
   closeAgentMenu();
@@ -823,6 +903,20 @@ async function doSend (prompt) {
 
   // add user message
   S.messages.push({ role: "user", content: prompt });
+  const selectedSkill = S.currentSkill || null;
+  const pendingAssistant = {
+    role: "assistant",
+    status: "running",
+    content: "思考中…",
+    trace: [
+      { label: "准备工作区上下文", state: "done" },
+      { label: "调用 " + agentIdForDisplay(mapAgentId(S.currentAgent)), state: "running" }
+    ]
+  };
+  if (selectedSkill && selectedSkill.title) {
+    pendingAssistant.trace.splice(1, 0, { label: "使用 Skill: " + selectedSkill.title, state: "done" });
+  }
+  S.messages.push(pendingAssistant);
   renderMessages();
 
   // scroll
@@ -834,36 +928,59 @@ async function doSend (prompt) {
 
   try {
     const agent = getCurrentAgent();
-    const data = await api("/api/mobile/send", {
+    // Phase UI-A8-5-P0: 改用 /api/mobile/agent/send (新 endpoint, 新 body contract)
+    //   body: { agentId, cwd, sessionId, message, model, effort }
+    //   旧 /api/mobile/send 不存在 → 会被 V2 blanket 405 拦截
+    const data = await api("/api/mobile/agent/send", {
       method: "POST",
       body: JSON.stringify({
-        prompt,
-        model: agent.model,
-        agent: mapAgentId(S.currentAgent),
+        agentId: mapAgentId(S.currentAgent),
         cwd: S.cwd || undefined,
-        skill: S.currentSkill || undefined,
         sessionId: S.sessionId || undefined,
+        message: prompt,
+        skillId: S.currentSkill ? S.currentSkill.id : undefined,
+        skillName: S.currentSkill ? S.currentSkill.title : undefined,
+        model: agent && agent.model,
+        effort: agent && agent.effort
       }),
     });
 
     setRunning(false);
-    $("home-status-pill").textContent = "";
 
     if (!data) return; // 401
 
-    if (data.error) {
-      S.messages.push({ role: "assistant", content: `错误: ${data.error}` });
+    // Phase UI-A8-5-P0: 永远不要把 raw 错误直接显示给用户
+    // 后端约定的响应：{ ok, sessionId, agentId, cwd, status, mode, usedStub, timedOut, message: {role, content}, error? }
+    if (data.ok === false) {
+      const friendly = (data.message && data.message.content)
+        ? data.message.content
+        : friendlySendError(data.agentId, data.error);
+      pendingAssistant.status = "failed";
+      pendingAssistant.content = friendly;
+      pendingAssistant.trace = (pendingAssistant.trace || []).map(t => t.state === "running" ? Object.assign({}, t, { state: "failed" }) : t);
       $("home-status-pill").textContent = "失败";
       $("home-status-pill").className = "home-status-pill is-failed";
     } else {
-      // data.reply / data.text
-      const text = data.reply || data.text || data.content || "";
-      const role = data.isError ? "system" : "assistant";
-      S.messages.push({ role, content: text });
-      if (S.cwd !== data.cwd) {
-        S.cwd = data.cwd || S.cwd;
+      const text = (data.message && data.message.content) || data.reply || data.text || "";
+      pendingAssistant.status = "done";
+      pendingAssistant.content = text;
+      pendingAssistant.trace = data.trace || (pendingAssistant.trace || []).map(t => t.state === "running" ? Object.assign({}, t, { state: "done" }) : t);
+      // 同步 sessionId / cwd
+      if (data.sessionId && data.sessionId !== S.sessionId) {
+        S.sessionId = data.sessionId;
+        try { localStorage.setItem(SESSION_KEY, data.sessionId); } catch (_) {}
+      }
+      if (data.cwd && data.cwd !== S.cwd) {
+        S.cwd = data.cwd;
+        S.cwdLabel = (data.cwd || "").split(/[/\\]/).filter(Boolean).pop() || null;
         localStorage.setItem(CWD_KEY, S.cwd || "");
         updateTopbarCwd();
+      }
+      const status = data.status || "done";
+      const pill = $("home-status-pill");
+      if (pill) {
+        pill.textContent = status === "done" ? "完成" : (status === "failed" ? "失败" : (status === "timeout" ? "超时" : status));
+        pill.className = "home-status-pill " + (status === "done" ? "is-ready" : (status === "failed" ? "is-failed" : "is-running"));
       }
     }
 
@@ -872,7 +989,15 @@ async function doSend (prompt) {
 
   } catch (e) {
     setRunning(false);
-    S.messages.push({ role: "assistant", content: `请求失败: ${e.message}` });
+    // Phase UI-A8-5-P0: 把 fetch 阶段抛出的 raw 错误 (e.g. "405: {...}") 转成友好中文
+    const last = S.messages[S.messages.length - 1];
+    if (last && last.role === "assistant" && last.status === "running") {
+      last.status = "failed";
+      last.content = friendlyFetchError(e);
+      last.trace = (last.trace || []).map(t => t.state === "running" ? Object.assign({}, t, { state: "failed" }) : t);
+    } else {
+      S.messages.push({ role: "assistant", status: "failed", content: friendlyFetchError(e) });
+    }
     $("home-status-pill").textContent = "失败";
     $("home-status-pill").className = "home-status-pill is-failed";
     renderMessages();
@@ -940,12 +1065,26 @@ function renderMessages () {
 
     const bubble = el("div", "chat-bubble" +
       (msg.role === "user" ? " chat-bubble-user" : msg.role === "system" ? " chat-bubble-system" : " chat-bubble-agent"));
-    bubble.innerHTML = escapeHtmlForDisplay(msg.content);
+    if (msg.status === "running") bubble.classList.add("chat-bubble-running");
+    bubble.innerHTML = escapeHtmlForDisplay(msg.status === "running" && !msg.content ? "思考中…" : msg.content);
+    if (msg.role !== "user" && msg.trace && msg.trace.length) {
+      bubble.appendChild(renderAgentTrace(msg.trace));
+    }
 
     row.appendChild(avatar);
     row.appendChild(bubble);
     container.appendChild(row);
   });
+}
+
+function renderAgentTrace (trace) {
+  const box = el("div", "agent-trace");
+  (trace || []).slice(0, 8).forEach(item => {
+    const row = el("div", "tool-call tool-call-" + (item.state || "pending"));
+    row.innerHTML = `<span class="tool-call-dot"></span><span>${htmlEscape(item.label || "调用工具")}</span>`;
+    box.appendChild(row);
+  });
+  return box;
 }
 
 function escapeHtmlForDisplay (text) {
@@ -981,19 +1120,8 @@ function newChat () {
    Skill Picker
    ========================================================= */
 function openSkillPicker () {
-  // Simple inline skill picker using prompt
-  const names = S.skills.length > 0
-    ? S.skills.map(s => s.name).join(", ")
-    : "ppt, docx, xlsx, summary, code-review, deep-research, academic-paper";
-  const pick = window.prompt(`输入技能名（可选）\n\n可用: ${names}\n\n直接回车跳过`);
-  if (pick === null) return; // cancelled
-  if (!pick.trim()) {
-    S.currentSkill = null;
-    $("home-skill-button").classList.remove("is-active");
-    return;
-  }
-  S.currentSkill = pick.trim();
-  $("home-skill-button").classList.add("is-active");
+  showTab("skills");
+  if (!S.skills || S.skills.length === 0) loadSkills();
 }
 
 /* =========================================================
@@ -1232,6 +1360,16 @@ function filesNavigateBack () {
   const hasBackslash = S.cwd.indexOf("\\") !== -1;
   const sep = hasBackslash ? "\\" : "/";
   const segs = S.cwd.split(/[/\\]/).filter(Boolean);
+  const isWindowsUserHome = segs.length <= 3 && /^[A-Z]:$/i.test(segs[0] || '') && /^users$/i.test(segs[1] || '');
+  if (isWindowsUserHome) {
+    S.cwd = null;
+    S.cwdLabel = null;
+    localStorage.setItem(CWD_KEY, "");
+    updateTopbarCwd();
+    S.fileHistory = [];
+    loadFilesRoots();
+    return;
+  }
   if (segs.length <= 1) {
     // 已经到根了：清 cwd，回 roots
     S.cwd = null;
@@ -1590,6 +1728,8 @@ function renderSkills (skills) {
 
   skills.forEach(skill => {
     const card = el("div", "skill-card" + (skill.enabled ? " is-enabled" : " is-disabled"));
+    card.setAttribute("role", "button");
+    card.setAttribute("tabindex", "0");
     card.setAttribute("data-skill-id", skill.id);
     card.setAttribute("data-agent", skill.agentScope);
     card.setAttribute("data-category", skill.category);
@@ -1618,11 +1758,22 @@ function renderSkills (skills) {
       `</div>`;
 
     // toggle handler
-    card.querySelector(".skill-toggle").addEventListener("click", () => {
+    card.addEventListener("click", () => {
+      useSkillInChat(skill);
+    });
+    card.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        useSkillInChat(skill);
+      }
+    });
+    card.querySelector(".skill-toggle").addEventListener("click", (ev) => {
+      ev.stopPropagation();
       toggleSkill(skill);
     });
     // use in chat handler
-    card.querySelector(".skill-use-btn").addEventListener("click", () => {
+    card.querySelector(".skill-use-btn").addEventListener("click", (ev) => {
+      ev.stopPropagation();
       useSkillInChat(skill);
     });
 
@@ -1687,7 +1838,16 @@ async function toggleSkill (skill) {
 function useSkillInChat (skill) {
   if (!skill) return;
   const title = skill.title || skill.name;
-  S.currentSkill = skill.id;
+  S.currentSkill = {
+    id: skill.id,
+    title: title || skill.id
+  };
+  const skillBtn = $("home-skill-button");
+  const skillLabel = $("home-skill-button-label");
+  if (skillBtn) skillBtn.classList.add("is-active");
+  if (skillLabel) skillLabel.textContent = title ? truncate(title, 24) : "Skill";
+  closeSidebar();
+  showTab("home");
   const input = $("home-input");
   if (input) {
     input.value = "使用「" + title + "」帮我……";
@@ -1695,8 +1855,6 @@ function useSkillInChat (skill) {
     const send = $("home-send");
     if (send) send.disabled = !input.value.trim() || S.running;
   }
-  closeSidebar();
-  showTab("home");
   setTimeout(() => { if (input) input.focus(); }, 60);
 }
 
@@ -1991,14 +2149,11 @@ async function continueSession (session) {
   if (!sid) return;
   // 1) 设置 agent / cwd / sessionId
   if (session.agentId) {
-    const found = AGENTS.find(a => a.id === session.agentId);
+    const uiAgentId = agentIdForUi(session.agentId);
+    const found = AGENTS.find(a => a.id === uiAgentId);
     if (found) {
       S.currentAgent = found.id;
       localStorage.setItem(AGENT_KEY, found.id);
-      updateAgentDropdownLabel();
-    } else if (session.agentId === "claude" || session.agentId === "claude_code") {
-      S.currentAgent = "claude_code";
-      localStorage.setItem(AGENT_KEY, "claude_code");
       updateAgentDropdownLabel();
     }
   }
@@ -2009,6 +2164,7 @@ async function continueSession (session) {
     updateTopbarCwd();
   }
   S.sessionId = sid;
+  try { localStorage.setItem(SESSION_KEY, sid); } catch (_) {}
   // 2) 关闭侧边栏 + 切到 Home
   closeSidebar();
   showTab("home");

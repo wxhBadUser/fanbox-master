@@ -1006,6 +1006,36 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   animation: pulse 1.4s ease-in-out infinite;
 }
 
+.agent-trace {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-soft);
+}
+.tool-call {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 22px;
+  color: var(--fg-2);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.tool-call-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--fg-3);
+  flex: 0 0 auto;
+}
+.tool-call-running .tool-call-dot {
+  background: var(--accent);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.tool-call-done .tool-call-dot { background: var(--ok); }
+.tool-call-failed .tool-call-dot { background: var(--err); }
+
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(0.85); }
@@ -2053,32 +2083,34 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
    ========================================================= */
 .skills-filter-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 16px 4px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 6px 16px 4px;
   max-width: var(--maxw);
   margin: 0 auto;
   width: 100%;
-  overflow-x: auto;
-  scrollbar-width: none;
+  overflow: hidden;
 }
-.skills-filter-row::-webkit-scrollbar { display: none; }
 .skills-filter-h {
   font-size: 10px;
   font-weight: 600;
   color: var(--fg-3);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  flex-shrink: 0;
-  min-width: 42px;
+  line-height: 1;
 }
 .skills-filter-chips {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 1;
-  min-width: 0;
   flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.skills-filter-chips::-webkit-scrollbar {
+  display: none;
 }
 .skills-filter-agent,
 .skills-filter-status,
@@ -2132,6 +2164,8 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   border-radius: 14px;
   transition: background 0.10s, border-color 0.10s;
   min-width: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 .skill-card.is-enabled { border-color: var(--accent); }
 .skill-card.is-disabled { opacity: 0.78; }

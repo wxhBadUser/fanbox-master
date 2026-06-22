@@ -175,7 +175,10 @@ function req(opts, body) {
     /enterChatState[\s\S]{0,400}home-shell[\s\S]{0,200}is-chat/.test(js));
   ok('mobile.js exitChatState 移除 home-shell.is-chat class',
     /exitChatState[\s\S]{0,400}home-shell[\s\S]{0,200}is-chat/.test(js));
-  ok('mobile.js TASK_CHIPS 至少 8 个', /TASK_CHIPS\s*=\s*\[[\s\S]*?Develop app[\s\S]*?Website[\s\S]*?Slides[\s\S]*?Image[\s\S]*?Audio[\s\S]*?Video[\s\S]*?Wide Research[\s\S]*?Spreadsheet[\s\S]*?\]/.test(js));
+  const taskChipMatch = js.match(/const\s+TASK_CHIPS\s*=\s*\[([\s\S]*?)\];/);
+  const taskChipCount = taskChipMatch ? (taskChipMatch[1].match(/label\s*:/g) || []).length : 0;
+  ok('mobile.js TASK_CHIPS 控制在 4 个以内 (减少首页状态 chip)',
+    taskChipCount > 0 && taskChipCount <= 4);
   ok('mobile.js Enter 发送 + Shift+Enter 换行', /Enter[\s\S]{0,100}shiftKey[\s\S]{0,80}preventDefault/.test(js));
   // mobile.js 不引用 *-sticky 元素
   ok('UI-A8-1: mobile.js 不引用 #home-input-sticky', !/home-input-sticky/.test(js));
@@ -201,7 +204,7 @@ function req(opts, body) {
   ok('CSS 含 .chat-row-agent 左对齐', /\.chat-row-agent/.test(css));
   ok('CSS 含 .chat-avatar 头像', /\.chat-avatar\s*\{/.test(css));
   ok('mobile.js renderMessages 渲染消息', /function\s+renderMessages\s*\(/.test(js));
-  ok('mobile.js doSend POST /api/mobile/send', /doSend[\s\S]{0,500}\/api\/mobile\/send/.test(js));
+  ok('mobile.js doSend POST /api/mobile/agent/send', /doSend[\s\S]{0,1200}\/api\/mobile\/agent\/send/.test(js));
   ok('mobile.js 发消息后 enterChatState', /doSend[\s\S]{0,500}enterChatState\s*\(/.test(js));
   ok('UI-A8-1: chat 态 composer 走 .home-shell.is-chat > .home-composer sticky 底部', /\.home-shell\.is-chat\s+\.home-composer[\s\S]{0,200}position:\s*sticky[\s\S]{0,80}bottom:\s*0/.test(css));
   ok('mobile.js setRunning 切 running 状态', /function\s+setRunning/.test(js));
@@ -235,8 +238,8 @@ function req(opts, body) {
   // 当前 agent 高亮
   ok('dropdown item 有 is-active class (current agent)', /is-active/.test(js) && /agent-dropdown-item/.test(js));
   ok('switchAgent 不丢 cwd (localStorage AGENT_KEY)', /localStorage\.setItem\s*\(\s*AGENT_KEY/.test(js));
-  // 不污染历史 session
-  ok('switchAgent 不重置 messages', !/switchAgent[\s\S]{0,500}S\.messages\s*=\s*\[\]/.test(js));
+  // UI-A8-5-P2：不同 agent 不共享对话上下文
+  ok('switchAgent 清空 messages/session', /switchAgent[\s\S]{0,900}S\.messages\s*=\s*\[\][\s\S]{0,400}S\.sessionId\s*=\s*["']{2}/.test(js));
   // runner 端
   ok('runner 含 STUB_RUNNER_IDS', /STUB_RUNNER_IDS/.test(runnerCode));
   ok('runner 支持 4 个 agent id (claude/codex/qoder/opencode)',
@@ -746,6 +749,64 @@ function req(opts, body) {
     /continueSession[\s\S]{0,2000}S\.sessionId\s*=\s*sid/.test(js));
 
   // ============================================================
+  // [N] Phase UI-A8-5-P0 · Home Chat Send 405 修复
+  section('[N] Phase UI-A8-5-P0 · Home Chat Send 405');
+  // N.1 · endpoint 存在
+  ok('electron/mobile.js 注册 POST /api/mobile/agent/send',
+    /req\.method\s*===\s*'POST'[\s\S]{0,80}pathOnly\s*===\s*'\/api\/mobile\/agent\/send'/.test(mobileJsCode));
+  ok('POST /api/mobile/agent/send 在 handleMobileApiV2A 内',
+    /handleMobileApiV2A[\s\S]{0,30000}\/api\/mobile\/agent\/send/.test(mobileJsCode));
+  ok('electron/mobile.js friendlySendError 存在',
+    /function\s+friendlySendError\s*\(/.test(mobileJsCode));
+  // N.2 · 前端用新 endpoint
+  ok('mobile.js doSend 调用 /api/mobile/agent/send',
+    /doSend[\s\S]{0,2000}\/api\/mobile\/agent\/send/.test(js));
+  ok('mobile.js doSend 不再 POST 旧 /api/mobile/send',
+    !/doSend[\s\S]{0,2000}['"]\/api\/mobile\/send['"][\s\S]{0,200}method:\s*['"]POST['"]/.test(js));
+  // N.3 · agent id 映射
+  ok('mobile.js mapAgentId claude_code → claude',
+    /mapAgentId[\s\S]{0,200}'claude_code'[\s\S]{0,100}return\s*'claude'/.test(js));
+  ok('mobile.js mapAgentId open_code → opencode',
+    /mapAgentId[\s\S]{0,500}'open_code'[\s\S]{0,100}return\s*'opencode'/.test(js));
+  ok('mobile.js agentIdForBackend 存在', /function\s+agentIdForBackend\s*\(/.test(js));
+  ok('mobile.js agentIdForDisplay 存在', /function\s+agentIdForDisplay\s*\(/.test(js));
+  ok('mobile.js agentIdForDisplay claude → Claude Code',
+    /agentIdForDisplay[\s\S]{0,500}'Claude Code'/.test(js));
+  ok('mobile.js agentIdForDisplay codex → Codex',
+    /agentIdForDisplay[\s\S]{0,500}'Codex'/.test(js));
+  ok('mobile.js agentIdForDisplay qoder → Qoder',
+    /agentIdForDisplay[\s\S]{0,500}'Qoder'/.test(js));
+  ok('mobile.js agentIdForDisplay opencode → OpenCode',
+    /agentIdForDisplay[\s\S]{0,500}'OpenCode'/.test(js));
+  // N.4 · 友好错误
+  ok('mobile.js friendlySendError 存在', /function\s+friendlySendError\s*\(/.test(js));
+  ok('mobile.js friendlyFetchError 存在', /function\s+friendlyFetchError\s*\(/.test(js));
+  ok('mobile.js friendlyFetchError 含 405 友好映射',
+    /friendlyFetchError[\s\S]{0,800}移动端发送接口暂不可用/.test(js));
+  ok('mobile.js doSend catch 不再写 \'请求失败: ${e.message}\'',
+    !/doSend[\s\S]{0,2500}content:\s*`请求失败:\s*\$\{e\.message\}`/.test(js));
+  ok('mobile.js doSend catch 使用 friendlyFetchError',
+    /doSend[\s\S]{0,4000}friendlyFetchError\(e\)/.test(js));
+  // N.5 · session / cwd / agent 保留
+  ok('mobile.js SESSION_KEY 存在', /const\s+SESSION_KEY\s*=\s*['"]fanbox_mobile_session['"]/.test(js));
+  ok('mobile.js S.sessionId 从 localStorage SESSION_KEY 恢复',
+    /S\.sessionId\s*=\s*localStorage\.getItem\(SESSION_KEY\)/.test(js));
+  ok('mobile.js doSend 保存 sessionId (回包时)',
+    /doSend[\s\S]{0,4500}localStorage\.setItem\(SESSION_KEY/.test(js));
+  ok('mobile.js doSend 同步 cwd 和 cwdLabel',
+    /doSend[\s\S]{0,4500}S\.cwdLabel\s*=/.test(js));
+  // N.6 · UI 完整性
+  ok('HTML 仍有 1 个 #home-input', (html.match(/id="home-input"/g) || []).length === 1);
+  ok('HTML 仍有 1 个 #home-send', (html.match(/id="home-send"/g) || []).length === 1);
+  ok('HTML 仅有 1 个 #home-status-pill', (html.match(/id="home-status-pill"/g) || []).length === 1);
+  // N.7 · 禁止项
+  ok('mobile.js doSend 不直接拼 raw 错误到 UI',
+    !/doSend[\s\S]{0,3000}content:\s*`错误:\s*\$\{data\.error\}`/.test(js));
+  ok('mobile.js doSend 不调用 Delete/Move/Rename/Upload API',
+    !/doSend[\s\S]{0,3000}\/api\/mobile\/(delete|move|rename|upload)/i.test(js));
+  ok('mobile.js doSend 不调用 shell/spawn/exec',
+    !/doSend[\s\S]{0,3000}(child_process|spawn\(|exec\(|pty)/i.test(js));
+
   // [M] Phase UI-A8-4 · Skills Library + Home Current Workspace
   // ============================================================
   section('M) Skills Library + Home Workspace · UI-A8-4');

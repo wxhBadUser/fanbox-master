@@ -833,9 +833,9 @@ function req(opts, body) {
   ok('Desktop UI 不暴露 /api/mobile/pty/input', !/api\/mobile\/pty\/input/.test(desktopAll));
 
   // ============================================================
-  // [11.9] Phase 2A-2.2：安全 Claude/Codex runner 接入
+  // [11.9] Phase 2A-2.2 / UI-A8-5-P1：安全真实 runner 接入
   // ============================================================
-  section('11.9) Phase 2A-2.2: real runner wiring');
+  section('11.9) Phase 2A-2.2/UI-A8-5-P1: real runner wiring');
 
   // ---- 1) 模块存在 & 暴露 ----
   const runner = require(path.join(ROOT_DIR, 'electron', 'mobile-agent-runner.js'));
@@ -843,13 +843,16 @@ function req(opts, body) {
   ok('暴露 runMobileAgent', typeof runner.runMobileAgent === 'function');
   ok('暴露 runClaudeRunner', typeof runner.runClaudeRunner === 'function');
   ok('暴露 runCodexRunner', typeof runner.runCodexRunner === 'function');
+  ok('暴露 runQoderRunner', typeof runner.runQoderRunner === 'function');
+  ok('暴露 runOpenCodeRunner', typeof runner.runOpenCodeRunner === 'function');
   ok('暴露 runStubRunner', typeof runner.runStubRunner === 'function');
   ok('暴露 sanitizeOutput', typeof runner.sanitizeOutput === 'function');
+  ok('暴露 resolveAgentCommand', typeof runner.resolveAgentCommand === 'function');
 
   // ---- 2) 白名单 & 常量 ----
   ok('ALLOWED_AGENT_IDS 含 4 个 agent', runner.ALLOWED_AGENT_IDS.length === 4 && ['claude', 'codex', 'opencode', 'qoder'].every(x => runner.ALLOWED_AGENT_IDS.indexOf(x) >= 0));
-  ok('REAL_RUNNER_IDS = claude/codex', runner.REAL_RUNNER_IDS.length === 2 && runner.REAL_RUNNER_IDS.indexOf('claude') >= 0 && runner.REAL_RUNNER_IDS.indexOf('codex') >= 0);
-  ok('STUB_RUNNER_IDS = opencode/qoder', runner.STUB_RUNNER_IDS.length === 2 && runner.STUB_RUNNER_IDS.indexOf('opencode') >= 0 && runner.STUB_RUNNER_IDS.indexOf('qoder') >= 0);
+  ok('REAL_RUNNER_IDS 含 4 个 agent', runner.REAL_RUNNER_IDS.length === 4 && ['claude', 'codex', 'opencode', 'qoder'].every(x => runner.REAL_RUNNER_IDS.indexOf(x) >= 0));
+  ok('STUB_RUNNER_IDS 为空', Array.isArray(runner.STUB_RUNNER_IDS) && runner.STUB_RUNNER_IDS.length === 0);
   ok('MAX_OUTPUT_CHARS = 4000', runner.MAX_OUTPUT_CHARS === 4000);
   ok('DEFAULT_TIMEOUT_MS > 0', runner.DEFAULT_TIMEOUT_MS > 0);
 
@@ -921,12 +924,13 @@ function req(opts, body) {
   ok('runner 不出现 --dangerously-skip-permissions', !/--dangerously-skip-permissions/.test(runnerSrc));
   ok('runner 不出现 --dangerously-bypass-approvals-and-sandbox', !/--dangerously-bypass-approvals-and-sandbox/.test(runnerSrc));
   ok('runner 不出现 YOLO / full-auto 标志', !/\bYOLO\b/i.test(runnerSrc) && !/full-?auto/i.test(runnerSrc));
-  // args 是硬编码数组拼接（每次 push 的是常量字符串）
+  // args 是硬编码模板（qoder 的 -p 是其非交互 CLI 入口）
   ok('runner args 模板是 hardcoded array', /const\s+args\s*=\s*\[/.test(runnerSrc));
-  // 不允许将 text 拼进 args
-  ok('runner text 不进 argv（仅 stdin）', !/args\.push\(\s*text\s*\)|args\.push\(\s*trimmed\s*\)/.test(runnerSrc));
-  // 必走 spawn(bin, args, { shell: false, ... })
-  ok('runner 调 spawn(bin, args, { shell: false })', /spawn\(\s*bin\s*,\s*args\s*,\s*\{[\s\S]*?shell\s*:\s*false[\s\S]*?\}\s*\)/.test(runnerSrc));
+  // 不允许用户输入控制 args 模板；qoder 仅允许固定 -p 槽位承载 prompt。
+  ok('runner 不动态 push 用户文本进 argv', !/args\.push\(\s*text\s*\)|args\.push\(\s*trimmed\s*\)/.test(runnerSrc));
+  ok('qoder 使用固定 -p 模板', /const\s+args\s*=\s*\[\s*['"]-p['"]\s*,\s*String\(\s*text\s*\|\|\s*['"]{2}\s*\)\s*,\s*['"]-w['"]\s*,\s*cwd[\s\S]{0,120}['"]--quiet['"]/.test(runnerSrc));
+  // 必走 spawn(..., ..., { shell: false, ... })
+  ok('runner 调 spawn(..., ..., { shell: false })', /spawn\(\s*spawnBin\s*,\s*spawnArgs\s*,\s*\{[\s\S]*?shell\s*:\s*false[\s\S]*?\}\s*\)/.test(runnerSrc));
   // 不让用户控制 executable
   ok('runner 不用用户输入做 bin 名', !/spawn\(\s*(?:opts|args|user)\b/.test(runnerSrc));
 

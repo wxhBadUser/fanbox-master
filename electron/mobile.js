@@ -20,6 +20,7 @@ const fs = require('fs');
 
 // Phase 2A-1：session 汇总 + mobile 偏好读写
 const mobileSessions = require('./mobile-sessions');
+const mobileAgentRunner = require('./mobile-agent-runner');
 
 // ---------- 路径 ----------
 
@@ -685,6 +686,43 @@ function badReq(res, code, error) {
   return sendJson(res, code, { ok: false, error: error || 'bad_request' });
 }
 
+// Phase UI-A8-5-P0：把 send 失败归一成友好中文（绝不暴露 raw JSON / stdout / token / path）
+function friendlySendError (agentId, code) {
+  const displayName = agentId === 'claude' ? 'Claude Code'
+                    : agentId === 'codex'  ? 'Codex'
+                    : agentId === 'qoder'  ? 'Qoder'
+                    : agentId === 'opencode' ? 'OpenCode'
+                    : (agentId || 'Agent');
+  switch (code) {
+    case 'session_not_found':
+    case 'session_busy':
+    case 'session_waiting_approval':
+      return '当前 session 状态不允许发送，请稍后再试或新建对话。';
+    case 'invalid_agent':
+      return '当前 Agent 不被允许，请从下拉里选择 Claude Code / Codex / Qoder / OpenCode。';
+    case 'missing_cwd':
+    case 'path_not_allowed':
+    case 'forbidden_path':
+      return '当前路径不可访问，请从 Files 或 Project 页面重新选择一个工作区。';
+    case 'no_workspace':
+      return '请先选择一个工作区（Files 或 Project 页面），再和 Agent 对话。';
+    case 'text_too_long':
+    case 'message_too_long':
+      return '消息过长，请缩短后再试。';
+    case 'empty_text':
+    case 'empty_message':
+      return '消息为空，请输入内容后发送。';
+    case 'runner_unavailable':
+    case 'agent_not_allowed':
+      return `当前电脑没有检测到 ${displayName}，请先在电脑端安装并加入 PATH 后再试，或切换 Agent。`;
+    case 'timeout':
+    case 'session_timeout':
+      return `${displayName} 响应超时，请稍后再试。`;
+    default:
+      return `${displayName} 暂不可用，请确认电脑端已安装并登录，或切换到其他 Agent。`;
+  }
+}
+
 // 移动端 allowedRoots 列表（专用：给 /api/mobile/roots 用，不复用 desktop 语义）
 // Phase UI-A8-2：扩展为包含 Windows 驱动器 + 常用目录（Desktop / Downloads / Documents），
 // 让手机端进入 Files 时可以看到真实可访问的入口。
@@ -944,36 +982,22 @@ const MOBILE_AGENTS = [
   { id: 'qoder',    label: 'Qoder CLI',   command: 'qoder',    detect: ['qoder', 'qodercli', 'qoder-cli'], model: 'default', effort: 'normal' },
 ];
 
-function probeOne(bin) {
-  return new Promise((resolve) => {
-    const { execFile } = require('child_process');
-    const isWin = process.platform === 'win32';
-    const cmd = isWin ? 'where' : 'command';
-    const args = isWin ? [bin] : ['-v', bin];
-    execFile(cmd, args, { timeout: 4000, windowsHide: true, shell: false }, (err, stdout) => {
-      if (err) return resolve(null);
-      const first = String(stdout || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0] || null;
-      if (!first || /^(INFO|WARN):/i.test(first)) return resolve(null);
-      return resolve(first);
-    });
-  });
-}
-
 async function readAgentsMobile() {
   const items = [];
   for (const a of MOBILE_AGENTS) {
-    let found = null;
-    for (const bin of a.detect) {
-      // eslint-disable-next-line no-await-in-loop
-      const hit = await probeOne(bin);
-      if (hit) { found = bin; break; }
-    }
+    // eslint-disable-next-line no-await-in-loop
+    const resolved = await mobileAgentRunner.resolveAgentCommand(a.id);
+    const found = resolved && resolved.ok ? (resolved.found || a.command) : null;
     items.push({
       id: a.id,
       label: a.label,
       command: a.command,
       installed: !!found,
-      hint: found ? '' : `未找到 ${a.command}，请先安装并加入 PATH。`,
+      available: !!found,
+      commandFound: !!found,
+      runner: found || a.command,
+      status: found ? 'ready' : 'missing',
+      hint: found ? '' : `未找到 ${a.command}，请先安装并加入 PATH，或设置 FANBOX_${a.id.toUpperCase()}_BIN。`,
       // Phase UI-A2：在 agents 响应里附带默认 model / effort；前端 Home / Agent 显示用
       model: a.model || 'default',
       effort: a.effort || 'normal'
@@ -1791,6 +1815,147 @@ async function handleMobileApiV2A(req, res, url) {
     });
     if (!r.ok) return badReq(res, 400, r.error || 'bad_select'), true;
     return sendJson(res, 200, { ok: true, cwd: r.cwd, agentId: r.agentId, sessionId: r.sessionId }), true;
+  }
+
+  // -------- POST /api/mobile/agent/send --------
+  // Phase UI-A8-5-P0：Home Chat Send 405 修复
+  // 请求体：{ agentId, cwd?, sessionId?, message, skillId?, skillName?, model?, effort? }
+  //   - agentId: 必须是 ALLOWED_AGENT_IDS（claude / codex / opencode / qoder）
+  //   - cwd:     可选；如带则必须在 allowed roots 内，且非 forbidden
+  //   - sessionId: 可选；存在则复用，否则自动创建 draft session
+  //   - message: 必填；MAX_INPUT_CHARS 上限
+  //   - model / effort: 仅 audit；不参与 shell 命令构造
+  // 行为：
+  //   - 调 mobileSessions.postMessageToMobileSession
+  //   - 调成功后再取最后一条 assistant message 作为 response.message.content
+  //   - redline 仅 audit，不阻塞（沿用 mobile-sessions 现行策略）
+  //   - 不暴露 raw stdout / JSONL / token / cookie / API key
+  //   - 不允许 shell / pty / 自定义 command / 上传 / 删除 / 改名 / 移动
+  if (req.method === 'POST' && pathOnly === '/api/mobile/agent/send') {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    let body;
+    try { body = await readJsonBody(req); } catch { return badReq(res, 400, 'bad_body'), true; }
+    const agentId = mobileSessions.normalizeAgentId((body && body.agentId) || '');
+    if (!mobileSessions.ALLOWED_AGENT_IDS.has(agentId)) {
+      return badReq(res, 400, 'invalid_agent');
+    }
+    const message = String((body && body.message) || '');
+    if (!message.trim()) return badReq(res, 400, 'empty_message');
+    if (message.length > mobileSessions.MAX_INPUT_CHARS) {
+      return badReq(res, 400, 'message_too_long');
+    }
+    const skillId = String((body && body.skillId) || '').replace(/[^A-Za-z0-9._\-+:]/g, '').slice(0, 128);
+    const skillName = String((body && body.skillName) || '').replace(/[\r\n\t]/g, ' ').trim().slice(0, 128);
+    const runnerMessage = skillId
+      ? [
+          'Use the selected skill for this mobile chat turn.',
+          'Skill ID: ' + skillId,
+          skillName ? 'Skill name: ' + skillName : '',
+          '',
+          message
+        ].filter(Boolean).join('\n')
+      : message;
+    // cwd 可选；如带则必须过 allowed + forbidden 双重校验
+    let cwd = '';
+    if (body && body.cwd) {
+      const norm = path.resolve(String(body.cwd));
+      if (isForbiddenPath(norm)) return sendJson(res, 403, { ok: false, error: 'forbidden_path' }), true;
+      if (!pathInAllowed(norm)) return sendJson(res, 403, { ok: false, error: 'path_not_allowed' }), true;
+      cwd = norm;
+    }
+    // sessionId 可选；存在则校验存在性；不存在或无效则不创建
+    let sessionId = (body && body.sessionId) ? String(body.sessionId) : '';
+    if (sessionId) {
+      const s = await mobileSessions.getSessionById(sessionId);
+      if (!s) sessionId = '';
+    }
+    // 如无 sessionId 但有 cwd → 自动创建 draft
+    if (!sessionId && cwd) {
+      const r = await mobileSessions.createMobileDraftSession({
+        cwd: cwd,
+        agentId: agentId,
+        deviceId: t.device && t.device.id
+      });
+      if (r && r.ok) sessionId = r.sessionId;
+    }
+    // 如 sessionId 仍空且无 cwd → 仅返回 stub/unavailable，不创建 session
+    if (!sessionId) {
+      const stub = await mobileSessions.runStubAgent({
+        agentId: agentId,
+        text: message,
+        cwd: '',
+        sessionId: ''
+      });
+      return sendJson(res, 200, {
+        ok: false,
+        sessionId: '',
+        agentId: agentId,
+        cwd: '',
+        status: 'no_workspace',
+        mode: 'stub',
+        usedStub: true,
+        error: 'no_workspace',
+        message: { role: 'assistant', content: stub && stub.text ? stub.text : '请先选择一个工作区（Files 或 Project 页面）。' }
+      }), true;
+    }
+    // redline 仅 audit（不阻塞；不创建 approval）
+    try {
+      const red = mobileSessions.detectRedline(runnerMessage);
+      if (red && red.requiresApproval) {
+        await mobileSessions.appendAudit({
+          action: 'redline_detected_but_not_blocked',
+          sessionId: sessionId,
+          deviceId: t.device && t.device.id,
+          agentId: agentId,
+          cwd: cwd,
+          reasons: Array.isArray(red.reasons) ? red.reasons.slice(0, 10) : []
+        }).catch(() => ({ ok: false }));
+      }
+    } catch (_) { /* redline detector 不可用不影响主流程 */ }
+    // 主流程：postMessageToMobileSession
+    const r = await mobileSessions.postMessageToMobileSession({
+      sessionId: sessionId,
+      deviceId: t.device && t.device.id,
+      agentId: agentId,
+      cwd: cwd,
+      text: runnerMessage,
+      contextFiles: []
+    });
+    if (!r || !r.ok) {
+      return sendJson(res, (r && r.status) || 500, {
+        ok: false,
+        sessionId: sessionId,
+        agentId: agentId,
+        cwd: cwd,
+        status: 'failed',
+        error: (r && r.error) || 'send_failed',
+        message: { role: 'assistant', content: friendlySendError(agentId, (r && r.error) || 'send_failed') }
+      }), true;
+    }
+    // 拉最后一条 assistant / agent message 作为 response
+    let lastMsg = '';
+    try {
+      const msgs = await mobileSessions.getSessionMessages(sessionId, 1);
+      if (msgs && Array.isArray(msgs.messages) && msgs.messages.length) {
+        lastMsg = String(msgs.messages[msgs.messages.length - 1].text || '');
+      }
+    } catch (_) { /* 取不到不影响返回 ok */ }
+    return sendJson(res, 200, {
+      ok: true,
+      sessionId: sessionId,
+      agentId: agentId,
+      cwd: cwd,
+      status: r.status || 'done',
+      mode: r.runnerMode || 'real',
+      usedStub: !!r.usedStub,
+      timedOut: !!r.timedOut,
+      trace: [
+        { label: '准备工作区上下文', state: 'done' },
+        skillId ? { label: '使用 Skill: ' + (skillName || skillId), state: 'done' } : null,
+        { label: '调用 ' + agentId + ' runner', state: 'done' }
+      ].filter(Boolean),
+      message: { role: 'assistant', content: lastMsg }
+    }), true;
   }
 
   return false; // 未命中
