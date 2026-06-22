@@ -536,6 +536,20 @@ async function runMobileAgentStream(opts, emit) {
 
   const aborted = () => !!(signal && signal.aborted);
 
+  // Skill 中文描述查找表（供 skill 事件使用）
+  const SKILL_CN_DESCRIPTIONS_FOR_RUNNER = {
+    'academic-paper': '学术论文写作流水线，支持多种论文类型与引用格式',
+    'ppt-master': 'AI 驱动的多格式 SVG 内容生成，输出高质量 PPTX 演示文稿',
+    'docx': 'Word 文档创建、编辑与格式化处理',
+    'pdf': 'PDF 文件读取、合并、拆分、OCR 与格式转换',
+    'deep-research': '多代理深度研究流水线，系统性文献综述与事实核查',
+    'code-review': '代码审查与质量分析',
+    'tdd': '测试驱动开发，红-绿-重构循环',
+    'prototype': '快速原型构建，验证数据模型与 UI 设计方案',
+    'brainstorming': '创意发散与需求探索，在实现前厘清意图',
+    'write-a-skill': '创建新的 Agent 技能包，含结构与资源模板',
+  };
+
   // a. Emit start
   if (aborted()) return;
   emit('start', { ok: true, agentId, cwd: opts.cwd || '' });
@@ -559,21 +573,37 @@ async function runMobileAgentStream(opts, emit) {
   emit('step', { label: '准备工作区', status: 'running', text: cwdLabel });
   if (aborted()) return;
   emit('step', { label: '准备工作区', status: 'done', text: cwdLabel });
+  // New: tool event for workspace preparation
+  if (aborted()) return;
+  emit('tool', { id: 'tool-workspace', label: '读取工作区信息', status: 'done', safe: true });
+  // New: thought event — reasoning before action
+  if (aborted()) return;
+  emit('thought', { text: '我会先检查当前工作区，然后' + (opts.skillId ? '使用 ' + opts.skillName + ' 技能处理你的请求' : '处理你的请求') + '。' });
 
   // e. If skillId provided
   if (opts.skillId) {
     if (aborted()) return;
     emit('step', { label: '使用 Skill: ' + (opts.skillName || opts.skillId), status: 'done', text: opts.skillId });
+    // New: skill event
+    if (aborted()) return;
+    emit('skill', { skillId: opts.skillId, skillName: opts.skillName || opts.skillId, description: SKILL_CN_DESCRIPTIONS_FOR_RUNNER[opts.skillId] || '' });
   }
 
   // f. Emit step: 调用 Agent
   if (aborted()) return;
   emit('step', { label: '调用 ' + agentDisplayName(agentId), status: 'running' });
+  // New: tool event for runner invocation
+  if (aborted()) return;
+  emit('tool', { id: 'tool-runner', label: '调用 ' + agentDisplayName(agentId), status: 'running', safe: true });
 
   // g. Stub mode
   if (process.env.MOBILE_AGENT_FORCE_STUB === '1') {
     if (aborted()) return;
+    emit('thought', { text: '我会先检查当前工作区，然后' + (opts.skillId ? '使用 ' + opts.skillName + ' 技能处理你的请求' : '处理你的请求') + '。当前为模拟模式，将生成示例回复。' });
+    if (aborted()) return;
     emit('step', { label: '调用 ' + agentDisplayName(agentId), status: 'done' });
+    if (aborted()) return;
+    emit('command_output', { id: 'tool-runner', status: 'done' });
     const stubResult = runStubRunner({ agentId, text, cwd: opts.cwd });
     const stubText = sanitizeOutput(stubResult.text || '');
     // Split into ~200 char chunks with small delays
@@ -628,6 +658,9 @@ async function runMobileAgentStream(opts, emit) {
 
   // Mark step done
   emit('step', { label: '调用 ' + agentDisplayName(agentId), status: 'done' });
+  // New: command_output for the runner tool
+  if (aborted()) return;
+  emit('command_output', { id: 'tool-runner', status: 'done' });
 
   const resultText = sanitizeOutput(raw.text || '');
 

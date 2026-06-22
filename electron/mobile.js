@@ -1459,6 +1459,98 @@ async function handleMobileApiV2(req, res, url) {
     });
   }
 
+  // /api/mobile/projects —— unified project list grouped by cwd
+  if (pathOnly === '/api/mobile/projects') {
+    const t = await requireMobileAuth(req, res); if (!t) return;
+    try {
+      const now = Date.now();
+      const DAY7 = 7 * 24 * 60 * 60 * 1000;
+      const DAY30 = 30 * 24 * 60 * 60 * 1000;
+
+      // 1) Gather sessions
+      const sessionResult = await mobileSessions.listSessions({ limit: 200 });
+      const sessions = Array.isArray(sessionResult.items) ? sessionResult.items : [];
+
+      // 2) Group by normalized cwd
+      const cwdMap = new Map(); // normalizedCwd -> { sessions: [], agents: Set, ... }
+      for (const s of sessions) {
+        if (!s.cwd) continue;
+        const key = s.cwd.replace(/\\/g, '/').toLowerCase();
+        if (!cwdMap.has(key)) {
+          cwdMap.set(key, { cwd: s.cwd, cwdLabel: s.cwdLabel || path.basename(s.cwd) || s.cwd, sessions: [], agents: new Set() });
+        }
+        const g = cwdMap.get(key);
+        g.sessions.push(s);
+        if (s.agentId) g.agents.add(s.agentId);
+      }
+
+      // 3) Build project items from session groups
+      const items = [];
+      const seenCwds = new Set();
+      for (const [key, g] of cwdMap) {
+        const sorted = g.sessions.slice().sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0));
+        const latest = sorted[0];
+        let running = 0, done = 0, failed = 0;
+        for (const s of g.sessions) {
+          if (s.status === 'running') running++;
+          else if (s.status === 'done' || s.status === 'completed') done++;
+          else if (s.status === 'failed' || s.status === 'error') failed++;
+        }
+        const source = g.sessions.some(s => s.source === 'desktop') ? 'desktop-project' : 'session-index';
+        items.push({
+          id: key,
+          name: g.cwdLabel || path.basename(g.cwd) || g.cwd,
+          cwd: g.cwd,
+          cwdLabel: g.cwdLabel || path.basename(g.cwd) || g.cwd,
+          source,
+          agents: [...g.agents],
+          lastActiveAt: latest ? (latest.lastActiveAt || 0) : 0,
+          sessionCount: g.sessions.length,
+          latestSessionId: latest ? latest.sessionId : null,
+          latestSessionTitle: latest ? (latest.title || null) : null,
+          latestMessagePreview: latest && latest.summary ? (latest.summary.lastMessagePreview || null) : null,
+          statusSummary: { running, done, failed }
+        });
+        seenCwds.add(key);
+      }
+
+      // 4) Add root directories from mobileAllowedRoots() that aren't already in the list
+      const roots = mobileAllowedRoots();
+      for (const r of roots) {
+        const rPath = (r.path || r || '');
+        if (!rPath) continue;
+        const key = rPath.replace(/\\/g, '/').toLowerCase();
+        if (seenCwds.has(key)) continue;
+        seenCwds.add(key);
+        items.push({
+          id: key,
+          name: r.name || path.basename(rPath) || rPath,
+          cwd: rPath,
+          cwdLabel: r.name || path.basename(rPath) || rPath,
+          source: 'root',
+          agents: [],
+          lastActiveAt: 0,
+          sessionCount: 0,
+          latestSessionId: null,
+          latestSessionTitle: null,
+          latestMessagePreview: null,
+          statusSummary: { running: 0, done: 0, failed: 0 }
+        });
+      }
+
+      // 5) Sort by lastActiveAt desc
+      items.sort((a, b) => b.lastActiveAt - a.lastActiveAt);
+
+      // 6) Group into 7d / 30d
+      const recent7d = items.filter(i => i.lastActiveAt > 0 && (now - i.lastActiveAt) <= DAY7);
+      const recent30d = items.filter(i => i.lastActiveAt > 0 && (now - i.lastActiveAt) <= DAY30);
+
+      return sendJson(res, 200, { ok: true, items, groups: { recent7d, recent30d } });
+    } catch (e) {
+      return sendJson(res, 500, { ok: false, error: 'internal_error' });
+    }
+  }
+
   // /api/mobile/file?path=&max=
   if (pathOnly === '/api/mobile/file') {
     const t = await requireMobileAuth(req, res); if (!t) return;

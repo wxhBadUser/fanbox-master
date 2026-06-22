@@ -1108,7 +1108,6 @@ function handleStreamEvent (event, pendingAssistant) {
     case 'step':
       // Update trace steps
       if (d && d.label) {
-        // Find existing step with matching label, or add new
         const trace = pendingAssistant.trace || [];
         const existing = trace.find(t => t.label === d.label);
         if (existing) {
@@ -1121,6 +1120,56 @@ function handleStreamEvent (event, pendingAssistant) {
       }
       renderMessages();
       scrollMessages();
+      break;
+
+    case 'thought':
+      // Phase UI-A8-7 P2: Natural language reasoning
+      if (d && d.text) {
+        pendingAssistant._thought = (pendingAssistant._thought || '') + d.text;
+        renderMessages();
+        scrollMessages();
+      }
+      break;
+
+    case 'skill':
+      // Phase UI-A8-7 P2: Skill card
+      if (d && d.skillId) {
+        pendingAssistant._skill = { skillId: d.skillId, skillName: d.skillName || d.skillId, description: d.description || '' };
+        renderMessages();
+        scrollMessages();
+      }
+      break;
+
+    case 'tool':
+      // Phase UI-A8-7 P2: Tool/command step
+      if (d && d.id) {
+        const tools = pendingAssistant._tools || [];
+        const existing = tools.find(t => t.id === d.id);
+        if (existing) {
+          existing.status = d.status || existing.status;
+          if (d.label) existing.label = d.label;
+        } else {
+          tools.push({ id: d.id, label: d.label || d.id, status: d.status || 'running', safe: !!d.safe });
+        }
+        pendingAssistant._tools = tools;
+        renderMessages();
+        scrollMessages();
+      }
+      break;
+
+    case 'command_output':
+      // Phase UI-A8-7 P2: Tool/command output
+      if (d && d.id) {
+        const tools = pendingAssistant._tools || [];
+        const tool = tools.find(t => t.id === d.id);
+        if (tool) {
+          tool.status = d.status || 'done';
+          if (d.output) tool.output = d.output;
+        }
+        pendingAssistant._tools = tools;
+        renderMessages();
+        scrollMessages();
+      }
       break;
 
     case 'delta':
@@ -1143,6 +1192,10 @@ function handleStreamEvent (event, pendingAssistant) {
       pendingAssistant.trace = (pendingAssistant.trace || []).map(t =>
         t.state === "running" ? Object.assign({}, t, { state: "done" }) : t
       );
+      // Mark all tools as done
+      if (pendingAssistant._tools) {
+        pendingAssistant._tools.forEach(t => { if (t.status === 'running') t.status = 'done'; });
+      }
       if (d && d.status === 'failed') {
         pendingAssistant.status = "failed";
       }
@@ -1160,6 +1213,9 @@ function handleStreamEvent (event, pendingAssistant) {
       pendingAssistant.trace = (pendingAssistant.trace || []).map(t =>
         t.state === "running" ? Object.assign({}, t, { state: "failed" }) : t
       );
+      if (pendingAssistant._tools) {
+        pendingAssistant._tools.forEach(t => { if (t.status === 'running') t.status = 'failed'; });
+      }
       renderMessages();
       scrollMessages();
       break;
@@ -1289,16 +1345,78 @@ function renderMessages () {
       (msg.role === "user" ? " chat-bubble-user" : msg.role === "system" ? " chat-bubble-system" : " chat-bubble-agent"));
     if (msg.status === "running") bubble.classList.add("chat-bubble-running");
 
-    // Phase UI-A8-6: Show trace steps before content
-    if (msg.role !== "user" && msg.trace && msg.trace.length) {
-      bubble.appendChild(renderStreamSteps(msg.trace));
+    // Phase UI-A8-7 P2: Codex-like Run Timeline
+    if (msg.role !== "user") {
+      // Thought (natural language reasoning)
+      if (msg._thought) {
+        const thoughtEl = el("div", "run-thinking");
+        thoughtEl.innerHTML = '<span class="run-thinking-label">正在思考</span><p class="run-thinking-text">' + htmlEscape(msg._thought) + '</p>';
+        bubble.appendChild(thoughtEl);
+      }
+      // Skill card
+      if (msg._skill) {
+        const skillEl = el("div", "run-skill");
+        skillEl.innerHTML =
+          '<span class="run-skill-label">使用 Skill</span>' +
+          '<div class="run-skill-card">' +
+            '<span class="run-skill-name">' + htmlEscape(msg._skill.skillName || msg._skill.skillId) + '</span>' +
+            (msg._skill.description ? '<span class="run-skill-desc">' + htmlEscape(msg._skill.description) + '</span>' : '') +
+          '</div>';
+        bubble.appendChild(skillEl);
+      }
+      // Tools/commands
+      if (msg._tools && msg._tools.length) {
+        const toolsEl = el("div", "run-tools");
+        toolsEl.innerHTML = '<span class="run-tools-label">工具 / 命令</span>';
+        for (const tool of msg._tools) {
+          const toolEl = el("div", "run-command is-" + (tool.status || 'running'));
+          const statusIcon = tool.status === 'done' ? '&#10003;' : (tool.status === 'failed' ? '&#10007;' : '<span class="run-command-spinner"></span>');
+          toolEl.innerHTML =
+            '<div class="run-command-head">' +
+              '<span class="run-command-icon">' + statusIcon + '</span>' +
+              '<span class="run-command-label">$ ' + htmlEscape(tool.label || tool.id) + '</span>' +
+            '</div>';
+          if (tool.output) {
+            const outputEl = el("div", "run-command-output");
+            const truncated = tool.output.length > 200 ? tool.output.slice(0, 200) + '…' : tool.output;
+            outputEl.innerHTML = '<code>' + htmlEscape(truncated) + '</code>';
+            if (tool.output.length > 200) {
+              outputEl.classList.add('is-collapsed');
+              const toggle = el("button", "run-command-toggle");
+              toggle.textContent = "展开";
+              toggle.addEventListener("click", function () {
+                const c = outputEl.classList.contains('is-collapsed');
+                outputEl.classList.toggle('is-collapsed');
+                toggle.textContent = c ? "收起" : "展开";
+                if (c) {
+                  outputEl.innerHTML = '<code>' + htmlEscape(tool.output) + '</code>';
+                } else {
+                  outputEl.innerHTML = '<code>' + htmlEscape(truncated) + '</code>';
+                }
+              });
+              toolEl.appendChild(outputEl);
+              toolEl.appendChild(toggle);
+            } else {
+              toolEl.appendChild(outputEl);
+            }
+          }
+          toolsEl.appendChild(toolEl);
+        }
+        bubble.appendChild(toolsEl);
+      }
+      // Legacy trace steps (backward compat)
+      if (msg.trace && msg.trace.length && !msg._tools && !msg._thought) {
+        bubble.appendChild(renderStreamSteps(msg.trace));
+      }
     }
 
-    // Content area
-    const contentEl = el("div", "stream-delta");
-    const displayText = msg.status === "running" && !msg.content && !(msg._streamDelta) ? "思考中…" : (msg.content || msg._streamDelta || "");
-    contentEl.innerHTML = escapeHtmlForDisplay(displayText);
-    bubble.appendChild(contentEl);
+    // Content area (final text)
+    const contentEl = el("div", "run-final");
+    const displayText = msg.status === "running" && !msg.content && !(msg._streamDelta) && !msg._thought ? "思考中…" : (msg.content || msg._streamDelta || "");
+    if (displayText) {
+      contentEl.innerHTML = escapeHtmlForDisplay(displayText);
+      bubble.appendChild(contentEl);
+    }
 
     row.appendChild(avatar);
     row.appendChild(bubble);
@@ -2246,13 +2364,24 @@ async function loadAllProjects () {
   listEl.innerHTML = `<div class="skeleton" style="height:80px;margin-bottom:12px"></div><div class="skeleton" style="height:80px;margin-bottom:12px"></div>`;
   $("project-title").textContent = "Project";
   try {
-    const data = await api("/api/mobile/sessions?limit=200");
-    if (!data) return;
-    const items = data.items || data.sessions || [];
-    S.allSessions = items;
-    const projects = groupSessionsByProject(items);
-    S.allProjects = projects;
-    renderProjectList(projects);
+    // Phase UI-A8-7 P0: 优先使用 /api/mobile/projects (含电脑端真实项目 + fallback roots)
+    const data = await api("/api/mobile/projects");
+    if (data && data.ok && Array.isArray(data.items)) {
+      S.allProjects = data.items;
+      // 同时保留 sessions 用于 project 详情
+      const sessData = await api("/api/mobile/sessions?limit=200");
+      S.allSessions = sessData ? (sessData.items || sessData.sessions || []) : [];
+      renderProjectList(data.items, { groups: data.groups });
+    } else {
+      // fallback: 旧逻辑
+      const sessData = await api("/api/mobile/sessions?limit=200");
+      if (!sessData) return;
+      const items = sessData.items || sessData.sessions || [];
+      S.allSessions = items;
+      const projects = groupSessionsByProject(items);
+      S.allProjects = projects;
+      renderProjectList(projects);
+    }
   } catch (e) {
     listEl.innerHTML = `<div class="project-empty"><div class="project-empty-strong">加载失败</div>${htmlEscape(e.message)}</div>`;
   }
@@ -2266,23 +2395,39 @@ function renderProjectList (projects, opts) {
   let list = projects;
   if (q) {
     list = list.filter(p =>
-      (p.cwdLabel || "").toLowerCase().includes(q) ||
+      (p.cwdLabel || p.name || "").toLowerCase().includes(q) ||
       (p.cwd || "").toLowerCase().includes(q) ||
-      (p.lastAgent || "").toLowerCase().includes(q)
+      ((p.agents || []).join(" ") || "").toLowerCase().includes(q)
     );
   }
   if (!list || list.length === 0) {
     listEl.innerHTML = `<div class="project-empty"><div class="project-empty-strong">${q ? "没有匹配的项目" : "暂无项目"}</div>${q ? "试试别的关键词" : "通过 Files 进入一个文件夹，然后点击 Ask AI in this folder"}</div>`;
     return;
   }
-  const groups = groupProjectsByTime(list);
-  const sections = [
-    { key: "last7Days",  label: "最近 7 天" },
-    { key: "last30Days", label: "最近 30 天" },
-    { key: "older",      label: "更早" }
-  ];
+  // Phase UI-A8-7: 如果后端返回了 groups，直接用；否则前端分组
+  let sections;
+  if (opts.groups && (opts.groups.recent7d || opts.groups.recent30d)) {
+    const g = opts.groups;
+    sections = [
+      { key: "recent7d",  label: "最近 7 天", items: (g.recent7d || []) },
+      { key: "recent30d", label: "最近 30 天", items: (g.recent30d || []) }
+    ];
+    // 添加没有在 groups 里的项目（如 root fallback）
+    const groupedIds = new Set([...(g.recent7d || []), ...(g.recent30d || [])].map(p => p.id || p.projectId));
+    const ungrouped = list.filter(p => !groupedIds.has(p.id || p.projectId));
+    if (ungrouped.length > 0) {
+      sections.push({ key: "roots", label: "常用工作区", items: ungrouped });
+    }
+  } else {
+    const groups = groupProjectsByTime(list);
+    sections = [
+      { key: "last7Days",  label: "最近 7 天", items: groups.last7Days },
+      { key: "last30Days", label: "最近 30 天", items: groups.last30Days },
+      { key: "older",      label: "更早", items: groups.older }
+    ];
+  }
   for (const sec of sections) {
-    const arr = groups[sec.key];
+    const arr = sec.items;
     if (!arr || arr.length === 0) continue;
     const head = el("div", "project-group-head");
     head.textContent = sec.label;
@@ -2294,34 +2439,88 @@ function renderProjectList (projects, opts) {
 }
 
 function renderProjectCard (p) {
-  const card = el("button", "project-card");
+  const card = el("div", "project-card");
   card.setAttribute("role", "listitem");
-  card.setAttribute("data-project-id", p.projectId);
-  const agentLabel = agentLabelById(p.lastAgent);
+  card.setAttribute("data-project-id", p.id || p.projectId);
+  const agentLabels = (p.agents || []).map(a => agentLabelById(a)).filter(Boolean);
+  const agentStr = agentLabels.join(" / ") || "";
   const summary = [];
   if (p.sessionCount) summary.push(`${p.sessionCount} sessions`);
-  if (p.runningCount) summary.push(`${p.runningCount} running`);
-  if (p.failedCount) summary.push(`${p.failedCount} failed`);
+  if (p.statusSummary) {
+    if (p.statusSummary.running) summary.push(`${p.statusSummary.running} running`);
+    if (p.statusSummary.failed) summary.push(`${p.statusSummary.failed} failed`);
+  }
   if (p.lastActiveAt) summary.push(`Last active ${timeAgo(p.lastActiveAt)}`);
-  const sourceLabels = (p.sources || []).map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(" · ");
+  const sourceLabel = (p.source === "root") ? "常用工作区" : (p.source === "desktop-project" ? "Desktop" : "");
+  const hasSession = p.latestSessionId || p.sessionCount > 0;
   card.innerHTML =
-    `<span class="project-card-icon">${FILE_ICONS.folder}</span>` +
-    `<span class="project-card-body">` +
-      `<span class="project-card-title">${htmlEscape(p.cwdLabel || "未知项目")}</span>` +
-      `<span class="project-card-cwd">${htmlEscape(p.cwd || "")}</span>` +
-      `<span class="project-card-meta">${htmlEscape(summary.join(" · "))}${sourceLabels ? " · " + htmlEscape(sourceLabels) : ""}</span>` +
-    `</span>` +
-    `<span class="project-card-extra">` +
-      (p.lastAgent ? `<span class="project-card-agent">${htmlEscape(agentLabel)}</span>` : "") +
-      `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>` +
-    `</span>`;
+    `<div class="project-card-head">` +
+      `<span class="project-card-icon">${FILE_ICONS.folder}</span>` +
+      `<span class="project-card-body">` +
+        `<span class="project-card-title">${htmlEscape(p.cwdLabel || p.name || "未知项目")}</span>` +
+        `<span class="project-card-cwd">${htmlEscape(p.cwd || "")}</span>` +
+        `<span class="project-card-meta">${htmlEscape(summary.join(" · "))}${sourceLabel ? " · " + htmlEscape(sourceLabel) : ""}${agentStr ? " · " + htmlEscape(agentStr) : ""}</span>` +
+      `</span>` +
+    `</div>` +
+    `<div class="project-card-actions">` +
+      `<button class="project-card-btn project-card-btn-open" type="button">Open in chat</button>` +
+      (hasSession ? `<button class="project-card-btn project-card-btn-continue" type="button">Continue last session</button>` : "") +
+    `</div>`;
+  // Open in chat: 设置 cwd 并回 Home
+  card.querySelector(".project-card-btn-open").addEventListener("click", ev => {
+    ev.stopPropagation();
+    openProjectInChat(p);
+  });
+  const continueBtn = card.querySelector(".project-card-btn-continue");
+  if (continueBtn) {
+    continueBtn.addEventListener("click", ev => {
+      ev.stopPropagation();
+      continueProjectSession(p);
+    });
+  }
+  // 点击卡片本身进入详情
   card.addEventListener("click", () => openProjectDetail(p));
   return card;
 }
 
+/** Phase UI-A8-7 P0: Open project in chat (设置 cwd, 回 Home) */
+function openProjectInChat (project) {
+  if (project.cwd) {
+    S.cwd = project.cwd;
+    S.cwdLabel = project.cwdLabel || project.name || (project.cwd || "").split(/[/\\]/).filter(Boolean).pop() || null;
+    localStorage.setItem(CWD_KEY, S.cwd);
+    updateTopbarCwd();
+  }
+  // 清空当前聊天，但不创建新 session
+  S.messages = [];
+  S.sessionId = "";
+  try { localStorage.removeItem(SESSION_KEY); } catch (_) {}
+  exitChatState();
+  closeSidebar();
+  showTab("home");
+  renderMessages();
+}
+
+/** Phase UI-A8-7 P0: Continue last session in project */
+function continueProjectSession (project) {
+  if (project.cwd) {
+    S.cwd = project.cwd;
+    S.cwdLabel = project.cwdLabel || project.name || (project.cwd || "").split(/[/\\]/).filter(Boolean).pop() || null;
+    localStorage.setItem(CWD_KEY, S.cwd);
+    updateTopbarCwd();
+  }
+  if (project.latestSessionId) {
+    continueSession({ sessionId: project.latestSessionId, agentId: (project.agents || [])[0] || "claude", cwd: project.cwd, cwdLabel: project.cwdLabel });
+  } else {
+    // 没有 session，走 openProjectInChat
+    openProjectInChat(project);
+  }
+}
+
 function openProjectDetail (project) {
   S.currentProject = project;
-  const sessions = sessionsForProject(project.projectId, S.allSessions || []);
+  const projectId = project.id || project.projectId;
+  const sessions = sessionsForProject(projectId, S.allSessions || []);
   S.currentProjectSessions = sessions;
   showProjectDetail(project, sessions);
 }

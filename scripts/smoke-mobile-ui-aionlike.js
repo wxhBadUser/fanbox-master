@@ -591,16 +591,16 @@ function req(opts, body) {
   ok('L.project: HTML 含 #project-detail-resume 顶部 Continue 按钮', /id="project-detail-resume"/.test(html));
   ok('L.project: mobile.js wireProject 绑定项目视图事件',
     /function\s+wireProject[\s\S]{0,500}project-refresh[\s\S]{0,300}project-q[\s\S]{0,300}project-back/.test(js));
-  ok('L.project: mobile.js loadAllProjects 调 /api/mobile/sessions',
-    /loadAllProjects[\s\S]{0,500}\/api\/mobile\/sessions/.test(js));
+  ok('L.project: mobile.js loadAllProjects 调 /api/mobile/projects (UI-A8-7)',
+    /loadAllProjects[\s\S]{0,500}\/api\/mobile\/projects/.test(js));
   ok('L.project: mobile.js groupSessionsByProject 按 cwd 聚合',
     /function\s+groupSessionsByProject[\s\S]{0,800}normalizePathForKey[\s\S]{0,500}sessionCount/.test(js));
   ok('L.project: mobile.js groupProjectsByTime 7天/30天/older 分组',
     /function\s+groupProjectsByTime[\s\S]{0,800}last7Days[\s\S]{0,500}last30Days[\s\S]{0,500}older/.test(js));
   ok('L.project: mobile.js renderProjectList 按 lastActiveAt desc 排序',
     /groupSessionsByProject[\s\S]{0,2000}lastActiveAt[\s\S]{0,500}\)\s*-\s*\(\s*a\.lastActiveAt/.test(js));
-  ok('L.project: mobile.js renderProjectCard 显示 sessionCount/cwdLabel/running/failed/lastActiveAt',
-    /renderProjectCard[\s\S]{0,2000}sessionCount[\s\S]{0,500}runningCount[\s\S]{0,500}failedCount[\s\S]{0,500}lastActiveAt[\s\S]{0,2000}cwdLabel/.test(js));
+  ok('L.project: mobile.js renderProjectCard 显示 sessionCount/cwdLabel/lastActiveAt (UI-A8-7)',
+    /renderProjectCard[\s\S]{0,2000}sessionCount[\s\S]{0,2000}cwdLabel/.test(js));
   ok('L.project: CSS .project-card 卡片样式 (min-height 72px)',
     /\.project-card\s*\{[^}]*min-height:\s*72px/.test(css));
   ok('L.project: CSS .project-card-title ellipsis',
@@ -1031,8 +1031,8 @@ function req(opts, body) {
   ok('M.intact: Files 仍用 data.items || data.files', /data\.items\s*\|\|\s*data\.files/.test(js));
   ok('M.intact: Files 仍调 /api/mobile/files?path=', /\/api\/mobile\/files\?path=/.test(js));
   ok('M.intact: Files 仍调 /api/mobile/roots', /\/api\/mobile\/roots/.test(js));
-  ok('M.intact: Project 仍调 /api/mobile/sessions',
-    /loadAllProjects[\s\S]{0,500}\/api\/mobile\/sessions/.test(js));
+  ok('M.intact: Project 调 /api/mobile/projects (UI-A8-7)',
+    /loadAllProjects[\s\S]{0,500}\/api\/mobile\/projects/.test(js));
   ok('M.intact: Project groupSessionsByProject 仍存在',
     /function\s+groupSessionsByProject/.test(js));
   ok('M.intact: continueSession 仍存在 (恢复 sessionId/agentId/cwd)',

@@ -249,15 +249,15 @@ function req(opts, body) {
 
   // 26) Delta appends to same bubble
   ok('#26 mobile.js: handleStreamEvent delta 追加到 pendingAssistant._streamDelta',
-    /handleStreamEvent[\s\S]{0,2000}case\s+'delta'[\s\S]{0,500}pendingAssistant\._streamDelta/.test(js));
+    /handleStreamEvent[\s\S]{0,4000}case\s+'delta'[\s\S]{0,500}pendingAssistant\._streamDelta/.test(js));
 
   // 27) Done completes same bubble
   ok('#27 mobile.js: handleStreamEvent done 完成 pendingAssistant',
-    /handleStreamEvent[\s\S]{0,2000}case\s+'done'[\s\S]{0,500}pendingAssistant\.status\s*=\s*['"]done['"]/.test(js));
+    /handleStreamEvent[\s\S]{0,4000}case\s+'done'[\s\S]{0,500}pendingAssistant\.status\s*=\s*['"]done['"]/.test(js));
 
   // 28) Error writes to same bubble
   ok('#28 mobile.js: handleStreamEvent error 写入 pendingAssistant.content',
-    /handleStreamEvent[\s\S]{0,2000}case\s+'error'[\s\S]{0,500}pendingAssistant\.content/.test(js));
+    /handleStreamEvent[\s\S]{0,4000}case\s+'error'[\s\S]{0,500}pendingAssistant\.content/.test(js));
 
   // 29) No second textarea created
   ok('#29 mobile.js: 不创建第二个 textarea',
