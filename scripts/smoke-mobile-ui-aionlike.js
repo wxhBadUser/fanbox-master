@@ -121,39 +121,67 @@ function req(opts, body) {
   ok('GET /api/mobile/sessions 401 with bad token', rBad.status === 401);
 
   // ============================================================
-  // [B] Manus-like Home
+  // [B] Manus-like Home (UI-A8-1: single composer)
   // ============================================================
-  section('B) Manus-like Home');
+  section('B) Manus-like Home · UI-A8-1 单输入框');
   ok('HTML 含 #home-hero (Manus-like hero)', /id="home-hero"/.test(html));
   ok('HTML 含 #home-hero-greet', /id="home-hero-greet"/.test(html));
   ok('HTML 含 #home-hero-sub', /id="home-hero-sub"/.test(html));
+  ok('HTML 含 #home-shell (单一 composer 容器)', /id="home-shell"/.test(html));
   ok('HTML 含 #home-composer (大输入框容器)', /id="home-composer"/.test(html));
   ok('HTML 含 #home-input (大 textarea)', /id="home-input"/.test(html));
   ok('HTML 含 #home-send (发送按钮)', /id="home-send"/.test(html));
   ok('HTML 含 #home-task-chips (任务 chip 区域)', /id="home-task-chips"/.test(html));
-  ok('HTML 含 #home-chat (发消息后内联聊天区)', /id="home-chat"/.test(html));
   ok('HTML 含 #home-messages (消息流)', /id="home-messages"/.test(html));
-  ok('HTML 含 #home-input-sticky (sticky 模式输入)', /id="home-input-sticky"/.test(html));
-  ok('HTML 含 #home-send-sticky (sticky 模式发送)', /id="home-send-sticky"/.test(html));
-  ok('HTML 含 #home-composer-sticky (sticky composer)', /id="home-composer-sticky"/.test(html));
+  // UI-A8-1: 单一 textarea 断言
+  ok('UI-A8-1: HTML 只有 1 个 #home-input', (html.match(/id="home-input"/g) || []).length === 1);
+  ok('UI-A8-1: HTML 只有 1 个 #home-send', (html.match(/id="home-send"/g) || []).length === 1);
+  ok('UI-A8-1: HTML 没有 #home-input-sticky (重复 textarea)', !/id="home-input-sticky"/.test(html));
+  ok('UI-A8-1: HTML 没有 #home-send-sticky (重复 send)', !/id="home-send-sticky"/.test(html));
+  ok('UI-A8-1: HTML 没有 #home-composer-sticky (重复 composer)', !/id="home-composer-sticky"/.test(html));
+  ok('UI-A8-1: HTML 没有 #home-status-pill-sticky', !/id="home-status-pill-sticky"/.test(html));
+  ok('UI-A8-1: HTML 没有 #home-skill-button-sticky', !/id="home-skill-button-sticky"/.test(html));
+  ok('UI-A8-1: HTML 没有 #home-chat (旧 chat wrapper)', !/id="home-chat"/.test(html));
+  ok('UI-A8-1: HTML 没有 #home-cards (旧 dashboard)', !/id="home-cards"/.test(html));
+  // 占位符只出现一次
+  ok('UI-A8-1: placeholder "Assign a task or ask anything..." 只出现 1 次',
+    (html.match(/Assign a task or ask anything/g) || []).length === 1);
+  // hero 文案
   ok('hero 文案 "Leave all to FanBox"', /Leave all to FanBox/.test(html));
   ok('hero 副标题 "Your AI agent workspace"', /Your AI agent workspace/.test(html));
-  ok('占位符 "Assign a task or ask anything"', /Assign a task or ask anything/.test(html));
   // CSS
+  ok('CSS .home-shell 容器 (flex column)', /\.home-shell\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column/.test(css));
+  ok('CSS .home-shell.is-chat 切换 chat 态', /\.home-shell\.is-chat/.test(css));
+  ok('CSS .home-shell.is-chat .home-composer position sticky 底部',
+    /\.home-shell\.is-chat\s+\.home-composer\s*\{[^}]*position:\s*sticky[\s\S]{0,200}bottom:\s*0/.test(css));
+  ok('CSS .home-shell:not(.is-chat) .home-composer 居中 (max-width)',
+    /\.home-shell:not\(\.is-chat\)\s+\.home-composer\s*\{[^}]*max-width/.test(css));
   ok('CSS .home-hero-greet 字体 >= 32px', /\.home-hero-greet\s*\{[^}]*font-size:\s*[3-9]\d/.test(css));
   ok('CSS .home-composer 大圆角 >= 16px', /\.home-composer\s*\{[^}]*border-radius:\s*(1[6-9]|2\d|3\d)/.test(css));
-  ok('CSS .home-composer max-width 桌面 720px', /--maxw:\s*7\d\d/.test(css));
+  ok('CSS --maxw >= 720px', /--maxw:\s*7\d\d/.test(css));
   // mobile.js
   ok('mobile.js enterChatState 切到聊天态', /function\s+enterChatState\s*\(/.test(js));
   ok('mobile.js exitChatState 退到欢迎态', /function\s+exitChatState\s*\(/.test(js));
+  ok('mobile.js enterChatState 切 home-shell.is-chat class',
+    /enterChatState[\s\S]{0,400}home-shell[\s\S]{0,200}is-chat/.test(js));
+  ok('mobile.js exitChatState 移除 home-shell.is-chat class',
+    /exitChatState[\s\S]{0,400}home-shell[\s\S]{0,200}is-chat/.test(js));
   ok('mobile.js TASK_CHIPS 至少 8 个', /TASK_CHIPS\s*=\s*\[[\s\S]*?Develop app[\s\S]*?Website[\s\S]*?Slides[\s\S]*?Image[\s\S]*?Audio[\s\S]*?Video[\s\S]*?Wide Research[\s\S]*?Spreadsheet[\s\S]*?\]/.test(js));
   ok('mobile.js Enter 发送 + Shift+Enter 换行', /Enter[\s\S]{0,100}shiftKey[\s\S]{0,80}preventDefault/.test(js));
+  // mobile.js 不引用 *-sticky 元素
+  ok('UI-A8-1: mobile.js 不引用 #home-input-sticky', !/home-input-sticky/.test(js));
+  ok('UI-A8-1: mobile.js 不引用 #home-send-sticky', !/home-send-sticky/.test(js));
+  ok('UI-A8-1: mobile.js 不引用 #home-composer-sticky', !/home-composer-sticky/.test(js));
+  ok('UI-A8-1: mobile.js 不引用 #home-status-pill-sticky', !/home-status-pill-sticky/.test(js));
+  ok('UI-A8-1: mobile.js 不引用 #home-skill-button-sticky', !/home-skill-button-sticky/.test(js));
+  // task chips 只填入 #home-input
+  ok('UI-A8-1: task chip 填入 #home-input (不引用 sticky)',
+    /home-chip[\s\S]{0,500}home-input/.test(js) || /renderTaskChips[\s\S]{0,500}home-input/.test(js));
   // 不要 dashboard
-  ok('Home 不含 dashboard 卡片（无 #home-cards）', !/id="home-cards"/.test(html));
   ok('Home 不含医疗 App 卡片堆叠', !/(class="home-stat-card"|home-stat-grid)/.test(html));
 
   // ============================================================
-  // [C] ChatGPT-like chat
+  // [C] ChatGPT-like chat (UI-A8-1: same composer fixed bottom)
   // ============================================================
   section('C) ChatGPT-like chat');
   ok('HTML 含 #home-messages 消息流', /id="home-messages"/.test(html));
@@ -166,8 +194,7 @@ function req(opts, body) {
   ok('mobile.js renderMessages 渲染消息', /function\s+renderMessages\s*\(/.test(js));
   ok('mobile.js doSend POST /api/mobile/send', /doSend[\s\S]{0,500}\/api\/mobile\/send/.test(js));
   ok('mobile.js 发消息后 enterChatState', /doSend[\s\S]{0,500}enterChatState\s*\(/.test(js));
-  ok('mobile.js 输入框 fixed 在底部 (.home-composer-sticky)', /home-composer-sticky/.test(css) && /home-composer-sticky/.test(html));
-  ok('CSS .home-composer-sticky position sticky', /\.home-composer-sticky\s*\{[^}]*position:\s*sticky/.test(css));
+  ok('UI-A8-1: chat 态 composer 走 .home-shell.is-chat > .home-composer sticky 底部', /\.home-shell\.is-chat\s+\.home-composer[\s\S]{0,200}position:\s*sticky[\s\S]{0,80}bottom:\s*0/.test(css));
   ok('mobile.js setRunning 切 running 状态', /function\s+setRunning/.test(js));
   ok('mobile.js 失败时显示 status pill is-failed', /is-failed/.test(css) && /is-failed/.test(js));
   // 不暴露 raw
@@ -216,7 +243,16 @@ function req(opts, body) {
   ok('HTML 含 #sidebar-close', /id="sidebar-close"/.test(html));
   ok('HTML 含 #sidebar-scrim (drawer 遮罩)', /id="sidebar-scrim"/.test(html));
   ok('HTML 含 #sidebar-new-chat (New Chat)', /id="sidebar-new-chat"/.test(html));
-  ok('Sidebar 5 个 nav items: home/files/skills/sessions/settings', /data-go="home"/.test(html) && /data-go="files"/.test(html) && /data-go="skills"/.test(html) && /data-go="sessions"/.test(html) && /data-go="settings"/.test(html));
+  ok('Sidebar 6 个 nav items: home/files/skills/project/sessions/settings',
+    /data-go="home"/.test(html) && /data-go="files"/.test(html) &&
+    /data-go="skills"/.test(html) && /data-go="project"/.test(html) &&
+    /data-go="sessions"/.test(html) && /data-go="settings"/.test(html));
+  ok('Sidebar 5 个核心 nav (File/Skill/Project/Session/Setting)',
+    /data-go="files"/.test(html) && /data-go="skills"/.test(html) &&
+    /data-go="project"/.test(html) && /data-go="sessions"/.test(html) &&
+    /data-go="settings"/.test(html));
+  ok('Sidebar 导航顺序: File → Skill → Project → Session → Setting',
+    /data-go="files"[\s\S]{0,400}data-go="skills"[\s\S]{0,400}data-go="project"[\s\S]{0,400}data-go="sessions"[\s\S]{0,400}data-go="settings"/.test(html));
   ok('HTML 含 #sidebar-sessions (Recent Sessions 区域)', /id="sidebar-sessions"/.test(html));
   ok('CSS .app-sidebar mobile 默认隐藏', /\.app-sidebar\s*\{[^}]*display:\s*none/.test(css));
   ok('CSS .app-sidebar.is-open (drawer open)', /\.app-sidebar\.is-open/.test(css));
@@ -225,6 +261,17 @@ function req(opts, body) {
   ok('mobile.js openSidebar / closeSidebar', /function\s+openSidebar/.test(js) && /function\s+closeSidebar/.test(js));
   ok('mobile.js newChat 重置 messages + exitChatState', /function\s+newChat[\s\S]{0,500}exitChatState/.test(js));
   ok('mobile.js loadRecentSessions 拉 /api/mobile/sessions', /loadRecentSessions[\s\S]{0,500}\/api\/mobile\/sessions/.test(js));
+  // 点击 File → Files 视图
+  ok('UI-A8-1: sidebar File (data-go="files") 可点击', /data-go="files"/.test(html));
+  ok('UI-A8-1: sidebar Skill (data-go="skills") 可点击', /data-go="skills"/.test(html));
+  ok('UI-A8-1: sidebar Project (data-go="project") 可点击', /data-go="project"/.test(html));
+  ok('UI-A8-1: sidebar Session (data-go="sessions") 可点击', /data-go="sessions"/.test(html));
+  // Project 视图存在
+  ok('HTML 含 [data-view="project"] 视图', /data-view="project"/.test(html));
+  ok('CSS [data-view="project"].is-active 切换可见',
+    /\[data-view="project"\]\.is-active/.test(css));
+  // mobile.js 跳转处理
+  ok('mobile.js sidebar-item 点击 → showTab', /sidebar-item[\s\S]{0,500}showTab/.test(js));
   // Recent Sessions from API
   const rSess = await req({ path: '/api/mobile/sessions', method: 'GET', headers: auth });
   const jSess = JSON.parse(rSess.body);
@@ -233,6 +280,9 @@ function req(opts, body) {
   ok('GET sessions 返回 desktop-A7 (互通)', sessItems.some(s => s.id === 'desktop-A7' || s.sessionId === 'desktop-A7' || s.title === 'desktop UI-A7 test'));
   // Settings 占位
   ok('Settings 含 #view-settings 占位', /id="view-settings"|data-view="settings"/.test(html));
+  // sidebar 不造成横向滚动（body overflow-x: hidden）
+  ok('CSS body overflow-x: hidden (防横向滚动)', /body[\s\S]{0,200}overflow-x:\s*hidden/.test(css) || /html,\s*body\s*\{[^}]*overflow-x:\s*hidden/.test(css) || /html, body[\s\S]{0,400}overflow-x/.test(css));
+  ok('CSS html, body 默认无横向 overflow (overflow-x)', /overflow-x/.test(css));
 
   // ============================================================
   // [F] Files (手机文件管理器)

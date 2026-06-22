@@ -296,15 +296,15 @@ function req(opts, body) {
   // [9] UI 自检：sidebar nav / Manus-like Home / ChatGPT-like Agent / Flow
   // ============================================================
   section('9) UI 自检 (UI-A7)');
-  // 兼容 Phase UI-A7：view 名集合
-  const viewRegex = /data-view="(home|files|skills|sessions|settings)"/g;
-  const goRegex = /data-go="(home|files|skills|sessions|settings)"/g;
+  // 兼容 Phase UI-A7/UI-A8-1：view 名集合（UI-A8-1 增加 project）
+  const viewRegex = /data-view="(home|files|skills|project|sessions|settings)"/g;
+  const goRegex = /data-go="(home|files|skills|project|sessions|settings)"/g;
   const viewCount = (html.match(viewRegex) || []).length;
   const goCount = (html.match(goRegex) || []).length;
-  ok('HTML 含 5 data-view pane (UI-A7)', viewCount >= 5, 'count=' + viewCount);
-  ok('HTML 含 5 sidebar nav (UI-A7)', goCount === 5, 'count=' + goCount);
+  ok('HTML 含 6 data-view pane (UI-A8-1)', viewCount >= 6, 'count=' + viewCount);
+  ok('HTML 含 6 sidebar nav (UI-A8-1)', goCount === 6, 'count=' + goCount);
   ok('HTML 含 Manus-like Home (home-hero + home-input)', /home-hero/.test(html) && /id="home-input"/.test(html));
-  ok('HTML 含 ChatGPT-like 消息区', /id="home-messages"/.test(html) && /id="home-chat"/.test(html));
+  ok('HTML 含 ChatGPT-like 消息区 (UI-A8-1 单一 #home-messages)', /id="home-messages"/.test(html) && !/id="home-chat"/.test(html));
   ok('HTML 含 Files 视图 (files-back + files-list)', /id="files-back"/.test(html) && /id="files-list"/.test(html));
   ok('HTML 含 Skills 视图 (skills-list)', /id="skills-list"/.test(html));
   ok('HTML 含 Agent dropdown (top-left)', /id="agent-dropdown-trigger"/.test(html));

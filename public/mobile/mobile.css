@@ -51,6 +51,7 @@ html, body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
 body { min-height: 100vh; }
@@ -506,8 +507,9 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   background: var(--bg-2);
   color: var(--fg);
   flex-shrink: 0;
+  overflow: hidden;
 }
-.agent-dropdown-icon svg { width: 16px; height: 16px; }
+.agent-dropdown-icon svg { width: 22px; height: 22px; }
 .agent-dropdown-label {
   white-space: nowrap;
   overflow: hidden;
@@ -562,12 +564,13 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   background: var(--bg-2);
   color: var(--fg-2);
   flex-shrink: 0;
+  overflow: hidden;
 }
 .agent-dropdown-item.is-active .agent-dropdown-item-icon {
   background: var(--card);
   color: var(--accent);
 }
-.agent-dropdown-item-icon svg { width: 16px; height: 16px; }
+.agent-dropdown-item-icon svg { width: 22px; height: 22px; }
 .agent-dropdown-item-label {
   flex: 1;
   min-width: 0;
@@ -655,8 +658,38 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
    Home view · Manus-like
    ========================================================= */
 [data-view="home"].is-active {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+/* home-shell 是 flex 列，hero 态: hero 居中 + composer 居中 */
+.home-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 0;
+}
+/* hero 态: shell 居中 hero + composer */
+.home-shell:not(.is-chat) {
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 32px 16px 12px;
+  gap: 24px;
+  width: 100%;
+}
+.home-shell.is-chat {
+  padding: 16px 0 0;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
 }
 
 .home-hero {
@@ -664,11 +697,12 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 48px 24px 24px;
   gap: 8px;
-  max-width: var(--maxw);
-  margin: 0 auto;
   width: 100%;
+  flex-shrink: 0;
+}
+.home-shell:not(.is-chat) .home-hero {
+  margin-bottom: 8px;
 }
 .home-hero-mark {
   display: inline-flex;
@@ -704,11 +738,9 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   max-width: 480px;
 }
 
-/* Composer (hero state + sticky state) */
+/* Composer (only 1 instance in DOM) */
 .home-composer {
   width: 100%;
-  max-width: var(--maxw);
-  margin: 24px auto 0;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 18px;
@@ -718,16 +750,23 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   flex-direction: column;
   gap: 6px;
   transition: border-color 0.10s, box-shadow 0.10s;
+  flex-shrink: 0;
 }
+/* hero 态: 居中、最大宽度受限 */
+.home-shell:not(.is-chat) .home-composer {
+  max-width: 720px;
+}
+/* chat 态: 固定在底部 */
+.home-shell.is-chat .home-composer {
+  position: sticky;
+  bottom: 0;
+  margin: 8px 16px 12px;
+  border-radius: 14px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+}
+
 .home-composer:focus-within {
   border-color: var(--fg);
-}
-.home-composer-sticky {
-  position: sticky;
-  bottom: 8px;
-  margin: 12px 16px 16px;
-  max-width: calc(var(--maxw) - 32px);
-  padding-bottom: max(8px, env(safe-area-inset-bottom));
 }
 .home-composer-input {
   width: 100%;
@@ -828,17 +867,18 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 .home-composer-send:hover:not(:disabled) { background: #27272A; }
 .home-composer-send:active:not(:disabled) { transform: scale(0.96); }
 
-/* Task chips */
+/* Task chips (only visible in hero state) */
 .home-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   justify-content: center;
-  padding: 18px 16px 8px;
+  padding: 0 16px 24px;
   max-width: var(--maxw);
   margin: 0 auto;
   width: 100%;
 }
+.home-shell.is-chat ~ .home-chips { display: none; }
 .home-chip {
   display: inline-flex;
   align-items: center;
@@ -865,15 +905,8 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 .home-chip:hover svg { color: var(--fg); }
 
 /* =========================================================
-   Home chat (ChatGPT-like messages)
+   Home messages (ChatGPT-like)
    ========================================================= */
-.home-chat {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  padding: 0;
-}
 .home-messages {
   flex: 1;
   min-height: 0;
@@ -882,11 +915,10 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 16px 16px 8px;
-  max-width: var(--maxw);
-  margin: 0 auto;
+  padding: 12px 16px 8px;
   width: 100%;
 }
+.home-shell:not(.is-chat) .home-messages { display: none; }
 .home-messages .empty {
   color: var(--fg-3);
   text-align: center;
@@ -912,11 +944,12 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   flex-shrink: 0;
   background: var(--bg-2);
   color: var(--fg-2);
+  overflow: hidden;
 }
 .chat-avatar svg { width: 16px; height: 16px; }
 .chat-row-user .chat-avatar { background: var(--accent-soft); color: var(--accent); }
-.chat-row-agent .chat-avatar { background: var(--primary); color: var(--primary-fg); }
-.chat-row-agent .chat-avatar svg { stroke: var(--primary-fg); }
+.chat-row-agent .chat-avatar { background: transparent; color: var(--primary-fg); }
+.chat-row-agent .chat-avatar svg { stroke: var(--primary-fg); width: 24px; height: 24px; }
 
 .chat-bubble {
   max-width: calc(100% - 50px);
@@ -1509,7 +1542,8 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 /* =========================================================
    Settings view
    ========================================================= */
-[data-view="settings"].is-active {
+[data-view="settings"].is-active,
+[data-view="project"].is-active {
   overflow-y: auto;
 }
 .settings-card {

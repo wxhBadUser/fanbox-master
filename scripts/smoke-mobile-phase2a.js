@@ -387,19 +387,23 @@ function req(opts, body) {
   ok('HTML 含 Skills view', /data-view="skills"/.test(html));
   ok('HTML 含 Sessions view', /data-view="sessions"/.test(html));
   ok('HTML 含 Settings view', /data-view="settings"/.test(html));
+  ok('HTML 含 Project view (UI-A8-1)', /data-view="project"/.test(html));
   // 旧 data-tab 全无
   ok('HTML 不再含 data-tab=', !/data-tab=/.test(html));
   ok('HTML 不再含 data-tab-btn=', !/data-tab-btn=/.test(html));
-  // 5 sidebar items 数量
-  const goMatches = html.match(/data-go="(home|files|skills|sessions|settings)"/g) || [];
-  ok('HTML 恰好 5 个 sidebar nav (UI-A7)', goMatches.length === 5, 'count=' + goMatches.length);
+  // 6 sidebar items 数量 (UI-A8-1 加 project)
+  const goMatches = html.match(/data-go="(home|files|skills|project|sessions|settings)"/g) || [];
+  ok('HTML 恰好 6 个 sidebar nav (UI-A8-1)', goMatches.length === 6, 'count=' + goMatches.length);
 
-  // Home: Manus-like hero + 大输入框 + task chips
+  // Home: Manus-like hero + 大输入框 + task chips (UI-A8-1 单一 composer)
   ok('Home 含 home-hero (Manus-like hero)', /id="home-hero"/.test(html));
   ok('Home 含 home-input (大输入框)', /id="home-input"/.test(html));
   ok('Home 含 home-send (发送)', /id="home-send"/.test(html));
   ok('Home 含 home-task-chips (任务 chips)', /id="home-task-chips"/.test(html));
-  ok('Home 含 home-chat (内联消息区)', /id="home-chat"/.test(html));
+  ok('UI-A8-1: Home 不含 home-chat (旧内联消息区)', !/id="home-chat"/.test(html));
+  ok('UI-A8-1: Home 不含 home-input-sticky (重复输入框)', !/id="home-input-sticky"/.test(html));
+  ok('UI-A8-1: Home 不含 home-send-sticky (重复 send)', !/id="home-send-sticky"/.test(html));
+  ok('UI-A8-1: Home 不含 home-composer-sticky (重复 composer)', !/id="home-composer-sticky"/.test(html));
   ok('Home 含 home-messages (消息流)', /id="home-messages"/.test(html));
   ok('Home 不再含 dashboard 卡片（无 #home-cards）', !/id="home-cards"/.test(html));
   ok('Home 不再含 #home-sessions (UI-A7 移到 sidebar)', !/id="home-sessions"/.test(html));
@@ -503,7 +507,7 @@ function req(opts, body) {
   ok('CSS 不再含 .app-bottom-nav', !/\.app-bottom-nav/.test(css));
   ok('HTML 不再含 .app-bottom-nav', !/class="app-bottom-nav/.test(html));
   // 8) Files 区域 safe-area-inset-bottom（适配 mobile）
-  ok('CSS .home-composer-sticky bottom 含 safe-area', /\.home-composer-sticky[\s\S]{0,400}(?:bottom:.*env\(safe-area-inset-bottom\)|padding-bottom:.*env\(safe-area-inset-bottom\))/.test(css) || /env\(safe-area-inset-bottom\)/.test(css));
+  ok('CSS .home-shell.is-chat .home-composer bottom 含 safe-area', /\.home-shell\.is-chat\s+\.home-composer[\s\S]{0,400}(?:bottom:.*env\(safe-area-inset-bottom\)|padding-bottom:.*env\(safe-area-inset-bottom\))/.test(css) || /env\(safe-area-inset-bottom\)/.test(css));
   // 9) UI-A7: sidebar mobile 默认隐藏，desktop 1024+ 常驻
   ok('CSS .app-sidebar mobile 默认 display:none', /\.app-sidebar\s*\{[^}]*display:\s*none/.test(css));
   ok('CSS .app-sidebar desktop display:flex', /@media\s*\(min-width:\s*1024px\)[\s\S]{0,200}\.app-sidebar[\s\S]{0,100}display:\s*flex/.test(css));
@@ -513,11 +517,11 @@ function req(opts, body) {
   ok('HTML 不再含 #files-view-sessions（UI-A1 移除）', !/id="files-view-sessions"/.test(html));
   // 11) UI-A7: chat bubble 不超过 max-width
   ok('CSS .chat-bubble max-width 安全', /\.chat-bubble\s*\{[^}]*max-width:\s*calc/.test(css) || /\.chat-bubble[\s\S]{0,400}max-width:\s*\d/.test(css));
-  // 12) 5 view 顺序：home / files / skills / sessions / settings
-  const orderViewMatch = html.match(/data-view="(home|files|skills|sessions|settings)"/g) || [];
+  // 12) 6 view 顺序：home / files / skills / project / sessions / settings (UI-A8-1)
+  const orderViewMatch = html.match(/data-view="(home|files|skills|project|sessions|settings)"/g) || [];
   const viewOrder = orderViewMatch.map(s => s.match(/"([^"]+)"/)[1]);
-  ok('5 view 顺序: home / files / skills / sessions / settings',
-    viewOrder[0] === 'home' && viewOrder[1] === 'files',
+  ok('6 view 顺序: home / files / skills / project / sessions / settings',
+    viewOrder[0] === 'home' && viewOrder[1] === 'files' && viewOrder[2] === 'skills' && viewOrder[3] === 'project' && viewOrder[4] === 'sessions' && viewOrder[5] === 'settings',
     'order=' + viewOrder.join(','));
   // 13) mobile.js POST_ALLOWLIST 仍然存在（向后兼容）
   // 14) electron/mobile.js handleApi 内部对 POST context 用 pathInAllowed 校验
@@ -782,7 +786,7 @@ function req(opts, body) {
   // ---- 7) UI ----
   // Mobile UI 必含 / 必不含
   ok('Mobile UI 包含 Send 按钮 (home-send)', /id="home-send"/.test(html));
-  ok('Mobile UI 包含 sticky Send 按钮 (home-send-sticky)', /id="home-send-sticky"/.test(html));
+  ok('UI-A8-1: Mobile UI 不再含 sticky Send 按钮 (home-send-sticky)', !/id="home-send-sticky"/.test(html));
   // UI-A7：替换旧 approval 提示文案为新文案
   ok('Mobile UI 含 "Leave all to FanBox" (UI-A7 hero)', /Leave all to FanBox/i.test(html));
   // UI-A1：移除旧 approval 文案（这些应已经不存在）

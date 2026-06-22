@@ -82,28 +82,60 @@ const AGENTS = [
     label: "Claude Code",
     model: "claude-3-5-sonnet-20241022",
     effort: "medium",
-    svg: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6 L14 10 L18 10 L15 13 L16.5 17 L12 14.5 L7.5 17 L9 13 L6 10 L10 10 Z" fill="currentColor" stroke="none"/></svg>`,
+    // Claude starburst — orange/amber, 4-point burst, on dark background
+    svg: `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <rect width="24" height="24" rx="5" fill="#DA7756"/>
+  <path d="M12 5 L13.4 10.6 L19 12 L13.4 13.4 L12 19 L10.6 13.4 L5 12 L10.6 10.6 Z" fill="#FFFFFF"/>
+  <path d="M12 2 L12.6 3.6 L14 4 L12.6 4.4 L12 6 L11.4 4.4 L10 4 L11.4 3.6 Z" fill="#FFFFFF" opacity="0.95"/>
+  <path d="M12 18 L12.6 19.6 L14 20 L12.6 20.4 L12 22 L11.4 20.4 L10 20 L11.4 19.6 Z" fill="#FFFFFF" opacity="0.95"/>
+  <path d="M2 12 L3.6 11.4 L4 10 L4.4 11.4 L6 12 L4.4 12.6 L4 14 L3.6 12.6 Z" fill="#FFFFFF" opacity="0.95"/>
+  <path d="M18 12 L19.6 11.4 L20 10 L20.4 11.4 L22 12 L20.4 12.6 L20 14 L19.6 12.6 Z" fill="#FFFFFF" opacity="0.95"/>
+</svg>`,
   },
   {
     id: "codex",
     label: "Codex",
     model: "gpt-4o",
     effort: "medium",
-    svg: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="13" x2="13" y2="13"/><polyline points="13 15 15 17 13 19"/></svg>`,
+    // Codex — blue cloud with >_ terminal symbol
+    svg: `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="codex-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#A5B4FC"/>
+      <stop offset="100%" stop-color="#6366F1"/>
+    </linearGradient>
+  </defs>
+  <path d="M6 14 C 3 14, 2 11, 4 9 C 3 6, 7 4, 10 6 C 11 3, 16 3, 17 6 C 21 5, 22 10, 19 12 C 21 14, 19 17, 16 16 C 14 18, 9 18, 8 16 C 6 17, 4 16, 6 14 Z" fill="url(#codex-grad)"/>
+  <path d="M8.5 11 L11.5 13 L8.5 15" fill="none" stroke="#FFFFFF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="12.5" y1="15.2" x2="16" y2="15.2" stroke="#FFFFFF" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`,
   },
   {
     id: "qoder",
     label: "Qoder",
     model: "claude-3-5-sonnet-20241022",
     effort: "medium",
-    svg: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+    // Qoder — black rounded square + white/green "a" abstract
+    svg: `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <rect width="24" height="24" rx="5" fill="#0F0F0F"/>
+  <circle cx="13" cy="13" r="7" fill="none" stroke="#22C55E" stroke-width="2.6"/>
+  <path d="M9 13 C 9 9, 14 8, 16 11 C 17 13, 15 16, 12 16 C 10 16, 9 14, 9 13 Z" fill="#22C55E"/>
+  <circle cx="13" cy="13" r="2" fill="#0F0F0F"/>
+</svg>`,
   },
   {
     id: "opencode",
     label: "OpenCode",
     model: "claude-3-5-sonnet-20241022",
     effort: "medium",
-    svg: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8 L3 12 L7 16"/><path d="M17 8 L21 12 L17 16"/><line x1="15" y1="4" x2="9" y2="20"/></svg>`,
+    // OpenCode — black/white Polaroid frame
+    svg: `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <rect width="24" height="24" rx="3" fill="#0A0A0A"/>
+  <rect x="5" y="3" width="14" height="14" fill="#FFFFFF"/>
+  <rect x="7" y="5" width="10" height="10" fill="#3A3A3A"/>
+  <rect x="5" y="17" width="14" height="4" fill="#FFFFFF"/>
+  <rect x="6" y="18" width="12" height="2" fill="#0A0A0A"/>
+</svg>`,
   },
 ];
 
@@ -139,6 +171,7 @@ const NAV_ICONS = {
   home: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9 L12 2 L21 9 V20 C21 20.5 20.5 21 20 21 H4 C3.5 21 3 20.5 3 20 V9Z"/><polyline points="9 21 9 12 15 12 15 21"/></svg>`,
   files: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7 C3 5.9 3.9 5 5 5 H9 L11 7 H19 C20.1 7 21 7.9 21 9 V18 C21 19.1 20.1 20 19 20 H5 C3.9 20 3 19.1 3 18 V7Z"/></svg>`,
   skills: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 2 L4 13 H7 L6 20 L13 11 H10 L11 2Z"/></svg>`,
+  project: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7 C3 5.9 3.9 5 5 5 H9 L11 7 H19 C20.1 7 21 7.9 21 9 V18 C21 19.1 20.1 20 19 20 H5 C3.9 20 3 19.1 3 18 V7Z"/><line x1="3" y1="11" x2="21" y2="11"/></svg>`,
   sessions: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>`,
   settings: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
   chat: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7 L3 21 V5 C3 3.9 3.9 3 5 3 H19 C20.1 3 21 3.9 21 5 V15Z"/></svg>`,
@@ -417,7 +450,6 @@ function showApp () {
   // set current agent label
   const label = getCurrentAgent().label;
   if ($("home-skill-button-label")) $("home-skill-button-label").textContent = "Skill";
-  if ($("home-skill-button-sticky-label")) $("home-skill-button-sticky-label").textContent = "Skill";
 }
 
 /* =========================================================
@@ -560,72 +592,41 @@ function updateTopbarCwd () {
    Home View
    ========================================================= */
 function wireHome () {
-  const heroInput   = $("home-input");
-  const stickyInput = $("home-input-sticky");
-  const homeSend    = $("home-send");
-  const stickySend = $("home-send-sticky");
+  // Phase UI-A8-1: DOM 中只有一个 textarea (#home-input)
+  const input  = $("home-input");
+  const sendBtn = $("home-send");
 
-  // both inputs share the same logic
-  function updateSend (input, sendBtn) {
+  function updateSend () {
     sendBtn.disabled = !input.value.trim() || S.running;
   }
 
-  [heroInput, stickyInput].forEach(input => {
-    input.addEventListener("input", () => {
+  input.addEventListener("input", () => {
+    autoResize(input);
+    updateSend();
+  });
+
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (!input.value.trim() || S.running) return;
+      doSend(input.value.trim());
+      input.value = "";
       autoResize(input);
-      updateSend(input, input === heroInput ? homeSend : stickySend);
-      // keep both in sync
-      if (input === heroInput && stickyInput.value !== input.value) {
-        stickyInput.value = input.value;
-        autoResize(stickyInput);
-        updateSend(stickyInput, stickySend);
-      }
-      if (input === stickyInput && heroInput.value !== input.value) {
-        heroInput.value = input.value;
-        autoResize(heroInput);
-        updateSend(heroInput, homeSend);
-      }
-    });
-
-    input.addEventListener("keydown", e => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        if (!input.value.trim() || S.running) return;
-        doSend(input.value.trim());
-        input.value = "";
-        autoResize(input);
-        updateSend(input, input === heroInput ? homeSend : stickySend);
-      }
-    });
+      updateSend();
+    }
   });
 
-  homeSend.addEventListener("click", () => {
-    const v = heroInput.value.trim();
+  sendBtn.addEventListener("click", () => {
+    const v = input.value.trim();
     if (!v || S.running) return;
     doSend(v);
-    heroInput.value = "";
-    stickyInput.value = "";
-    autoResize(heroInput);
-    autoResize(stickyInput);
-    updateSend(heroInput, homeSend);
-    updateSend(stickyInput, stickySend);
+    input.value = "";
+    autoResize(input);
+    updateSend();
   });
 
-  stickySend.addEventListener("click", () => {
-    const v = stickyInput.value.trim();
-    if (!v || S.running) return;
-    doSend(v);
-    heroInput.value = "";
-    stickyInput.value = "";
-    autoResize(heroInput);
-    autoResize(stickyInput);
-    updateSend(heroInput, homeSend);
-    updateSend(stickyInput, stickySend);
-  });
-
-  // skill buttons
+  // skill button
   $("home-skill-button").addEventListener("click", openSkillPicker);
-  $("home-skill-button-sticky").addEventListener("click", openSkillPicker);
 }
 
 function renderTaskChips () {
@@ -636,14 +637,12 @@ function renderTaskChips () {
     const icon = CHIP_ICONS[chip.icon] || CHIP_ICONS.file;
     btn.innerHTML = `${icon}<span>${chip.label}</span>`;
     btn.addEventListener("click", () => {
-      // fill both inputs
-      $("home-input").value = chip.label;
-      $("home-input-sticky").value = chip.label;
-      autoResize($("home-input"));
-      autoResize($("home-input-sticky"));
+      // Phase UI-A8-1: DOM 中只有一个 #home-input
+      const input = $("home-input");
+      input.value = chip.label;
+      autoResize(input);
       $("home-send").disabled = false;
-      $("home-send-sticky").disabled = false;
-      $("home-input").focus();
+      input.focus();
     });
     container.appendChild(btn);
   });
@@ -666,7 +665,6 @@ async function doSend (prompt) {
   // set running
   setRunning(true, prompt);
   $("home-status-pill").textContent = "思考中…";
-  $("home-status-pill-sticky").textContent = "思考中…";
 
   try {
     const agent = getCurrentAgent();
@@ -684,16 +682,13 @@ async function doSend (prompt) {
 
     setRunning(false);
     $("home-status-pill").textContent = "";
-    $("home-status-pill-sticky").textContent = "";
 
     if (!data) return; // 401
 
     if (data.error) {
       S.messages.push({ role: "assistant", content: `错误: ${data.error}` });
       $("home-status-pill").textContent = "失败";
-      $("home-status-pill-sticky").textContent = "失败";
       $("home-status-pill").className = "home-status-pill is-failed";
-      $("home-status-pill-sticky").className = "home-status-pill is-failed";
     } else {
       // data.reply / data.text
       const text = data.reply || data.text || data.content || "";
@@ -713,9 +708,7 @@ async function doSend (prompt) {
     setRunning(false);
     S.messages.push({ role: "assistant", content: `请求失败: ${e.message}` });
     $("home-status-pill").textContent = "失败";
-    $("home-status-pill-sticky").textContent = "失败";
     $("home-status-pill").className = "home-status-pill is-failed";
-    $("home-status-pill-sticky").className = "home-status-pill is-failed";
     renderMessages();
     scrollMessages();
   }
@@ -724,28 +717,27 @@ async function doSend (prompt) {
 function setRunning (running, prompt) {
   S.running = running;
   $("home-send").disabled = running;
-  $("home-send-sticky").disabled = running;
   if (running) {
     $("home-status-pill").className = "home-status-pill is-running";
-    $("home-status-pill-sticky").className = "home-status-pill is-running";
   } else {
     $("home-status-pill").className = "home-status-pill";
-    $("home-status-pill-sticky").className = "home-status-pill";
   }
 }
 
 function enterChatState () {
+  // Phase UI-A8-1: 同一个 textarea 切到 chat 态（sticky 底部）
+  const shell = $("home-shell");
+  if (shell) shell.classList.add("is-chat");
   $("home-hero").hidden = true;
-  $("home-composer").hidden = true;
   $("home-task-chips").hidden = true;
-  $("home-chat").hidden = false;
 }
 
 function exitChatState () {
+  // Phase UI-A8-1: 退到 hero 态
+  const shell = $("home-shell");
+  if (shell) shell.classList.remove("is-chat");
   $("home-hero").hidden = false;
-  $("home-composer").hidden = false;
   $("home-task-chips").hidden = false;
-  $("home-chat").hidden = true;
 }
 
 /* noop - phase UI-A7 removed approval polling; kept as noop for backward compat */
@@ -803,15 +795,10 @@ function newChat () {
   exitChatState();
   renderMessages();
   $("home-input").value = "";
-  $("home-input-sticky").value = "";
   autoResize($("home-input"));
-  autoResize($("home-input-sticky"));
   $("home-send").disabled = true;
-  $("home-send-sticky").disabled = true;
   $("home-status-pill").textContent = "";
-  $("home-status-pill-sticky").textContent = "";
   $("home-status-pill").className = "home-status-pill";
-  $("home-status-pill-sticky").className = "home-status-pill";
   closeSidebar();
   showTab("home");
 }
@@ -829,12 +816,10 @@ function openSkillPicker () {
   if (!pick.trim()) {
     S.currentSkill = null;
     $("home-skill-button").classList.remove("is-active");
-    $("home-skill-button-sticky").classList.remove("is-active");
     return;
   }
   S.currentSkill = pick.trim();
   $("home-skill-button").classList.add("is-active");
-  $("home-skill-button-sticky").classList.add("is-active");
 }
 
 /* =========================================================
