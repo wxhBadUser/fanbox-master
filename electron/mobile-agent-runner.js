@@ -524,9 +524,138 @@ async function runMobileAgent(opts) {
   };
 }
 
+// ---------- 流式 SSE 入口 ----------
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runMobileAgentStream(opts, emit) {
+  opts = opts || {};
+  const agentId = String(opts.agentId || '').toLowerCase();
+  const signal = opts.signal || null;
+
+  const aborted = () => !!(signal && signal.aborted);
+
+  // a. Emit start
+  if (aborted()) return;
+  emit('start', { ok: true, agentId, cwd: opts.cwd || '' });
+
+  // b. Validate agentId
+  if (!ALLOWED_AGENT_IDS.includes(agentId)) {
+    emit('error', { ok: false, text: '当前 Agent 不被允许，请从下拉里选择 Claude Code / Codex / Qoder / OpenCode。', error: 'agent_not_allowed' });
+    return;
+  }
+
+  // c. Validate text length
+  const text = String(opts.text || '');
+  if (text.length > MAX_INPUT_CHARS) {
+    emit('error', { ok: false, text: '消息过长，请缩短后再试。', error: 'input_too_long' });
+    return;
+  }
+
+  // d. Emit step: 准备工作区
+  if (aborted()) return;
+  const cwdLabel = (opts.cwd || '').split(/[\\/]/).filter(Boolean).slice(-1)[0] || opts.cwd || 'unknown';
+  emit('step', { label: '准备工作区', status: 'running', text: cwdLabel });
+  if (aborted()) return;
+  emit('step', { label: '准备工作区', status: 'done', text: cwdLabel });
+
+  // e. If skillId provided
+  if (opts.skillId) {
+    if (aborted()) return;
+    emit('step', { label: '使用 Skill: ' + (opts.skillName || opts.skillId), status: 'done', text: opts.skillId });
+  }
+
+  // f. Emit step: 调用 Agent
+  if (aborted()) return;
+  emit('step', { label: '调用 ' + agentDisplayName(agentId), status: 'running' });
+
+  // g. Stub mode
+  if (process.env.MOBILE_AGENT_FORCE_STUB === '1') {
+    if (aborted()) return;
+    emit('step', { label: '调用 ' + agentDisplayName(agentId), status: 'done' });
+    const stubResult = runStubRunner({ agentId, text, cwd: opts.cwd });
+    const stubText = sanitizeOutput(stubResult.text || '');
+    // Split into ~200 char chunks with small delays
+    const chunks = splitIntoChunks(stubText, 200);
+    for (const chunk of chunks) {
+      if (aborted()) return;
+      emit('delta', { text: chunk });
+      await delay(30); // eslint-disable-line no-await-in-loop
+    }
+    if (aborted()) return;
+    emit('done', { status: 'done', message: { role: 'assistant', content: stubText } });
+    return;
+  }
+
+  // h. Real runner — pseudo-streaming
+  const timeoutMs = (typeof opts.timeoutMs === 'number' && opts.timeoutMs > 0) ? opts.timeoutMs : DEFAULT_TIMEOUT_MS;
+  let raw;
+  try {
+    if (agentId === 'claude') {
+      raw = await runClaudeRunner({ cwd: opts.cwd, text, sessionId: opts.sessionId, timeoutMs });
+    } else if (agentId === 'codex') {
+      raw = await runCodexRunner({ cwd: opts.cwd, text, sessionId: opts.sessionId, timeoutMs });
+    } else if (agentId === 'qoder') {
+      raw = await runQoderRunner({ cwd: opts.cwd, text, sessionId: opts.sessionId, timeoutMs });
+    } else if (agentId === 'opencode') {
+      raw = await runOpenCodeRunner({ cwd: opts.cwd, text, sessionId: opts.sessionId, timeoutMs });
+    } else {
+      raw = runStubRunner({ agentId, text, cwd: opts.cwd });
+    }
+  } catch (e) {
+    if (aborted()) return;
+    emit('error', { ok: false, text: agentDisplayName(agentId) + ' 运行出错，请稍后再试。', error: 'runner_exception' });
+    return;
+  }
+
+  if (aborted()) return;
+
+  // i. Runner failed / timed out
+  if (raw.timedOut) {
+    emit('error', { ok: false, text: friendlyRunnerTimeout(agentId), error: 'timeout' });
+    return;
+  }
+  if (!raw.ok) {
+    // j. Runner unavailable
+    if (raw.error === 'runner_unavailable') {
+      emit('error', { ok: false, text: friendlyRunnerUnavailable(agentId), error: 'runner_unavailable' });
+    } else {
+      emit('error', { ok: false, text: raw.text || friendlyRunnerFailed(agentId), error: raw.error || 'runner_failed' });
+    }
+    return;
+  }
+
+  // Mark step done
+  emit('step', { label: '调用 ' + agentDisplayName(agentId), status: 'done' });
+
+  const resultText = sanitizeOutput(raw.text || '');
+
+  // Emit delta chunks with small delays for visual effect
+  const chunks = splitIntoChunks(resultText, 200);
+  for (const chunk of chunks) {
+    if (aborted()) return;
+    emit('delta', { text: chunk });
+    await delay(30); // eslint-disable-line no-await-in-loop
+  }
+
+  if (aborted()) return;
+  emit('done', { status: 'done', message: { role: 'assistant', content: resultText } });
+}
+
+function splitIntoChunks(str, size) {
+  if (!str) return [];
+  const chunks = [];
+  for (let i = 0; i < str.length; i += size) {
+    chunks.push(str.slice(i, i + size));
+  }
+  return chunks;
+}
+
 module.exports = {
   // 顶层
   runMobileAgent,
+  runMobileAgentStream,
   // 单 runner
   runClaudeRunner,
   runCodexRunner,

@@ -327,7 +327,7 @@ function req(opts, body) {
   // Phase UI-A1：mobile.css 因 sidebar + AionUi-like styles 增加，放宽到 64KB
   ok('index.html < 64KB', fs.statSync(HTML_PATH).size < 64 * 1024);
   ok('mobile.css < 64KB', fs.statSync(CSS_PATH).size < 64 * 1024);
-  ok('mobile.js < 96KB', fs.statSync(JS_PATH).size < 96 * 1024);
+  ok('mobile.js < 128KB', fs.statSync(JS_PATH).size < 128 * 1024);
   // 无 emoji（仅 inline SVG）
   ok('HTML 无 emoji (unicode 1F300+)', !/[\u{1F300}-\u{1FAFF}]/u.test(html));
   ok('mobile.js 无 emoji', !/[\u{1F300}-\u{1FAFF}]/u.test(js));

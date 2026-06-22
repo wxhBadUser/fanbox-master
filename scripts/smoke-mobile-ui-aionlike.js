@@ -786,7 +786,7 @@ function req(opts, body) {
   ok('mobile.js doSend catch 不再写 \'请求失败: ${e.message}\'',
     !/doSend[\s\S]{0,2500}content:\s*`请求失败:\s*\$\{e\.message\}`/.test(js));
   ok('mobile.js doSend catch 使用 friendlyFetchError',
-    /doSend[\s\S]{0,4000}friendlyFetchError\(e\)/.test(js));
+    /friendlyFetchError\(/.test(js) && (/doSendFallback[\s\S]{0,2000}friendlyFetchError\(/.test(js) || /doSend[\s\S]{0,4000}friendlyFetchError\(/.test(js)));
   // N.5 · session / cwd / agent 保留
   ok('mobile.js SESSION_KEY 存在', /const\s+SESSION_KEY\s*=\s*['"]fanbox_mobile_session['"]/.test(js));
   ok('mobile.js S.sessionId 从 localStorage SESSION_KEY 恢复',
@@ -1037,6 +1037,50 @@ function req(opts, body) {
     /function\s+groupSessionsByProject/.test(js));
   ok('M.intact: continueSession 仍存在 (恢复 sessionId/agentId/cwd)',
     /function\s+continueSession[\s\S]{0,2000}S\.sessionId\s*=\s*sid/.test(js));
+
+  // ============================================================
+  // [N] Phase UI-A8-6: Stream UI 断言
+  // ============================================================
+  section('N) Stream UI (UI-A8-6)');
+  ok('N.1: CSS .stream-steps 存在', /\.stream-steps\s*\{/.test(css));
+  ok('N.2: CSS .stream-step.is-running 有 pulse 动画',
+    /\.stream-step\.is-running[\s\S]{0,300}animation:\s*pulse/.test(css));
+  ok('N.3: CSS .stream-step.is-done 有绿色背景',
+    /\.stream-step\.is-done[\s\S]{0,300}background:\s*var\(--ok\)/.test(css));
+  ok('N.4: CSS .stream-step.is-failed 有红色背景',
+    /\.stream-step\.is-failed[\s\S]{0,300}background:\s*var\(--err\)/.test(css));
+  ok('N.5: CSS .stream-delta 有 pre-wrap',
+    /\.stream-delta[\s\S]{0,200}white-space:\s*pre-wrap/.test(css));
+  ok('N.6: CSS body overflow-x: hidden (不横向滚动)',
+    /html[\s,]*body[\s\S]{0,400}overflow-x:\s*hidden/.test(css));
+  ok('N.7: JS doSendStream 函数存在',
+    /function\s+doSendStream\s*\(/.test(js));
+  ok('N.8: JS doSendFallback 函数存在',
+    /function\s+doSendFallback\s*\(/.test(js));
+  ok('N.9: JS parseSSEEvent 函数存在',
+    /function\s+parseSSEEvent\s*\(/.test(js));
+  ok('N.10: JS handleStreamEvent 函数存在',
+    /function\s+handleStreamEvent\s*\(/.test(js));
+  ok('N.11: JS renderStreamSteps 函数存在',
+    /function\s+renderStreamSteps\s*\(/.test(js));
+  ok('N.12: JS doSend 优先调 doSendStream',
+    /doSend[\s\S]{0,2000}await\s+doSendStream\(/.test(js));
+  ok('N.13: JS doSend fallback 调 doSendFallback',
+    /doSend[\s\S]{0,2000}await\s+doSendFallback\(/.test(js));
+  ok('N.14: JS switchAgent 中止 stream',
+    /switchAgent[\s\S]{0,500}_streamAbort[\s\S]{0,200}\.abort\(\)/.test(js));
+  ok('N.15: JS newChat 中止 stream',
+    /newChat[\s\S]{0,500}_streamAbort[\s\S]{0,200}\.abort\(\)/.test(js));
+  ok('N.16: JS S._streamAbort 状态存在',
+    /_streamAbort/.test(js));
+  ok('N.17: JS 不显示 raw JSON',
+    !/handleStreamEvent[\s\S]{0,2000}JSON\.stringify\([^)]*\)\s*\}/.test(js));
+  ok('N.18: JS 不显示 stack trace',
+    !/handleStreamEvent[\s\S]{0,2000}\.stack/.test(js));
+  ok('N.19: HTML 仍只有 1 个 #home-input',
+    (html.match(/id="home-input"/g) || []).length === 1);
+  ok('N.20: HTML 仍只有 1 个 #home-send',
+    (html.match(/id="home-send"/g) || []).length === 1);
 
   // ============================================================
   // Done

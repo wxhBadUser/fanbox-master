@@ -304,6 +304,7 @@ const S = {
   running:     false,
   currentSkill: null,
   filesPreview: null,
+  _streamAbort: null,  // Phase UI-A8-6: AbortController for current stream
 };
 
 /** 映射 UI agent id → 后端 agent id（mobile-sessions 期望短名）
@@ -734,6 +735,11 @@ function closeAgentMenu () {
 
 function switchAgent (id) {
   if (id !== S.currentAgent) {
+    // Phase UI-A8-6: abort current stream
+    if (S._streamAbort) {
+      try { S._streamAbort.abort(); } catch (_) {}
+      S._streamAbort = null;
+    }
     S.messages = [];
     S.sessionId = "";
     try { localStorage.removeItem(SESSION_KEY); } catch (_) {}
@@ -895,7 +901,7 @@ function renderTaskChips () {
 }
 
 /* =========================================================
-   Send message
+   Send message — Phase UI-A8-6: Stream-first, fallback to /agent/send
    ========================================================= */
 async function doSend (prompt) {
   // Switch to chat state
@@ -904,105 +910,321 @@ async function doSend (prompt) {
   // add user message
   S.messages.push({ role: "user", content: prompt });
   const selectedSkill = S.currentSkill || null;
+
+  // Create assistant bubble with initial trace
   const pendingAssistant = {
     role: "assistant",
     status: "running",
-    content: "思考中…",
+    content: "",
     trace: [
-      { label: "准备工作区上下文", state: "done" },
-      { label: "调用 " + agentIdForDisplay(mapAgentId(S.currentAgent)), state: "running" }
-    ]
+      { label: "准备工作区上下文", state: "done" }
+    ],
+    _streamDelta: ""  // Phase UI-A8-6: accumulated delta text
   };
   if (selectedSkill && selectedSkill.title) {
-    pendingAssistant.trace.splice(1, 0, { label: "使用 Skill: " + selectedSkill.title, state: "done" });
+    pendingAssistant.trace.push({ label: "使用 Skill: " + selectedSkill.title, state: "done" });
   }
+  pendingAssistant.trace.push({ label: "调用 " + agentIdForDisplay(mapAgentId(S.currentAgent)), state: "running" });
   S.messages.push(pendingAssistant);
   renderMessages();
-
-  // scroll
   scrollMessages();
 
   // set running
   setRunning(true, prompt);
   $("home-status-pill").textContent = "思考中…";
 
+  // Abort any previous stream
+  if (S._streamAbort) {
+    try { S._streamAbort.abort(); } catch (_) {}
+    S._streamAbort = null;
+  }
+
+  // Try streaming first, fallback to /agent/send
   try {
-    const agent = getCurrentAgent();
-    // Phase UI-A8-5-P0: 改用 /api/mobile/agent/send (新 endpoint, 新 body contract)
-    //   body: { agentId, cwd, sessionId, message, model, effort }
-    //   旧 /api/mobile/send 不存在 → 会被 V2 blanket 405 拦截
-    const data = await api("/api/mobile/agent/send", {
-      method: "POST",
-      body: JSON.stringify({
-        agentId: mapAgentId(S.currentAgent),
-        cwd: S.cwd || undefined,
-        sessionId: S.sessionId || undefined,
-        message: prompt,
-        skillId: S.currentSkill ? S.currentSkill.id : undefined,
-        skillName: S.currentSkill ? S.currentSkill.title : undefined,
-        model: agent && agent.model,
-        effort: agent && agent.effort
-      }),
-    });
-
-    setRunning(false);
-
-    if (!data) return; // 401
-
-    // Phase UI-A8-5-P0: 永远不要把 raw 错误直接显示给用户
-    // 后端约定的响应：{ ok, sessionId, agentId, cwd, status, mode, usedStub, timedOut, message: {role, content}, error? }
-    if (data.ok === false) {
-      const friendly = (data.message && data.message.content)
-        ? data.message.content
-        : friendlySendError(data.agentId, data.error);
-      pendingAssistant.status = "failed";
-      pendingAssistant.content = friendly;
-      pendingAssistant.trace = (pendingAssistant.trace || []).map(t => t.state === "running" ? Object.assign({}, t, { state: "failed" }) : t);
+    await doSendStream(prompt, pendingAssistant, selectedSkill);
+  } catch (e) {
+    // If stream fails, try fallback
+    if (e && e.name === 'AbortError') {
+      // User aborted — mark as stopped
+      pendingAssistant.status = "stopped";
+      pendingAssistant.content = pendingAssistant._streamDelta || "已停止";
+      pendingAssistant.trace = (pendingAssistant.trace || []).map(t =>
+        t.state === "running" ? Object.assign({}, t, { state: "failed" }) : t
+      );
+      setRunning(false);
+      $("home-status-pill").textContent = "已停止";
+      $("home-status-pill").className = "home-status-pill is-failed";
+      renderMessages();
+      scrollMessages();
+      return;
+    }
+    // Stream failed — try fallback via /agent/send
+    try {
+      await doSendFallback(prompt, pendingAssistant, selectedSkill);
+    } catch (e2) {
+      setRunning(false);
+      const last = S.messages[S.messages.length - 1];
+      if (last && last.role === "assistant" && last.status === "running") {
+        last.status = "failed";
+        last.content = friendlyFetchError(e2);
+        last.trace = (last.trace || []).map(t => t.state === "running" ? Object.assign({}, t, { state: "failed" }) : t);
+      }
       $("home-status-pill").textContent = "失败";
       $("home-status-pill").className = "home-status-pill is-failed";
-    } else {
-      const text = (data.message && data.message.content) || data.reply || data.text || "";
+      renderMessages();
+      scrollMessages();
+    }
+  }
+}
+
+/** Phase UI-A8-6: Stream via POST /api/mobile/agent/stream (SSE) */
+async function doSendStream (prompt, pendingAssistant, selectedSkill) {
+  const agent = getCurrentAgent();
+  const abortController = new AbortController();
+  S._streamAbort = abortController;
+
+  const payload = {
+    agentId: mapAgentId(S.currentAgent),
+    cwd: S.cwd || undefined,
+    sessionId: S.sessionId || undefined,
+    message: prompt,
+    skillId: selectedSkill ? selectedSkill.id : undefined,
+    skillName: selectedSkill ? selectedSkill.title : undefined,
+    model: agent && agent.model,
+    effort: agent && agent.effort
+  };
+
+  const res = await fetch('/api/mobile/agent/stream', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + S.token,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload),
+    signal: abortController.signal
+  });
+
+  // Handle non-200 responses
+  if (res.status === 401) {
+    clearToken();
+    showPair();
+    return;
+  }
+  if (res.status === 403) {
+    throw new Error('403: forbidden_path');
+  }
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(res.status + ': ' + errText);
+  }
+
+  // Parse SSE stream
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (abortController.signal.aborted) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    // Parse SSE events from buffer
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop() || '';  // keep incomplete chunk
+
+    for (const part of parts) {
+      if (!part.trim()) continue;
+      const event = parseSSEEvent(part);
+      if (!event) continue;
+      handleStreamEvent(event, pendingAssistant);
+    }
+  }
+
+  // Process any remaining buffer
+  if (buffer.trim()) {
+    const event = parseSSEEvent(buffer);
+    if (event) handleStreamEvent(event, pendingAssistant);
+  }
+
+  // If still running after stream ends, mark as done
+  if (pendingAssistant.status === "running") {
+    pendingAssistant.status = "done";
+    pendingAssistant.content = pendingAssistant._streamDelta || pendingAssistant.content || "";
+    pendingAssistant.trace = (pendingAssistant.trace || []).map(t =>
+      t.state === "running" ? Object.assign({}, t, { state: "done" }) : t
+    );
+  }
+
+  setRunning(false);
+  const pill = $("home-status-pill");
+  if (pill) {
+    pill.textContent = "完成";
+    pill.className = "home-status-pill is-ready";
+  }
+  renderMessages();
+  scrollMessages();
+  S._streamAbort = null;
+}
+
+/** Parse a single SSE event block (event: xxx\ndata: xxx) */
+function parseSSEEvent (block) {
+  let eventType = 'message';
+  let dataStr = '';
+  for (const line of block.split('\n')) {
+    if (line.startsWith('event: ')) {
+      eventType = line.slice(7).trim();
+    } else if (line.startsWith('data: ')) {
+      dataStr = line.slice(6);
+    } else if (line.startsWith('data:')) {
+      dataStr = line.slice(5).trim();
+    }
+  }
+  if (!dataStr) return null;
+  try {
+    return { type: eventType, data: JSON.parse(dataStr) };
+  } catch (_) {
+    return null;
+  }
+}
+
+/** Handle a single stream event, update pendingAssistant in place */
+function handleStreamEvent (event, pendingAssistant) {
+  const d = event.data;
+  switch (event.type) {
+    case 'start':
+      // Initial event — nothing special to do
+      break;
+
+    case 'session':
+      // Update sessionId
+      if (d && d.sessionId && d.sessionId !== S.sessionId) {
+        S.sessionId = d.sessionId;
+        try { localStorage.setItem(SESSION_KEY, d.sessionId); } catch (_) {}
+      }
+      break;
+
+    case 'step':
+      // Update trace steps
+      if (d && d.label) {
+        // Find existing step with matching label, or add new
+        const trace = pendingAssistant.trace || [];
+        const existing = trace.find(t => t.label === d.label);
+        if (existing) {
+          existing.state = d.status || d.state || 'running';
+          if (d.text) existing.text = d.text;
+        } else {
+          trace.push({ label: d.label, state: d.status || d.state || 'running', text: d.text || '' });
+        }
+        pendingAssistant.trace = trace;
+      }
+      renderMessages();
+      scrollMessages();
+      break;
+
+    case 'delta':
+      // Append incremental text
+      if (d && d.text) {
+        pendingAssistant._streamDelta = (pendingAssistant._streamDelta || '') + d.text;
+        pendingAssistant.content = pendingAssistant._streamDelta;
+        renderMessages();
+        scrollMessages();
+      }
+      break;
+
+    case 'done':
+      // Final event
+      if (d && d.message && d.message.content) {
+        pendingAssistant._streamDelta = d.message.content;
+        pendingAssistant.content = d.message.content;
+      }
       pendingAssistant.status = "done";
-      pendingAssistant.content = text;
-      pendingAssistant.trace = data.trace || (pendingAssistant.trace || []).map(t => t.state === "running" ? Object.assign({}, t, { state: "done" }) : t);
-      // 同步 sessionId / cwd
-      if (data.sessionId && data.sessionId !== S.sessionId) {
-        S.sessionId = data.sessionId;
-        try { localStorage.setItem(SESSION_KEY, data.sessionId); } catch (_) {}
+      pendingAssistant.trace = (pendingAssistant.trace || []).map(t =>
+        t.state === "running" ? Object.assign({}, t, { state: "done" }) : t
+      );
+      if (d && d.status === 'failed') {
+        pendingAssistant.status = "failed";
       }
-      if (data.cwd && data.cwd !== S.cwd) {
-        S.cwd = data.cwd;
-        S.cwdLabel = (data.cwd || "").split(/[/\\]/).filter(Boolean).pop() || null;
-        localStorage.setItem(CWD_KEY, S.cwd || "");
-        updateTopbarCwd();
-      }
-      const status = data.status || "done";
-      const pill = $("home-status-pill");
-      if (pill) {
-        pill.textContent = status === "done" ? "完成" : (status === "failed" ? "失败" : (status === "timeout" ? "超时" : status));
-        pill.className = "home-status-pill " + (status === "done" ? "is-ready" : (status === "failed" ? "is-failed" : "is-running"));
-      }
-    }
+      renderMessages();
+      scrollMessages();
+      break;
 
-    renderMessages();
-    scrollMessages();
+    case 'error':
+      // Error event — show friendly message
+      pendingAssistant.status = "failed";
+      const errMsg = (d && d.message) ? d.message :
+                     (d && d.error) ? friendlySendError(mapAgentId(S.currentAgent), d.error) :
+                     'Agent 暂不可用，请稍后再试。';
+      pendingAssistant.content = errMsg;
+      pendingAssistant.trace = (pendingAssistant.trace || []).map(t =>
+        t.state === "running" ? Object.assign({}, t, { state: "failed" }) : t
+      );
+      renderMessages();
+      scrollMessages();
+      break;
 
-  } catch (e) {
-    setRunning(false);
-    // Phase UI-A8-5-P0: 把 fetch 阶段抛出的 raw 错误 (e.g. "405: {...}") 转成友好中文
-    const last = S.messages[S.messages.length - 1];
-    if (last && last.role === "assistant" && last.status === "running") {
-      last.status = "failed";
-      last.content = friendlyFetchError(e);
-      last.trace = (last.trace || []).map(t => t.state === "running" ? Object.assign({}, t, { state: "failed" }) : t);
-    } else {
-      S.messages.push({ role: "assistant", status: "failed", content: friendlyFetchError(e) });
-    }
+    default:
+      break;
+  }
+}
+
+/** Phase UI-A8-6: Fallback — POST /api/mobile/agent/send (non-streaming) */
+async function doSendFallback (prompt, pendingAssistant, selectedSkill) {
+  const agent = getCurrentAgent();
+  const data = await api("/api/mobile/agent/send", {
+    method: "POST",
+    body: JSON.stringify({
+      agentId: mapAgentId(S.currentAgent),
+      cwd: S.cwd || undefined,
+      sessionId: S.sessionId || undefined,
+      message: prompt,
+      skillId: selectedSkill ? selectedSkill.id : undefined,
+      skillName: selectedSkill ? selectedSkill.title : undefined,
+      model: agent && agent.model,
+      effort: agent && agent.effort
+    }),
+  });
+
+  setRunning(false);
+
+  if (!data) return; // 401
+
+  if (data.ok === false) {
+    const friendly = (data.message && data.message.content)
+      ? data.message.content
+      : friendlySendError(data.agentId, data.error);
+    pendingAssistant.status = "failed";
+    pendingAssistant.content = friendly;
+    pendingAssistant.trace = (pendingAssistant.trace || []).map(t => t.state === "running" ? Object.assign({}, t, { state: "failed" }) : t);
     $("home-status-pill").textContent = "失败";
     $("home-status-pill").className = "home-status-pill is-failed";
-    renderMessages();
-    scrollMessages();
+  } else {
+    const text = (data.message && data.message.content) || data.reply || data.text || "";
+    pendingAssistant.status = "done";
+    pendingAssistant.content = text;
+    pendingAssistant._streamDelta = text;
+    pendingAssistant.trace = data.trace || (pendingAssistant.trace || []).map(t => t.state === "running" ? Object.assign({}, t, { state: "done" }) : t);
+    if (data.sessionId && data.sessionId !== S.sessionId) {
+      S.sessionId = data.sessionId;
+      try { localStorage.setItem(SESSION_KEY, data.sessionId); } catch (_) {}
+    }
+    if (data.cwd && data.cwd !== S.cwd) {
+      S.cwd = data.cwd;
+      S.cwdLabel = (data.cwd || "").split(/[/\\]/).filter(Boolean).pop() || null;
+      localStorage.setItem(CWD_KEY, S.cwd || "");
+      updateTopbarCwd();
+    }
+    const status = data.status || "done";
+    const pill = $("home-status-pill");
+    if (pill) {
+      pill.textContent = status === "done" ? "完成" : (status === "failed" ? "失败" : (status === "timeout" ? "超时" : status));
+      pill.className = "home-status-pill " + (status === "done" ? "is-ready" : (status === "failed" ? "is-failed" : "is-running"));
+    }
   }
+
+  renderMessages();
+  scrollMessages();
 }
 
 function setRunning (running, prompt) {
@@ -1066,10 +1288,17 @@ function renderMessages () {
     const bubble = el("div", "chat-bubble" +
       (msg.role === "user" ? " chat-bubble-user" : msg.role === "system" ? " chat-bubble-system" : " chat-bubble-agent"));
     if (msg.status === "running") bubble.classList.add("chat-bubble-running");
-    bubble.innerHTML = escapeHtmlForDisplay(msg.status === "running" && !msg.content ? "思考中…" : msg.content);
+
+    // Phase UI-A8-6: Show trace steps before content
     if (msg.role !== "user" && msg.trace && msg.trace.length) {
-      bubble.appendChild(renderAgentTrace(msg.trace));
+      bubble.appendChild(renderStreamSteps(msg.trace));
     }
+
+    // Content area
+    const contentEl = el("div", "stream-delta");
+    const displayText = msg.status === "running" && !msg.content && !(msg._streamDelta) ? "思考中…" : (msg.content || msg._streamDelta || "");
+    contentEl.innerHTML = escapeHtmlForDisplay(displayText);
+    bubble.appendChild(contentEl);
 
     row.appendChild(avatar);
     row.appendChild(bubble);
@@ -1082,6 +1311,25 @@ function renderAgentTrace (trace) {
   (trace || []).slice(0, 8).forEach(item => {
     const row = el("div", "tool-call tool-call-" + (item.state || "pending"));
     row.innerHTML = `<span class="tool-call-dot"></span><span>${htmlEscape(item.label || "调用工具")}</span>`;
+    box.appendChild(row);
+  });
+  return box;
+}
+
+/** Phase UI-A8-6: Render stream steps with proper CSS classes */
+function renderStreamSteps (trace) {
+  const box = el("div", "stream-steps");
+  (trace || []).slice(0, 10).forEach(item => {
+    const state = item.state || "pending";
+    const row = el("div", "stream-step is-" + state);
+    let icon = '';
+    if (state === 'done') icon = '<span class="stream-step-icon">&#10003;</span>';
+    else if (state === 'running') icon = '<span class="stream-step-icon stream-step-spinner"></span>';
+    else if (state === 'failed') icon = '<span class="stream-step-icon is-failed">&#10007;</span>';
+    else icon = '<span class="stream-step-icon"></span>';
+    let labelHtml = htmlEscape(item.label || "步骤");
+    if (item.text) labelHtml += '<span class="stream-step-text">' + htmlEscape(item.text) + '</span>';
+    row.innerHTML = icon + '<span class="stream-step-label">' + labelHtml + '</span>';
     box.appendChild(row);
   });
   return box;
@@ -1102,6 +1350,11 @@ function scrollMessages () {
    New Chat
    ========================================================= */
 function newChat () {
+  // Phase UI-A8-6: abort current stream
+  if (S._streamAbort) {
+    try { S._streamAbort.abort(); } catch (_) {}
+    S._streamAbort = null;
+  }
   S.messages = [];
   S.sessionId = null;
   S.currentSkill = null;

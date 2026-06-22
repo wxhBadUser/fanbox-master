@@ -2399,3 +2399,80 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* =========================================================
+   Phase UI-A8-6 · Stream Steps (agent execution trace)
+   - 步骤列表在 assistant 气泡内，正文上方
+   - running 用 pulse 动画
+   - done 用 check
+   - failed 用红点
+   - 正文和步骤分开
+   ========================================================= */
+.stream-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.stream-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 20px;
+  color: var(--fg-2);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.stream-step-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+  color: var(--fg-3);
+  background: var(--bg-2);
+}
+.stream-step.is-done .stream-step-icon {
+  background: var(--ok);
+  color: #fff;
+}
+.stream-step.is-running .stream-step-icon {
+  background: var(--accent);
+  color: #fff;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.stream-step.is-failed .stream-step-icon {
+  background: var(--err);
+  color: #fff;
+}
+.stream-step.is-failed .stream-step-icon.is-failed {
+  background: var(--err);
+}
+.stream-step-spinner {
+  /* extra pulse for running spinner */
+}
+.stream-step-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stream-step-text {
+  color: var(--fg-3);
+  font-size: 11px;
+  margin-left: 4px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+.stream-delta {
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  min-height: 0;
+}

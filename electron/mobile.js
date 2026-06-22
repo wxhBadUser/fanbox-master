@@ -1958,6 +1958,130 @@ async function handleMobileApiV2A(req, res, url) {
     }), true;
   }
 
+  // -------- POST /api/mobile/agent/stream --------
+  // Phase UI-A8-6：SSE 流式 Agent 响应
+  // 请求体与 /api/mobile/agent/send 相同
+  // 响应 Content-Type: text/event-stream
+  // 事件类型: start / session / step / delta / message / error / done
+  if (req.method === 'POST' && pathOnly === '/api/mobile/agent/stream') {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    let body;
+    try { body = await readJsonBody(req); } catch { return badReq(res, 400, 'bad_body'), true; }
+    const agentId = mobileSessions.normalizeAgentId((body && body.agentId) || '');
+    if (!mobileSessions.ALLOWED_AGENT_IDS.has(agentId)) {
+      return badReq(res, 400, 'invalid_agent'), true;
+    }
+    const message = String((body && body.message) || '');
+    if (!message.trim()) return badReq(res, 400, 'empty_message'), true;
+    if (message.length > mobileSessions.MAX_INPUT_CHARS) {
+      return badReq(res, 400, 'message_too_long'), true;
+    }
+    const skillId = String((body && body.skillId) || '').replace(/[^A-Za-z0-9._\-+:]/g, '').slice(0, 128);
+    const skillName = String((body && body.skillName) || '').replace(/[\r\n\t]/g, ' ').trim().slice(0, 128);
+    // cwd 校验
+    let cwd = '';
+    if (body && body.cwd) {
+      const norm = path.resolve(String(body.cwd));
+      if (isForbiddenPath(norm)) return sendJson(res, 403, { ok: false, error: 'forbidden_path' }), true;
+      if (!pathInAllowed(norm)) return sendJson(res, 403, { ok: false, error: 'path_not_allowed' }), true;
+      cwd = norm;
+    }
+    // sessionId 处理（与 agent/send 相同逻辑）
+    let sessionId = (body && body.sessionId) ? String(body.sessionId) : '';
+    if (sessionId) {
+      const s = await mobileSessions.getSessionById(sessionId);
+      if (!s) sessionId = '';
+    }
+    if (!sessionId && cwd) {
+      const r = await mobileSessions.createMobileDraftSession({
+        cwd: cwd,
+        agentId: agentId,
+        deviceId: t.device && t.device.id
+      });
+      if (r && r.ok) sessionId = r.sessionId;
+    }
+    // 构建 runner message（含 skill 注入）
+    const runnerMessage = skillId
+      ? [
+          'Use the selected skill for this mobile chat turn.',
+          'Skill ID: ' + skillId,
+          skillName ? 'Skill name: ' + skillName : '',
+          '',
+          message
+        ].filter(Boolean).join('\n')
+      : message;
+
+    // 设置 SSE 响应头
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    });
+
+    // SSE emit 辅助函数
+    function sseEmit(eventType, data) {
+      try {
+        res.write('event: ' + eventType + '\ndata: ' + JSON.stringify(data) + '\n\n');
+      } catch (_) { /* connection closed */ }
+    }
+
+    // 如果无 sessionId 且无 cwd → 发 error 事件后关闭
+    if (!sessionId) {
+      sseEmit('error', { error: 'no_workspace', message: '请先选择一个工作区（Files 或 Project 页面），再和 Agent 对话。' });
+      sseEmit('done', { status: 'failed' });
+      res.end();
+      return true;
+    }
+
+    // 发送 session 事件
+    sseEmit('session', { sessionId: sessionId, created: !((body && body.sessionId) && sessionId === body.sessionId) });
+
+    // redline audit（不阻塞）
+    try {
+      const red = mobileSessions.detectRedline(runnerMessage);
+      if (red && red.requiresApproval) {
+        await mobileSessions.appendAudit({
+          action: 'redline_detected_but_not_blocked',
+          sessionId: sessionId,
+          deviceId: t.device && t.device.id,
+          agentId: agentId,
+          cwd: cwd,
+          reasons: Array.isArray(red.reasons) ? red.reasons.slice(0, 10) : []
+        }).catch(() => ({}));
+      }
+    } catch (_) { /* ignore */ }
+
+    // 调用 runner stream
+    const abortController = new AbortController();
+    const signal = abortController.signal;
+    // 客户端断开时 abort
+    req.on('close', () => { abortController.abort(); });
+
+    try {
+      await mobileAgentRunner.runMobileAgentStream({
+        agentId: agentId,
+        text: runnerMessage,
+        cwd: cwd,
+        sessionId: sessionId,
+        skillId: skillId,
+        skillName: skillName,
+        signal: signal
+      }, function emit(eventType, data) {
+        if (signal.aborted) return;
+        sseEmit(eventType, data);
+      });
+    } catch (e) {
+      if (!signal.aborted) {
+        sseEmit('error', { error: 'stream_error', message: 'Agent 响应过程中出现错误，请稍后再试。' });
+      }
+    }
+
+    // 结束响应
+    try { res.end(); } catch (_) { /* already closed */ }
+    return true;
+  }
+
   return false; // 未命中
 }
 

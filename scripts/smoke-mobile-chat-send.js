@@ -335,6 +335,43 @@ function req(opts, body) {
   ok('Use in chat 选择技能后更新 Skill 按钮标签',
     /function\s+useSkillInChat\s*\([\s\S]{0,1000}home-skill-button-label/.test(js));
 
+  // ============================================================
+  // [8] Phase UI-A8-6: Stream endpoint 保留 /agent/send fallback
+  // ============================================================
+  section('8) Stream 兼容 (UI-A8-6)');
+  ok('backend: POST /api/mobile/agent/stream 注册',
+    /req\.method\s*===\s*'POST'[\s\S]{0,80}pathOnly\s*===\s*'\/api\/mobile\/agent\/stream'/.test(mobileJsCode));
+  ok('backend: stream 返回 text/event-stream',
+    /text\/event-stream/.test(mobileJsCode));
+  ok('backend: runMobileAgentStream 导出',
+    /runMobileAgentStream/.test(runnerCode));
+  ok('frontend: doSendStream 优先调用 /api/mobile/agent/stream',
+    /doSendStream[\s\S]{0,2000}\/api\/mobile\/agent\/stream/.test(js));
+  ok('frontend: doSendFallback 保留 /api/mobile/agent/send',
+    /doSendFallback[\s\S]{0,2000}\/api\/mobile\/agent\/send/.test(js));
+  ok('frontend: S._streamAbort 存在',
+    /_streamAbort/.test(js));
+  ok('frontend: switchAgent aborts stream',
+    /switchAgent[\s\S]{0,500}_streamAbort[\s\S]{0,200}\.abort\(\)/.test(js));
+  ok('frontend: newChat aborts stream',
+    /newChat[\s\S]{0,500}_streamAbort[\s\S]{0,200}\.abort\(\)/.test(js));
+  ok('frontend: parseSSEEvent 存在',
+    /function\s+parseSSEEvent\s*\(/.test(js));
+  ok('frontend: handleStreamEvent 存在',
+    /function\s+handleStreamEvent\s*\(/.test(js));
+  ok('frontend: renderStreamSteps 存在',
+    /function\s+renderStreamSteps\s*\(/.test(js));
+  ok('CSS: .stream-steps 存在',
+    /\.stream-steps\s*\{/.test(css));
+  ok('CSS: .stream-step.is-running 存在',
+    /\.stream-step\.is-running/.test(css));
+  ok('CSS: .stream-step.is-done 存在',
+    /\.stream-step\.is-done/.test(css));
+  ok('CSS: .stream-step.is-failed 存在',
+    /\.stream-step\.is-failed/.test(css));
+  ok('CSS: .stream-delta 存在',
+    /\.stream-delta\s*\{/.test(css));
+
   section('DONE');
   console.log(`\nResult: ${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
