@@ -252,16 +252,16 @@ function req(opts, body) {
   ok('HTML 含 #sidebar-close', /id="sidebar-close"/.test(html));
   ok('HTML 含 #sidebar-scrim (drawer 遮罩)', /id="sidebar-scrim"/.test(html));
   ok('HTML 含 #sidebar-new-chat (New Chat)', /id="sidebar-new-chat"/.test(html));
-  ok('Sidebar 6 个 nav items: home/files/skills/project/sessions/settings',
+  ok('Sidebar 5 个 nav items: home/project/files/skills/settings (UI-A8-3)',
     /data-go="home"/.test(html) && /data-go="files"/.test(html) &&
     /data-go="skills"/.test(html) && /data-go="project"/.test(html) &&
-    /data-go="sessions"/.test(html) && /data-go="settings"/.test(html));
-  ok('Sidebar 5 个核心 nav (File/Skill/Project/Session/Setting)',
-    /data-go="files"/.test(html) && /data-go="skills"/.test(html) &&
-    /data-go="project"/.test(html) && /data-go="sessions"/.test(html) &&
     /data-go="settings"/.test(html));
-  ok('Sidebar 导航顺序: File → Skill → Project → Session → Setting',
-    /data-go="files"[\s\S]{0,400}data-go="skills"[\s\S]{0,400}data-go="project"[\s\S]{0,400}data-go="sessions"[\s\S]{0,400}data-go="settings"/.test(html));
+  ok('Sidebar 4 个核心 nav (File/Skill/Project/Setting)',
+    /data-go="files"/.test(html) && /data-go="skills"/.test(html) &&
+    /data-go="project"/.test(html) &&
+    /data-go="settings"/.test(html));
+  ok('Sidebar 导航顺序: Chat → Project → File → Skill → Setting',
+    /data-go="home"[\s\S]{0,400}data-go="project"[\s\S]{0,400}data-go="files"[\s\S]{0,400}data-go="skills"[\s\S]{0,400}data-go="settings"/.test(html));
   ok('HTML 含 #sidebar-sessions (Recent Sessions 区域)', /id="sidebar-sessions"/.test(html));
   ok('CSS .app-sidebar mobile 默认隐藏', /\.app-sidebar\s*\{[^}]*display:\s*none/.test(css));
   ok('CSS .app-sidebar.is-open (drawer open)', /\.app-sidebar\.is-open/.test(css));
@@ -274,7 +274,6 @@ function req(opts, body) {
   ok('UI-A8-1: sidebar File (data-go="files") 可点击', /data-go="files"/.test(html));
   ok('UI-A8-1: sidebar Skill (data-go="skills") 可点击', /data-go="skills"/.test(html));
   ok('UI-A8-1: sidebar Project (data-go="project") 可点击', /data-go="project"/.test(html));
-  ok('UI-A8-1: sidebar Session (data-go="sessions") 可点击', /data-go="sessions"/.test(html));
   // Project 视图存在
   ok('HTML 含 [data-view="project"] 视图', /data-view="project"/.test(html));
   ok('CSS [data-view="project"].is-active 切换可见',
@@ -530,6 +529,214 @@ function req(opts, body) {
   ok('HTML 不引用 fonts.googleapis', !/fonts\.googleapis\.com/.test(allUi));
   ok('HTML 不引用 cdn.jsdelivr', !/cdn\.jsdelivr\.net/.test(allUi));
   ok('HTML 不引用 unpkg', !/unpkg\.com/.test(allUi));
+
+  // ============================================================
+  // [L] Phase UI-A8-3 · Project-first Session Sync
+  // ============================================================
+  section('L) Project-first Session Sync · UI-A8-3');
+
+  // [L.1] Sidebar 改造
+  ok('L.sidebar: HTML sidebar 含 Project nav (data-go="project")', /data-go="project"/.test(html));
+  ok('L.sidebar: sidebar 不再以 Session 为主菜单 (无 data-go="sessions" 顶部 nav)',
+    !/\bdata-go="sessions"/.test(html));
+  ok('L.sidebar: HTML 含 #sidebar-sessions (Recent Sessions 区域)', /id="sidebar-sessions"/.test(html));
+  ok('L.sidebar: Sidebar 5 个核心 nav: home/project/files/skills/settings',
+    /data-go="home"/.test(html) && /data-go="project"/.test(html) &&
+    /data-go="files"/.test(html) && /data-go="skills"/.test(html) &&
+    /data-go="settings"/.test(html));
+  ok('L.sidebar: Sidebar 顺序 Chat → Project → File → Skill → Setting',
+    /data-go="home"[\s\S]{0,400}data-go="project"[\s\S]{0,400}data-go="files"[\s\S]{0,400}data-go="skills"[\s\S]{0,400}data-go="settings"/.test(html));
+  ok('L.sidebar: mobile.js loadRecentSessions 拉 /api/mobile/sessions',
+    /loadRecentSessions[\s\S]{0,500}\/api\/mobile\/sessions/.test(js));
+  ok('L.sidebar: mobile.js renderSidebarRecentSessions 分组 last7Days/last30Days',
+    /renderSidebarRecentSessions[\s\S]{0,2000}last7Days[\s\S]{0,500}last30Days/.test(js));
+  ok('L.sidebar: mobile.js groupSessionsByTime 7天/30天 分组',
+    /function\s+groupSessionsByTime[\s\S]{0,800}day7[\s\S]{0,400}day30/.test(js));
+  ok('L.sidebar: mobile.js 每组最多 10 条 (slice(0, 10))',
+    /slice\(\s*0\s*,\s*10\s*\)/.test(js));
+  ok('L.sidebar: HTML 含 Sidebar Recent Sessions 标题', /sidebar-h[\s\S]{0,200}Recent Sessions/.test(html));
+  ok('L.sidebar: CSS .sidebar-section-head 分组标题',
+    /\.sidebar-section-head\s*\{/.test(css));
+  ok('L.sidebar: CSS .sidebar-empty 空状态',
+    /\.sidebar-empty\s*\{/.test(css));
+  ok('L.sidebar: mobile.js 点击 Recent Session 调用 continueSession',
+    /renderSidebarSessionItem[\s\S]{0,800}continueSession/.test(js));
+  ok('L.sidebar: mobile.js showTab 关闭 drawer (<1024px)',
+    /function\s+showTab[\s\S]{0,2000}innerWidth\s*<\s*1024[\s\S]{0,200}closeSidebar/.test(js));
+  ok('L.sidebar: 桌面端 sidebar 常驻 (@media min-width: 1024px)',
+    /@media\s*\(min-width:\s*1024px\)[\s\S]{0,300}\.app-sidebar[\s\S]{0,100}display:\s*flex/.test(css));
+
+  // [L.2] Project 页面
+  ok('L.project: HTML 含 [data-view="project"] 视图', /data-view="project"/.test(html));
+  ok('L.project: HTML 含 #project-title 标题 (h2 Project)', /id="project-title"/.test(html));
+  ok('L.project: HTML 含 #project-q 搜索框', /id="project-q"/.test(html));
+  ok('L.project: HTML 含 #project-refresh 刷新按钮', /id="project-refresh"/.test(html));
+  ok('L.project: HTML 含 #project-list 项目列表', /id="project-list"/.test(html));
+  ok('L.project: HTML 含 #project-detail 详情容器', /id="project-detail"/.test(html));
+  ok('L.project: HTML 含 #project-back 返回按钮', /id="project-back"/.test(html));
+  ok('L.project: HTML 含 #project-detail-name', /id="project-detail-name"/.test(html));
+  ok('L.project: HTML 含 #project-detail-cwd', /id="project-detail-cwd"/.test(html));
+  ok('L.project: HTML 含 #project-detail-meta', /id="project-detail-meta"/.test(html));
+  ok('L.project: HTML 含 #project-detail-list session 列表', /id="project-detail-list"/.test(html));
+  ok('L.project: HTML 含 #project-detail-resume 顶部 Continue 按钮', /id="project-detail-resume"/.test(html));
+  ok('L.project: mobile.js wireProject 绑定项目视图事件',
+    /function\s+wireProject[\s\S]{0,500}project-refresh[\s\S]{0,300}project-q[\s\S]{0,300}project-back/.test(js));
+  ok('L.project: mobile.js loadAllProjects 调 /api/mobile/sessions',
+    /loadAllProjects[\s\S]{0,500}\/api\/mobile\/sessions/.test(js));
+  ok('L.project: mobile.js groupSessionsByProject 按 cwd 聚合',
+    /function\s+groupSessionsByProject[\s\S]{0,800}normalizePathForKey[\s\S]{0,500}sessionCount/.test(js));
+  ok('L.project: mobile.js groupProjectsByTime 7天/30天/older 分组',
+    /function\s+groupProjectsByTime[\s\S]{0,800}last7Days[\s\S]{0,500}last30Days[\s\S]{0,500}older/.test(js));
+  ok('L.project: mobile.js renderProjectList 按 lastActiveAt desc 排序',
+    /groupSessionsByProject[\s\S]{0,2000}lastActiveAt[\s\S]{0,500}\)\s*-\s*\(\s*a\.lastActiveAt/.test(js));
+  ok('L.project: mobile.js renderProjectCard 显示 sessionCount/cwdLabel/running/failed/lastActiveAt',
+    /renderProjectCard[\s\S]{0,2000}sessionCount[\s\S]{0,500}runningCount[\s\S]{0,500}failedCount[\s\S]{0,500}lastActiveAt[\s\S]{0,2000}cwdLabel/.test(js));
+  ok('L.project: CSS .project-card 卡片样式 (min-height 72px)',
+    /\.project-card\s*\{[^}]*min-height:\s*72px/.test(css));
+  ok('L.project: CSS .project-card-title ellipsis',
+    /\.project-card-title[\s\S]{0,200}text-overflow:\s*ellipsis/.test(css));
+  ok('L.project: CSS .project-card-cwd ellipsis (路径过长)',
+    /\.project-card-cwd[\s\S]{0,200}text-overflow:\s*ellipsis/.test(css));
+  ok('L.project: CSS .project-group-head 分组标题样式',
+    /\.project-group-head\s*\{/.test(css));
+  ok('L.project: CSS .project-empty 空状态',
+    /\.project-empty\s*\{/.test(css));
+  ok('L.project: mobile.js 空状态显示 "暂无项目" / "没有匹配的项目"',
+    /暂无项目/.test(js) && /没有匹配的项目/.test(js));
+  ok('L.project: mobile.js sessionsForProject 按 projectId 过滤',
+    /function\s+sessionsForProject[\s\S]{0,500}projectId[\s\S]{0,500}normalizePathForKey/.test(js));
+  ok('L.project: mobile.js pickProject 找指定 project',
+    /function\s+pickProject[\s\S]{0,500}projectId[\s\S]{0,500}===[\s\S]{0,200}projectId/.test(js));
+
+  // [L.3] Project Detail
+  ok('L.detail: mobile.js openProjectDetail 进入详情',
+    /function\s+openProjectDetail[\s\S]{0,500}currentProject\s*=[\s\S]{0,500}sessionsForProject/.test(js));
+  ok('L.detail: mobile.js showProjectDetail 显示 sessions 列表',
+    /function\s+showProjectDetail[\s\S]{0,500}project-detail-name[\s\S]{0,500}project-detail-cwd[\s\S]{0,500}project-detail-list/.test(js));
+  ok('L.detail: mobile.js renderProjectSessionItem 渲染 session',
+    /function\s+renderProjectSessionItem[\s\S]{0,2000}project-session-title[\s\S]{0,500}project-session-status[\s\S]{0,500}project-session-continue/.test(js));
+  ok('L.detail: CSS .project-session-item 风格 (min-height 80px)',
+    /\.project-session\s*\{[^}]*min-height:\s*80px/.test(css));
+  ok('L.detail: CSS .project-session-title ellipsis',
+    /\.project-session-title[\s\S]{0,200}text-overflow:\s*ellipsis/.test(css));
+  ok('L.detail: CSS .project-session-continue 按钮',
+    /\.project-session-continue\s*\{/.test(css));
+  ok('L.detail: CSS .project-detail-resume 详情顶部 Continue',
+    /\.project-detail-resume\s*\{/.test(css));
+  ok('L.detail: mobile.js Continue → continueSession',
+    /project-session-continue[\s\S]{0,300}continueSession/.test(js));
+
+  // [L.4] Session 继续 (continueSession)
+  ok('L.continue: mobile.js continueSession 恢复 sessionId (S.sessionId = sid)',
+    /continueSession[\s\S]{0,2000}S\.sessionId\s*=\s*sid/.test(js));
+  ok('L.continue: continueSession 设置 agent (恢复 agentId)',
+    /continueSession[\s\S]{0,800}currentAgent\s*=\s*found\.id[\s\S]{0,300}AGENT_KEY/.test(js));
+  ok('L.continue: continueSession 恢复 cwd (CWD_KEY)',
+    /continueSession[\s\S]{0,800}S\.cwd\s*=\s*session\.cwd[\s\S]{0,300}CWD_KEY/.test(js));
+  ok('L.continue: continueSession 调 /api/mobile/sessions/:id/messages',
+    /continueSession[\s\S]{0,1500}\/api\/mobile\/sessions\/"\s*\+\s*encodeURIComponent\(sid\)\s*\+\s*"\/messages/.test(js));
+  ok('L.continue: continueSession 加载 messages 后 renderMessages',
+    /continueSession[\s\S]{0,2000}S\.messages\s*=\s*msgs\.map[\s\S]{0,500}renderMessages/.test(js));
+  ok('L.continue: continueSession 切到 home chat workspace (enterChatState + showTab("home"))',
+    /continueSession[\s\S]{0,2000}showTab\(\s*['"]home['"]\s*\)[\s\S]{0,800}enterChatState/.test(js));
+  ok('L.continue: continueSession 不创建新 session (不调 /sessions/draft)',
+    !/continueSession[\s\S]{0,3000}\/sessions\/draft/.test(js));
+  ok('L.continue: continueSession 不覆盖 agent 除非从历史 session 切换 (found 检查)',
+    /continueSession[\s\S]{0,500}session\.agentId[\s\S]{0,300}AGENTS\.find/.test(js));
+  ok('L.continue: continueSession 关闭 sidebar (closeSidebar)',
+    /continueSession[\s\S]{0,1000}closeSidebar\(\s*\)/.test(js));
+
+  // [L.5] Sessions 互通 (desktop / mobile / wechat source)
+  // 注入 mobile session + wechat session
+  // 后端读的是 MOBILE_SESSIONS_FILE = ~/.fanbox/mobile/sessions.json ({ sessions: {id: {...}} })
+  // 后端读的是 WECHAT_CONVOS_FILE = ~/.fanbox/wechat/conversations.json (扁平对象, 不用 sessions 包裹)
+  // 后端读的是 DESKTOP_INDEX_FILE = ~/.fanbox/sessions/index.json ({ sessions: {id: {...}} })
+  // sessionId 会被 makeId(source, agentId, cwd, createdAt) 重写, 所以匹配用 title/cwd/agentId/source
+  const mobileFile = path.join(process.env.FANBOX_MOBILE_DIR, 'sessions.json');
+  const cwdMobile = path.join(TMP_HOME, 'mobile-cwd');
+  fs.mkdirSync(cwdMobile, { recursive: true });
+  const cwdWechat = path.join(TMP_HOME, 'wechat-cwd');
+  fs.mkdirSync(cwdWechat, { recursive: true });
+  fs.writeFileSync(mobileFile, JSON.stringify({
+    sessions: {
+      'mobile-A83': {
+        agentId: 'codex', cwd: cwdMobile, title: 'mobile UI-A8-3 test',
+        status: 'running',
+        createdAt: now - 30000, updatedAt: now - 20000, lastActiveAt: now - 20000
+      }
+    }
+  }, null, 2), 'utf8');
+  // wechat 用 conversations.json, 扁平对象 { conversationId: { messages:[...], ... } }
+  // wechat reader 用 c.label 作为 title (不是 c.title)
+  fs.writeFileSync(path.join(process.env.FANBOX_WECHAT_DIR, 'conversations.json'), JSON.stringify({
+    'wechat-A83': {
+      label: 'wechat UI-A8-3 test', cwd: cwdWechat,
+      status: 'done',
+      createdAt: now - 80000, updatedAt: now - 60000, lastActiveAt: now - 60000,
+      messages: [{ text: 'claude please help', role: 'user' }]
+    }
+  }, null, 2), 'utf8');
+
+  // 重新拉 sessions 验证
+  const rSessA83 = await req({ path: '/api/mobile/sessions', method: 'GET', headers: auth });
+  const jSessA83 = JSON.parse(rSessA83.body);
+  const sessA83 = jSessA83.items || jSessA83.sessions || (Array.isArray(jSessA83) ? jSessA83 : []);
+  // sessionId 会被 makeId 重写,所以通过 title/cwd/agentId 来匹配
+  ok('L.sync: sessions 列表含 desktop 来源 (desktop UI-A7 test)',
+    sessA83.some(s => s.title === 'desktop UI-A7 test'));
+  ok('L.sync: sessions 列表含 mobile 来源 (mobile UI-A8-3 test)',
+    sessA83.some(s => s.title === 'mobile UI-A8-3 test'));
+  ok('L.sync: sessions 列表含 wechat 来源 (wechat UI-A8-3 test)',
+    sessA83.some(s => s.title === 'wechat UI-A8-3 test'));
+  // 检查 source 字段
+  const sourceCounts = sessA83.reduce((acc, s) => {
+    const k = s.source || 'unknown';
+    acc[k] = (acc[k] || 0) + 1;
+    return acc;
+  }, {});
+  ok('L.sync: sessions 列表含 source=desktop',
+    (sourceCounts.desktop || 0) >= 1);
+  ok('L.sync: sessions 列表含 source=mobile',
+    (sourceCounts.mobile || 0) >= 1);
+  ok('L.sync: sessions 列表含 source=wechat',
+    (sourceCounts.wechat || 0) >= 1);
+  ok('L.sync: 同 cwd sessions 至少 2 个 (desktop-A7 + mobile-A83 都用 cwdMock/mobile-cwd)',
+    sessA83.length >= 2);
+  // 后端确认不暴露 token
+  ok('L.sync: sessions 列表不含 token/cookie/apiKey',
+    !/("token"|"apiKey"|"cookie")\s*:\s*"[A-Za-z0-9]/.test(JSON.stringify(sessA83)));
+
+  // [L.6] 禁止项 (UI-A8-3 范围)
+  ok('L.forbid: Project 页不含 Delete 按钮', !/<button[^>]*>[\s\S]{0,40}Delete/i.test(html) || !/data-view="project"[\s\S]{0,8000}Delete/i.test(html));
+  ok('L.forbid: Project 页不含 Move/Rename/Upload 按钮',
+    !/data-view="project"[\s\S]{0,8000}(Move File|Rename File|Upload File)/i.test(html));
+  ok('L.forbid: Project 不改 token/auth/LAN', !/Project[\s\S]{0,200}token/i.test(js) || !/project[\s\S]{0,1000}authToken/.test(js));
+  ok('L.forbid: UI 不含 YOLO', !/\bYOLO\b/.test(allUi));
+  ok('L.forbid: UI 不含 Team Mode', !/Team\s*Mode/i.test(allUi));
+  ok('L.forbid: UI 不暴露 raw stdout', !/raw\s*stdout/i.test(allUi));
+  ok('L.forbid: UI 不暴露 .jsonl', !/\.jsonl/.test(allUi));
+  ok('L.forbid: UI 不暴露 claudeSession/codexSession 字段', !/(claudeSession|codexSession)\s*:/.test(allUi));
+  ok('L.forbid: UI 不暴露 Bearer/sk-', !/Bearer\s+[A-Za-z0-9]|sk-[a-zA-Z0-9]{8,}/.test(JSON.stringify(sessA83)));
+
+  // [L.7] Home 单输入框未破坏
+  ok('L.home: 仍只有 1 个 #home-input', (html.match(/id="home-input"/g) || []).length === 1);
+  ok('L.home: 仍只有 1 个 #home-send', (html.match(/id="home-send"/g) || []).length === 1);
+  ok('L.home: mobile.js 不引用 *-sticky 元素', !/home-(input|send|composer|status-pill|skill-button)-sticky/.test(js));
+
+  // [L.8] Files / Skills 数据源未改
+  ok('L.files: Files 仍用 data.items || data.files', /data\.items\s*\|\|\s*data\.files/.test(js));
+  ok('L.files: Files 仍调 /api/mobile/files?path=', /\/api\/mobile\/files\?path=/.test(js));
+  ok('L.files: Files 仍调 /api/mobile/roots', /\/api\/mobile\/roots/.test(js));
+  ok('L.skills: Skills 仍调 /api/mobile/skills', /loadSkills[\s\S]{0,500}\/api\/mobile\/skills/.test(js));
+
+  // [L.9] cwd 联动
+  ok('L.cwd: Files Ask AI in this folder 调 /api/mobile/context/cwd',
+    /openAgentInCurrentFolder[\s\S]{0,500}\/api\/mobile\/context\/cwd/.test(js));
+  ok('L.cwd: Files Ask AI in this folder 切回 home',
+    /openAgentInCurrentFolder[\s\S]{0,800}showTab\(\s*['"]home['"]\s*\)/.test(js));
+  ok('L.cwd: continueSession 恢复后 send 用同一个 session (doSend 用 S.sessionId)',
+    /doSend[\s\S]{0,2000}sessionId:\s*S\.sessionId/.test(js) &&
+    /continueSession[\s\S]{0,2000}S\.sessionId\s*=\s*sid/.test(js));
 
   // ============================================================
   // Done

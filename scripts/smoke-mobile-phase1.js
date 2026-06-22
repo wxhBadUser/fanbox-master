@@ -77,14 +77,15 @@ function req(opts, body) {
   const rIdx = await req({ path: '/mobile', method: 'GET', headers: auth });
   ok('GET /mobile 200', rIdx.status === 200, rIdx.body.slice(0, 120));
   ok('GET /mobile content-type text/html', /^text\/html/.test(rIdx.headers['content-type'] || ''));
-  // Phase UI-A7：tab 改为 sidebar 导航（home/files/skills/sessions/settings）
+  // Phase UI-A7/UI-A8-3：tab 改为 sidebar 导航 (home/files/skills/sessions/settings) → UI-A8-3 改为 home/project/files/skills/settings
   const viewPaneMatch = (rIdx.body.match(/data-view="[a-z]+"/g) || []).map(s => s.match(/"([^"]+)"/)[1]);
   ok('GET /mobile 含 5 view pane (UI-A7)',
     viewPaneMatch.length >= 4 && viewPaneMatch.indexOf('home') >= 0 && viewPaneMatch.indexOf('files') >= 0 && viewPaneMatch.indexOf('skills') >= 0,
     'views=' + viewPaneMatch.join(','));
   const goBtnMatch = (rIdx.body.match(/data-go="[a-z]+"/g) || []).map(s => s.match(/"([^"]+)"/)[1]);
-  ok('GET /mobile 含 5 sidebar nav (UI-A7)',
-    goBtnMatch.includes('home') && goBtnMatch.includes('files') && goBtnMatch.includes('skills') && goBtnMatch.includes('sessions') && goBtnMatch.includes('settings'),
+  // UI-A8-3：Project 是主入口，Session 不再是顶级 nav
+  ok('GET /mobile 含 5 sidebar nav (UI-A8-3)',
+    goBtnMatch.includes('home') && goBtnMatch.includes('project') && goBtnMatch.includes('files') && goBtnMatch.includes('skills') && goBtnMatch.includes('settings'),
     'go=' + goBtnMatch.join(','));
   ok('GET /mobile 含 css link', /\/mobile\/mobile\.css/.test(rIdx.body));
   ok('GET /mobile 含 js script', /\/mobile\/mobile\.js/.test(rIdx.body));
@@ -296,13 +297,14 @@ function req(opts, body) {
   // [9] UI 自检：sidebar nav / Manus-like Home / ChatGPT-like Agent / Flow
   // ============================================================
   section('9) UI 自检 (UI-A7)');
-  // 兼容 Phase UI-A7/UI-A8-1：view 名集合（UI-A8-1 增加 project）
+  // 兼容 Phase UI-A7/UI-A8-1/UI-A8-3：view 名集合（UI-A8-1 增加 project；UI-A8-3 session view 保留作 legacy alias）
   const viewRegex = /data-view="(home|files|skills|project|sessions|settings)"/g;
   const goRegex = /data-go="(home|files|skills|project|sessions|settings)"/g;
   const viewCount = (html.match(viewRegex) || []).length;
   const goCount = (html.match(goRegex) || []).length;
   ok('HTML 含 6 data-view pane (UI-A8-1)', viewCount >= 6, 'count=' + viewCount);
-  ok('HTML 含 6 sidebar nav (UI-A8-1)', goCount === 6, 'count=' + goCount);
+  // UI-A8-3：Project 成为主入口，session 不再是顶级 nav 按钮 (5 个 nav: home/project/files/skills/settings)
+  ok('HTML 含 5 sidebar nav (UI-A8-3)', goCount === 5, 'count=' + goCount);
   ok('HTML 含 Manus-like Home (home-hero + home-input)', /home-hero/.test(html) && /id="home-input"/.test(html));
   ok('HTML 含 ChatGPT-like 消息区 (UI-A8-1 单一 #home-messages)', /id="home-messages"/.test(html) && !/id="home-chat"/.test(html));
   ok('HTML 含 Files 视图 (files-back + files-list)', /id="files-back"/.test(html) && /id="files-list"/.test(html));

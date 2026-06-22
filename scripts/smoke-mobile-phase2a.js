@@ -379,21 +379,23 @@ function req(opts, body) {
   ok('HTML 含 Home sidebar-nav', /data-go="home"/.test(html));
   ok('HTML 含 Files sidebar-nav', /data-go="files"/.test(html));
   ok('HTML 含 Skills sidebar-nav', /data-go="skills"/.test(html));
-  ok('HTML 含 Sessions sidebar-nav', /data-go="sessions"/.test(html));
+  // UI-A8-3: Session 不再是顶级 nav, Project 是主入口
+  ok('HTML 含 Project sidebar-nav (UI-A8-3)', /data-go="project"/.test(html));
   ok('HTML 含 Settings sidebar-nav', /data-go="settings"/.test(html));
   // 5 views
   ok('HTML 含 Home view', /data-view="home"/.test(html));
   ok('HTML 含 Files view', /data-view="files"/.test(html));
   ok('HTML 含 Skills view', /data-view="skills"/.test(html));
-  ok('HTML 含 Sessions view', /data-view="sessions"/.test(html));
+  // UI-A8-3: sessions view 保留作 legacy alias
+  ok('HTML 含 Sessions view (legacy alias)', /data-view="sessions"/.test(html));
   ok('HTML 含 Settings view', /data-view="settings"/.test(html));
   ok('HTML 含 Project view (UI-A8-1)', /data-view="project"/.test(html));
   // 旧 data-tab 全无
   ok('HTML 不再含 data-tab=', !/data-tab=/.test(html));
   ok('HTML 不再含 data-tab-btn=', !/data-tab-btn=/.test(html));
-  // 6 sidebar items 数量 (UI-A8-1 加 project)
-  const goMatches = html.match(/data-go="(home|files|skills|project|sessions|settings)"/g) || [];
-  ok('HTML 恰好 6 个 sidebar nav (UI-A8-1)', goMatches.length === 6, 'count=' + goMatches.length);
+  // UI-A8-3 sidebar items 数量 (5 个: home/project/files/skills/settings)
+  const goMatches = html.match(/data-go="(home|files|skills|project|settings)"/g) || [];
+  ok('HTML 恰好 5 个 sidebar nav (UI-A8-3)', goMatches.length === 5, 'count=' + goMatches.length);
 
   // Home: Manus-like hero + 大输入框 + task chips (UI-A8-1 单一 composer)
   ok('Home 含 home-hero (Manus-like hero)', /id="home-hero"/.test(html));

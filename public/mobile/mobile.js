@@ -303,6 +303,9 @@ const S = {
   fileHistory:  [],   // navigation stack for back button
   skills:      [],
   allSessions: [],
+  allProjects: [],          // Phase UI-A8-3: sessions 聚合后的 projects
+  currentProject: null,     // Phase UI-A8-3: 当前 Project Detail
+  currentProjectSessions: null, // Phase UI-A8-3: 当前 Project 下所有 sessions
   running:     false,
   currentSkill: null,
   filesPreview: null,
@@ -438,7 +441,7 @@ function init () {
   wireAgentDropdown();
   wireFiles();
   wireSkills();
-  wireSessions();
+  wireProject();
   wireTopbar();
 
   // inject nav icons into sidebar
@@ -460,7 +463,8 @@ function wireTopbar () {
   if (refresh) refresh.addEventListener("click", () => {
     if (S.currentTab === "files") loadFiles();
     else if (S.currentTab === "skills") loadSkills();
-    else if (S.currentTab === "sessions") loadAllSessions();
+    else if (S.currentTab === "project") loadAllProjects();
+    else if (S.currentTab === "sessions") loadAllSessions();  // legacy alias
   });
 }
 
@@ -1330,120 +1334,398 @@ function filterSkills () {
 }
 
 /* =========================================================
-   Sessions View
+   Project View · Phase UI-A8-3 (以 Project 为主菜单聚合 sessions)
    ========================================================= */
-function wireSessions () {
-  $("sessions-refresh").addEventListener("click", loadAllSessions);
+function wireProject () {
+  $("project-refresh").addEventListener("click", loadAllProjects);
+  $("project-q").addEventListener("input", debounce(filterProjects, 200));
+  $("project-back").addEventListener("click", () => {
+    S.currentProject = null;
+    S.currentProjectSessions = null;
+    showProjectList();
+  });
+  $("project-detail-resume").addEventListener("click", () => {
+    if (S.currentProject && S.currentProject.lastSession) continueSession(S.currentProject.lastSession);
+  });
 }
 
+/** 把路径归一化做 projectKey：统一 \ → /，去尾斜杠（保留大小写，盘符区分） */
+function normalizePathForKey (p) {
+  if (!p) return "";
+  let s = String(p).replace(/\\/g, "/");
+  s = s.replace(/\/+$/, "");
+  return s;
+}
+
+/** 聚合 sessions -> projects (Phase UI-A8-3)
+ *  projectKey = normalizePathForKey(cwd || cwdLabel || 'unknown')
+ *  排序：lastActiveAt desc
+ *  status summary: running / failed / done counts
+ */
+function groupSessionsByProject (sessions) {
+  if (!Array.isArray(sessions)) return [];
+  const map = new Map();
+  for (const s of sessions) {
+    const cwd = (s && typeof s.cwd === 'string') ? s.cwd : '';
+    const cwdLabel = (s && typeof s.cwdLabel === 'string') ? s.cwdLabel : '';
+    const key = normalizePathForKey(cwd || cwdLabel || 'unknown') || 'unknown';
+    let p = map.get(key);
+    if (!p) {
+      p = {
+        projectId: key,
+        cwd: cwd || cwdLabel || '',
+        cwdLabel: cwdLabel || (cwd ? cwd.split(/[/\\]/).filter(Boolean).pop() : '未知项目'),
+        lastActiveAt: 0,
+        sessionCount: 0,
+        runningCount: 0,
+        failedCount: 0,
+        doneCount: 0,
+        lastSession: null,
+        lastAgent: null,
+        sources: new Set(),
+        sessions: []
+      };
+      map.set(key, p);
+    }
+    p.sessionCount += 1;
+    p.sessions.push(s);
+    p.sources.add(s.source || 'unknown');
+    const st = (s.status || '').toLowerCase();
+    if (st === 'running' || st === 'in_progress' || st === 'active') p.runningCount += 1;
+    else if (st === 'failed' || st === 'error') p.failedCount += 1;
+    else if (st === 'done' || st === 'completed' || st === 'succeeded') p.doneCount += 1;
+    const last = Number(s.lastActiveAt) || Number(s.updatedAt) || Number(s.createdAt) || 0;
+    if (last > p.lastActiveAt) {
+      p.lastActiveAt = last;
+      p.lastSession = s;
+      p.lastAgent = s.agentId || null;
+    }
+  }
+  const list = Array.from(map.values());
+  list.sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0));
+  for (const p of list) p.sources = Array.from(p.sources);
+  return list;
+}
+
+/** 按时间分组：last7Days / last30Days / older */
+function groupProjectsByTime (projects, now) {
+  const ref = Number.isFinite(now) ? now : Date.now();
+  const day7 = 7 * 24 * 60 * 60 * 1000;
+  const day30 = 30 * 24 * 60 * 60 * 1000;
+  const out = { last7Days: [], last30Days: [], older: [] };
+  if (!Array.isArray(projects)) return out;
+  for (const p of projects) {
+    const t = Number(p.lastActiveAt) || 0;
+    if (t >= ref - day7) out.last7Days.push(p);
+    else if (t >= ref - day30) out.last30Days.push(p);
+    else out.older.push(p);
+  }
+  return out;
+}
+
+/** 从 projects 中挑出指定 projectId */
+function pickProject (projectId, projects) {
+  if (!projectId) return null;
+  for (const p of (projects || [])) {
+    if (p.projectId === projectId) return p;
+  }
+  return null;
+}
+
+/** 从 sessions 列表筛出属于某 project 的所有 session */
+function sessionsForProject (projectId, sessions) {
+  if (!projectId || !Array.isArray(sessions)) return [];
+  const key = normalizePathForKey(projectId);
+  return sessions.filter(s => {
+    const cwd = (s && typeof s.cwd === 'string') ? s.cwd : '';
+    const cwdLabel = (s && typeof s.cwdLabel === 'string') ? s.cwdLabel : '';
+    const k = normalizePathForKey(cwd || cwdLabel || 'unknown') || 'unknown';
+    return k === key;
+  });
+}
+
+/** 按时间分组的 sessions（sidebar Recent Sessions 用） */
+function groupSessionsByTime (sessions, now) {
+  const ref = Number.isFinite(now) ? now : Date.now();
+  const day7 = 7 * 24 * 60 * 60 * 1000;
+  const day30 = 30 * 24 * 60 * 60 * 1000;
+  const out = { last7Days: [], last30Days: [], older: [] };
+  if (!Array.isArray(sessions)) return out;
+  for (const s of sessions) {
+    const t = Number(s.lastActiveAt) || Number(s.updatedAt) || Number(s.createdAt) || 0;
+    if (t >= ref - day7) out.last7Days.push(s);
+    else if (t >= ref - day30) out.last30Days.push(s);
+    else out.older.push(s);
+  }
+  return out;
+}
+
+async function loadAllProjects () {
+  const listEl = $("project-list");
+  const detailEl = $("project-detail");
+  if (detailEl) detailEl.hidden = true;
+  if (listEl) listEl.hidden = false;
+  listEl.innerHTML = `<div class="skeleton" style="height:80px;margin-bottom:12px"></div><div class="skeleton" style="height:80px;margin-bottom:12px"></div>`;
+  $("project-title").textContent = "Project";
+  try {
+    const data = await api("/api/mobile/sessions?limit=200");
+    if (!data) return;
+    const items = data.items || data.sessions || [];
+    S.allSessions = items;
+    const projects = groupSessionsByProject(items);
+    S.allProjects = projects;
+    renderProjectList(projects);
+  } catch (e) {
+    listEl.innerHTML = `<div class="project-empty"><div class="project-empty-strong">加载失败</div>${htmlEscape(e.message)}</div>`;
+  }
+}
+
+function renderProjectList (projects, opts) {
+  opts = opts || {};
+  const listEl = $("project-list");
+  listEl.innerHTML = "";
+  const q = (opts.q || "").toLowerCase().trim();
+  let list = projects;
+  if (q) {
+    list = list.filter(p =>
+      (p.cwdLabel || "").toLowerCase().includes(q) ||
+      (p.cwd || "").toLowerCase().includes(q) ||
+      (p.lastAgent || "").toLowerCase().includes(q)
+    );
+  }
+  if (!list || list.length === 0) {
+    listEl.innerHTML = `<div class="project-empty"><div class="project-empty-strong">${q ? "没有匹配的项目" : "暂无项目"}</div>${q ? "试试别的关键词" : "通过 Files 进入一个文件夹，然后点击 Ask AI in this folder"}</div>`;
+    return;
+  }
+  const groups = groupProjectsByTime(list);
+  const sections = [
+    { key: "last7Days",  label: "最近 7 天" },
+    { key: "last30Days", label: "最近 30 天" },
+    { key: "older",      label: "更早" }
+  ];
+  for (const sec of sections) {
+    const arr = groups[sec.key];
+    if (!arr || arr.length === 0) continue;
+    const head = el("div", "project-group-head");
+    head.textContent = sec.label;
+    listEl.appendChild(head);
+    for (const p of arr) {
+      listEl.appendChild(renderProjectCard(p));
+    }
+  }
+}
+
+function renderProjectCard (p) {
+  const card = el("button", "project-card");
+  card.setAttribute("role", "listitem");
+  card.setAttribute("data-project-id", p.projectId);
+  const agentLabel = agentLabelById(p.lastAgent);
+  const summary = [];
+  if (p.sessionCount) summary.push(`${p.sessionCount} sessions`);
+  if (p.runningCount) summary.push(`${p.runningCount} running`);
+  if (p.failedCount) summary.push(`${p.failedCount} failed`);
+  if (p.lastActiveAt) summary.push(`Last active ${timeAgo(p.lastActiveAt)}`);
+  const sourceLabels = (p.sources || []).map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(" · ");
+  card.innerHTML =
+    `<span class="project-card-icon">${FILE_ICONS.folder}</span>` +
+    `<span class="project-card-body">` +
+      `<span class="project-card-title">${htmlEscape(p.cwdLabel || "未知项目")}</span>` +
+      `<span class="project-card-cwd">${htmlEscape(p.cwd || "")}</span>` +
+      `<span class="project-card-meta">${htmlEscape(summary.join(" · "))}${sourceLabels ? " · " + htmlEscape(sourceLabels) : ""}</span>` +
+    `</span>` +
+    `<span class="project-card-extra">` +
+      (p.lastAgent ? `<span class="project-card-agent">${htmlEscape(agentLabel)}</span>` : "") +
+      `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>` +
+    `</span>`;
+  card.addEventListener("click", () => openProjectDetail(p));
+  return card;
+}
+
+function openProjectDetail (project) {
+  S.currentProject = project;
+  const sessions = sessionsForProject(project.projectId, S.allSessions || []);
+  S.currentProjectSessions = sessions;
+  showProjectDetail(project, sessions);
+}
+
+function showProjectDetail (project, sessions) {
+  $("project-list").hidden = true;
+  const detailEl = $("project-detail");
+  detailEl.hidden = false;
+  $("project-title").textContent = "Project";
+  $("project-detail-name").textContent = project.cwdLabel || "未知项目";
+  $("project-detail-cwd").textContent = project.cwd || "";
+  const summary = `${project.sessionCount} sessions · Last active ${project.lastActiveAt ? timeAgo(project.lastActiveAt) : "—"}`;
+  $("project-detail-meta").textContent = summary;
+  const list = $("project-detail-list");
+  list.innerHTML = "";
+  if (!sessions || sessions.length === 0) {
+    list.innerHTML = `<div class="project-empty"><div class="project-empty-strong">暂无会话</div>从 Files 进入此文件夹然后点 Ask AI in this folder 即可创建会话</div>`;
+    return;
+  }
+  const sorted = sessions.slice().sort((a, b) => (Number(b.lastActiveAt) || 0) - (Number(a.lastActiveAt) || 0));
+  for (const s of sorted) {
+    list.appendChild(renderProjectSessionItem(s));
+  }
+}
+
+function renderProjectSessionItem (s) {
+  const row = el("div", "project-session");
+  const agentLabel = agentLabelById(s.agentId);
+  const status = s.status || "unknown";
+  const preview = (s.summary && s.summary.lastMessagePreview) || s.title || "";
+  const source = s.source || "unknown";
+  const sourceLabel = source.charAt(0).toUpperCase() + source.slice(1);
+  row.innerHTML =
+    `<div class="project-session-head">` +
+      `<span class="project-session-title">${htmlEscape(s.title || "未命名会话")}</span>` +
+      `<span class="project-session-source is-${source}">${htmlEscape(sourceLabel)}</span>` +
+    `</div>` +
+    `<p class="project-session-preview">${htmlEscape(truncate(preview, 100))}</p>` +
+    `<div class="project-session-foot">` +
+      `<span class="project-session-meta-row">` +
+        `<span class="project-session-agent">${htmlEscape(agentLabel)}</span>` +
+        `<span class="project-session-status is-${status}">${htmlEscape(status)}</span>` +
+        (s.lastActiveAt ? `<span class="project-session-time">${htmlEscape(timeAgo(s.lastActiveAt))}</span>` : "") +
+      `</span>` +
+      `<button class="project-session-continue" type="button">Continue</button>` +
+    `</div>`;
+  row.addEventListener("click", ev => {
+    continueSession(s);
+  });
+  const btn = row.querySelector(".project-session-continue");
+  if (btn) btn.addEventListener("click", ev => { ev.stopPropagation(); continueSession(s); });
+  return row;
+}
+
+function showProjectList () {
+  $("project-detail").hidden = true;
+  $("project-list").hidden = false;
+  $("project-title").textContent = "Project";
+}
+
+function filterProjects () {
+  renderProjectList(S.allProjects || [], { q: $("project-q").value || "" });
+}
+
+/** agent id -> label（从 AGENTS 数组找） */
+function agentLabelById (id) {
+  if (!id) return "Unknown";
+  for (const a of AGENTS) {
+    if (a.id === id) return a.label;
+  }
+  return id;
+}
+
+/** 继续某个历史 session：恢复 sessionId / agentId / cwd，加载 messages，切到 Home Chat Workspace */
+async function continueSession (session) {
+  if (!session) return;
+  const sid = session.sessionId || session.id;
+  if (!sid) return;
+  // 1) 设置 agent / cwd / sessionId
+  if (session.agentId) {
+    const found = AGENTS.find(a => a.id === session.agentId);
+    if (found) {
+      S.currentAgent = found.id;
+      localStorage.setItem(AGENT_KEY, found.id);
+      updateAgentDropdownLabel();
+    } else if (session.agentId === "claude" || session.agentId === "claude_code") {
+      S.currentAgent = "claude_code";
+      localStorage.setItem(AGENT_KEY, "claude_code");
+      updateAgentDropdownLabel();
+    }
+  }
+  if (session.cwd) {
+    S.cwd = session.cwd;
+    localStorage.setItem(CWD_KEY, session.cwd);
+    updateTopbarCwd();
+  }
+  S.sessionId = sid;
+  // 2) 关闭侧边栏 + 切到 Home
+  closeSidebar();
+  showTab("home");
+  // 3) 加载 messages
+  S.messages = [];
+  renderMessages();
+  try {
+    const data = await api("/api/mobile/sessions/" + encodeURIComponent(sid) + "/messages?limit=200");
+    if (!data) return;
+    const msgs = Array.isArray(data) ? data : (data.messages || []);
+    S.messages = msgs.map(m => ({
+      role: m.role === "user" ? "user" : (m.role === "system" ? "system" : "assistant"),
+      content: m.text || m.content || ""
+    }));
+  } catch (e) {
+    S.messages.push({ role: "system", content: "无法加载历史消息: " + (e.message || e) });
+  }
+  enterChatState();
+  renderMessages();
+  scrollMessages();
+  // 4) 重新加载 sidebar recent sessions
+  renderSidebarRecentSessions(S.allSessions || []);
+}
+
+/** 加载并渲染 Recent Sessions（分 7/30 天） */
 async function loadRecentSessions () {
   try {
-    const data = await api("/api/mobile/sessions");
+    const data = await api("/api/mobile/sessions?limit=200");
     if (!data) return;
-    const sessions = Array.isArray(data) ? data : (data.sessions || []);
+    const sessions = data.items || data.sessions || [];
     S.allSessions = sessions;
-    renderSidebarSessions(sessions.slice(0, 8));
+    renderSidebarRecentSessions(sessions);
   } catch (e) {
     // silently fail
   }
 }
 
-async function loadAllSessions () {
-  const listEl = $("sessions-list");
-  listEl.innerHTML = `<div class="skeleton" style="height:64px;margin-bottom:8px"></div><div class="skeleton" style="height:64px;margin-bottom:8px"></div>`;
-
-  try {
-    const data = await api("/api/mobile/sessions");
-    if (!data) return;
-    const sessions = Array.isArray(data) ? data : (data.sessions || []);
-    S.allSessions = sessions;
-    renderSessionsList(sessions);
-  } catch (e) {
-    listEl.innerHTML = `<div class="session-empty"><div class="session-empty-strong">加载失败</div>${htmlEscape(e.message)}</div>`;
-  }
-}
-
-function renderSidebarSessions (sessions) {
+function renderSidebarRecentSessions (sessions) {
   const el = $("sidebar-sessions");
+  if (!el) return;
   el.innerHTML = "";
-  if (!sessions.length) {
-    el.innerHTML = `<div class="sidebar-empty">暂无会话</div>`;
+  if (!sessions || sessions.length === 0) {
+    el.innerHTML = `<div class="sidebar-empty">No recent sessions</div>`;
     return;
   }
-  sessions.forEach(s => {
-    const btn = el("button", "sidebar-session" + (S.sessionId === s.id ? " is-active" : ""));
-    btn.setAttribute("role", "listitem");
-    const status = s.status || "done";
-    const preview = truncate(s.lastMessage || s.title || "会话", 30);
-    const agentLabel = AGENTS.find(a => a.id === s.agent)?.label || s.agent || "";
-    btn.innerHTML =
-      `<span class="sidebar-session-icon">${NAV_ICONS.chat}</span>` +
-      `<span class="sidebar-session-body">` +
-        `<span class="sidebar-session-title">${htmlEscape(s.title || "未命名会话")}</span>` +
-        `<span class="sidebar-session-meta">${agentLabel} · ${timeAgo(s.updatedAt || s.updated)}</span>` +
-      `</span>` +
-      `<span class="sidebar-session-status is-${status}"></span>`;
-    btn.addEventListener("click", () => resumeSession(s));
-    el.appendChild(btn);
-  });
-}
-
-function renderSessionsList (sessions) {
-  const listEl = $("sessions-list");
-  listEl.innerHTML = "";
-  if (!sessions.length) {
-    listEl.innerHTML = `<div class="session-empty"><div class="session-empty-strong">暂无会话</div>开始一个新对话</div>`;
-    return;
-  }
-  sessions.forEach(s => {
-    const status = s.status || "done";
-    const preview = s.lastMessage || s.title || "";
-    const agentLabel = AGENTS.find(a => a.id === s.agent)?.label || s.agent || "";
-    const sourceClass = s.source === "mobile" ? "is-mobile" : "is-desktop";
-    const card = el("button", "session-card" + (S.sessionId === s.id ? " is-active" : ""));
-    card.innerHTML =
-      `<div class="session-head">` +
-        `<span class="session-title">${htmlEscape(s.title || "未命名会话")}</span>` +
-        `<span class="session-source ${sourceClass}">${s.source === "mobile" ? "Mobile" : "Desktop"}</span>` +
-      `</div>` +
-      `<p class="session-preview">${htmlEscape(truncate(preview, 100))}</p>` +
-      `<div class="session-foot">` +
-        `<span class="session-meta-row">` +
-          `<span>${htmlEscape(agentLabel)}</span>` +
-          (s.cwd ? `<span>· ${htmlEscape(truncate(s.cwd, 20))}</span>` : "") +
-        `</span>` +
-        `<span class="session-status is-${status}">${status.replace("_", " ")}</span>` +
-      `</div>`;
-    card.addEventListener("click", () => resumeSession(s));
-    listEl.appendChild(card);
-  });
-}
-
-async function resumeSession (session) {
-  closeSidebar();
-  S.sessionId = session.id;
-  S.cwd = session.cwd || null;
-  if (S.cwd) localStorage.setItem(CWD_KEY, S.cwd);
-  updateTopbarCwd();
-
-  // load messages
-  try {
-    const data = await api(`/api/mobile/sessions/${session.id}/messages`);
-    if (data) {
-      S.messages = Array.isArray(data) ? data : (data.messages || []);
-      if (S.messages.length > 0) {
-        enterChatState();
-        renderMessages();
-        scrollMessages();
-      }
+  // 排序按 lastActiveAt desc
+  const sorted = sessions.slice().sort((a, b) => (Number(b.lastActiveAt) || 0) - (Number(a.lastActiveAt) || 0));
+  const groups = groupSessionsByTime(sorted);
+  const sections = [
+    { key: "last7Days",  label: "最近 7 天" },
+    { key: "last30Days", label: "最近 30 天" }
+  ];
+  let added = 0;
+  for (const sec of sections) {
+    const arr = groups[sec.key];
+    if (!arr || arr.length === 0) continue;
+    const head = el("div", "sidebar-section-head");
+    head.textContent = sec.label;
+    el.appendChild(head);
+    for (const s of arr.slice(0, 10)) {
+      el.appendChild(renderSidebarSessionItem(s));
+      added++;
     }
-  } catch (e) {
-    // fallback: just switch to home
   }
+  if (added === 0) {
+    el.innerHTML = `<div class="sidebar-empty">No recent sessions</div>`;
+  }
+}
 
-  // update sidebar sessions
-  renderSidebarSessions(S.allSessions.slice(0, 8));
-  showTab("home");
+function renderSidebarSessionItem (s) {
+  const wrap = el("button", "sidebar-session" + (S.sessionId === s.sessionId ? " is-active" : ""));
+  wrap.setAttribute("role", "listitem");
+  const status = s.status || "done";
+  const title = s.title || s.cwdLabel || "未命名会话";
+  const agentLabel = agentLabelById(s.agentId);
+  const time = s.lastActiveAt || s.updatedAt || s.createdAt || 0;
+  wrap.innerHTML =
+    `<span class="sidebar-session-icon">${NAV_ICONS.chat}</span>` +
+    `<span class="sidebar-session-body">` +
+      `<span class="sidebar-session-title">${htmlEscape(title)}</span>` +
+      `<span class="sidebar-session-meta">${htmlEscape(agentLabel)} · ${htmlEscape(timeAgo(time))}</span>` +
+    `</span>` +
+    `<span class="sidebar-session-status is-${status}"></span>`;
+  wrap.addEventListener("click", () => continueSession(s));
+  return wrap;
 }
 
 /* =========================================================
