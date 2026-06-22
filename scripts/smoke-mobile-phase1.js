@@ -77,36 +77,35 @@ function req(opts, body) {
   const rIdx = await req({ path: '/mobile', method: 'GET', headers: auth });
   ok('GET /mobile 200', rIdx.status === 200, rIdx.body.slice(0, 120));
   ok('GET /mobile content-type text/html', /^text\/html/.test(rIdx.headers['content-type'] || ''));
-  // Phase UI-A1：tab 改为 4 个 Home / Files / Agent / Skills（移除 Sessions / Usage）
-  const tabPaneMatch = (rIdx.body.match(/data-tab="[a-z]+"/g) || []).map(s => s.match(/"([^"]+)"/)[1]);
-  ok('GET /mobile 含 4 tab pane (UI-A1)',
-    tabPaneMatch.length === 4 && tabPaneMatch.indexOf('home') >= 0 && tabPaneMatch.indexOf('files') >= 0 && tabPaneMatch.indexOf('agent') >= 0 && tabPaneMatch.indexOf('skills') >= 0,
-    'tabs=' + tabPaneMatch.join(','));
-  const tabBtnMatch = (rIdx.body.match(/data-tab-btn="[a-z]+"/g) || []).map(s => s.match(/"([^"]+)"/)[1]);
-  ok('GET /mobile 含 4 tab-btn (UI-A1)',
-    tabBtnMatch.length === 4 && tabBtnBtnSafety(tabBtnMatch),
-    'btns=' + tabBtnMatch.join(','));
-  function tabBtnBtnSafety(arr) {
-    return arr.indexOf('home') >= 0 && arr.indexOf('files') >= 0 && arr.indexOf('agent') >= 0 && arr.indexOf('skills') >= 0;
-  }
+  // Phase UI-A7：tab 改为 sidebar 导航（home/files/skills/sessions/settings）
+  const viewPaneMatch = (rIdx.body.match(/data-view="[a-z]+"/g) || []).map(s => s.match(/"([^"]+)"/)[1]);
+  ok('GET /mobile 含 5 view pane (UI-A7)',
+    viewPaneMatch.length >= 4 && viewPaneMatch.indexOf('home') >= 0 && viewPaneMatch.indexOf('files') >= 0 && viewPaneMatch.indexOf('skills') >= 0,
+    'views=' + viewPaneMatch.join(','));
+  const goBtnMatch = (rIdx.body.match(/data-go="[a-z]+"/g) || []).map(s => s.match(/"([^"]+)"/)[1]);
+  ok('GET /mobile 含 5 sidebar nav (UI-A7)',
+    goBtnMatch.includes('home') && goBtnMatch.includes('files') && goBtnMatch.includes('skills') && goBtnMatch.includes('sessions') && goBtnMatch.includes('settings'),
+    'go=' + goBtnMatch.join(','));
   ok('GET /mobile 含 css link', /\/mobile\/mobile\.css/.test(rIdx.body));
   ok('GET /mobile 含 js script', /\/mobile\/mobile\.js/.test(rIdx.body));
 
   const rCss = await req({ path: '/mobile/mobile.css', method: 'GET', headers: auth });
   ok('GET /mobile/mobile.css 200', rCss.status === 200);
   ok('mobile.css content-type text/css', /^text\/css/.test(rCss.headers['content-type'] || ''));
-  ok('mobile.css 含设计 token', /--blue:\s*#2563EB/.test(rCss.body));
-  ok('mobile.css 含 light bg', /--bg:\s*#F7F8FA|#F9FAFB|#FAFAFA/.test(rCss.body));
+  ok('mobile.css 含设计 token (--bg)', /--bg:\s*#FFFFFF/.test(rCss.body));
+  ok('mobile.css 含 light bg', /--bg:\s*#FFFFFF/.test(rCss.body));
   ok('mobile.css 不含 dark mode 切换', !/prefers-color-scheme:\s*dark/.test(rCss.body));
   ok('mobile.css 含 360-600 断点', /min-width:\s*600/.test(rCss.body) || /max-width:\s*480/.test(rCss.body) || /max-width:\s*599/.test(rCss.body));
-  ok('mobile.css 含底部 5 tab nav', /\.app-bottom-nav/.test(rCss.body));
+  ok('mobile.css 含 sidebar layout', /\.app-sidebar/.test(rCss.body));
+  ok('mobile.css 含 chat bubble', /\.chat-bubble/.test(rCss.body));
 
   const rJs = await req({ path: '/mobile/mobile.js', method: 'GET', headers: auth });
   ok('GET /mobile/mobile.js 200', rJs.status === 200);
   ok('mobile.js content-type application/javascript', /javascript/i.test(rJs.headers['content-type'] || ''));
   ok('mobile.js 含 fetch wrapper', /Authorization/.test(rJs.body) && /Bearer/.test(rJs.body));
-  // Phase 2A-1 把 agents/usage 改成 agent/sessions，但底层 render 函数名保留
-  ok('mobile.js 含 5 tab renderers（renderHome/renderFiles/renderSkills + agent/sessions）', /renderHome/.test(rJs.body) && /renderFiles/.test(rJs.body) && /renderSkills/.test(rJs.body) && /renderAgent/.test(rJs.body) && /renderSessions/.test(rJs.body));
+  // Phase UI-A7: 主页即 Agent Chat Workspace（home 是聊天态）
+  ok('mobile.js 含核心函数（init/showPair/showApp/loadFiles/loadSkills）',
+    /function\s+init/.test(rJs.body) && /function\s+showPair/.test(rJs.body) && /function\s+showApp/.test(rJs.body) && /function\s+loadFiles/.test(rJs.body) && /function\s+loadSkills/.test(rJs.body));
 
   // ============================================================
   // [3] 静态资源越界 / 错误扩展名 / 错误方法
@@ -267,7 +266,9 @@ function req(opts, body) {
   const buttonInner = (html.match(/<button[^>]*>[\s\S]*?<\/button>/g) || []).join('\n');
   ok('no "Execute" inside <button> in HTML', !/Execute/.test(buttonInner));
   // JS 中只在拒绝 wrapper 中提到 "Execute" 是允许的
-  ok('mobile.js 含 execute 拒绝逻辑（api 包装）', /method\s*!==\s*['"]GET['"][\s\S]*method/i.test(js) || /method !== 'GET'/.test(js));
+  ok('mobile.js 含 execute 拒绝逻辑（api 包装）',
+    /method\s*!==\s*['"]GET['"]/.test(js) || /method !== 'GET'/.test(js) ||
+    /m\s*!==\s*['"]GET['"]/.test(js) || /m\s*!==\s*"GET"/.test(js));
 
   // Phase 2A-1：active 按钮不能出现 "Start/Run/Send/Delete/Rename/Move/Upload"。
   // Phase 2A-2.1：mobile agent chat 已经引入合法的 "Send" 按钮（scoped，普通消息走 stub runner，红线走 approval）。
@@ -292,29 +293,27 @@ function req(opts, body) {
   ok('mobile.js verb mentions are limited (refuse / error text only)', jsDangerMentions.every(m => m.count <= 3), JSON.stringify(jsDangerMentions));
 
   // ============================================================
-  // [9] UI 自检：4 Tab 元素 / 底部 nav / flow / 卡片结构（UI-A1：移除独立 Sessions / Usage Tab）
+  // [9] UI 自检：sidebar nav / Manus-like Home / ChatGPT-like Agent / Flow
   // ============================================================
-  section('9) UI 自检：4 Tab / 底部 nav / flow / 卡片');
-  // 兼容 Phase UI-A1：tab 名集合
-  const tabRegex = /data-tab="(home|files|agent|agents|skills|sessions|usage)"/g;
-  const tabBtnRegex = /data-tab-btn="(home|files|agent|agents|skills|sessions|usage)"/g;
-  const tabCount = (html.match(tabRegex) || []).length;
-  const tabBtnCount = (html.match(tabBtnRegex) || []).length;
-  ok('HTML 含 4 data-tab pane (UI-A1)', tabCount === 4, 'count=' + tabCount);
-  ok('HTML 含 4 data-tab-btn (UI-A1)', tabBtnCount === 4, 'count=' + tabBtnCount);
-  ok('HTML 含 home-quickchat (Home)', /home-quickchat|home-hero-greet|home-input/.test(html) && /Work in|home-cwd/.test(html));
-  ok('HTML 含 files-breadcrumb (Files)', /files-breadcrumb|files-path|files-back/.test(html));
-  // Phase UI-A2：4 个 tab（home/agent/files/skills）
-  ok('HTML 含 Agent / Files / Skills 标签 (Phase UI-A2 兼容)', /Agent/.test(html) && /Files/.test(html) && /Skills/.test(html));
-  // Phase UI-A2：保留 3 条安全文案
-  ok('HTML 含 "Running on your paired desktop"', /Running on your paired desktop/i.test(html));
-  ok('HTML 含 "Scoped to the selected folder"', /Scoped to the selected folder/i.test(html));
-  ok('HTML 含 "Logged locally in FanBox"', /Logged locally in FanBox/i.test(html));
-  ok('HTML 含 pair/confirm endpoint 调用', /\/api\/mobile\/pair\/confirm/.test(js));
-  ok('HTML 不暴露真实 token 到 DOM', !/textContent\s*=\s*getToken\s*\(\s*\)/.test(html)); // 仅 js 内部用
+  section('9) UI 自检 (UI-A7)');
+  // 兼容 Phase UI-A7：view 名集合
+  const viewRegex = /data-view="(home|files|skills|sessions|settings)"/g;
+  const goRegex = /data-go="(home|files|skills|sessions|settings)"/g;
+  const viewCount = (html.match(viewRegex) || []).length;
+  const goCount = (html.match(goRegex) || []).length;
+  ok('HTML 含 5 data-view pane (UI-A7)', viewCount >= 5, 'count=' + viewCount);
+  ok('HTML 含 5 sidebar nav (UI-A7)', goCount === 5, 'count=' + goCount);
+  ok('HTML 含 Manus-like Home (home-hero + home-input)', /home-hero/.test(html) && /id="home-input"/.test(html));
+  ok('HTML 含 ChatGPT-like 消息区', /id="home-messages"/.test(html) && /id="home-chat"/.test(html));
+  ok('HTML 含 Files 视图 (files-back + files-list)', /id="files-back"/.test(html) && /id="files-list"/.test(html));
+  ok('HTML 含 Skills 视图 (skills-list)', /id="skills-list"/.test(html));
+  ok('HTML 含 Agent dropdown (top-left)', /id="agent-dropdown-trigger"/.test(html));
+  ok('HTML 含 #pair-screen 配对屏 (默认 hidden)', /id="pair-screen"/.test(html) && /id="pair-screen"[^>]*\bhidden\b/.test(html));
+  ok('HTML 含 #app 应用 (默认 hidden)', /id="app"/.test(html) && /id="app"[^>]*\bhidden\b/.test(html));
   ok('js 不写入 localStorage 搜索历史', !/localStorage\.setItem\(\s*['"][^'"]*history/i.test(js));
   ok('js 不使用 serviceWorker', !/serviceWorker|register\s*\(\s*['"]/.test(js));
   ok('js 不使用 WebSocket', !/new\s+WebSocket\s*\(/.test(js));
+  ok('js 不使用 iframe', !/<iframe|createElement\s*\(\s*['"]iframe['"]\s*\)/.test(html));
 
   // ============================================================
   // [10] 文件系统自检

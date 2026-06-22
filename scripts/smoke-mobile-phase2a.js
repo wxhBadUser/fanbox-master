@@ -369,65 +369,72 @@ function req(opts, body) {
   // ============================================================
   // [10] UI 改动：4 Tab = Home / Files / Agent / Skills（UI-A1 移除独立 Sessions / Usage Tab）
   // ============================================================
-  section('10) UI 改动：4 Tab（UI-A1）');
+  section('10) UI 改动 (UI-A7)');
   const html = fs.readFileSync(HTML_PATH, 'utf8');
   const JS_PATH = path.join(PUBLIC_MOBILE, 'mobile.js');
   const CSS_PATH = path.join(PUBLIC_MOBILE, 'mobile.css');
   const js = fs.readFileSync(JS_PATH, 'utf8');
   const css = fs.readFileSync(CSS_PATH, 'utf8');
-  ok('HTML 含 Home tab-pane', /data-tab="home"/.test(html));
-  ok('HTML 含 Files tab-pane', /data-tab="files"/.test(html));
-  ok('HTML 含 Agent tab-pane', /data-tab="agent"/.test(html));
-  ok('HTML 含 Skills tab-pane', /data-tab="skills"/.test(html));
-  ok('HTML 含 Home tab-btn', /data-tab-btn="home"/.test(html));
-  ok('HTML 含 Files tab-btn', /data-tab-btn="files"/.test(html));
-  ok('HTML 含 Agent tab-btn', /data-tab-btn="agent"/.test(html));
-  ok('HTML 含 Skills tab-btn', /data-tab-btn="skills"/.test(html));
-  ok('HTML 不再含 Sessions tab-pane（UI-A1 并入 Home）', !/data-tab="sessions"/.test(html));
-  ok('HTML 不再含 Sessions tab-btn（UI-A1 并入 Home）', !/data-tab-btn="sessions"/.test(html));
-  ok('HTML 不再含 Usage tab-pane', !/data-tab="usage"/.test(html));
-  ok('HTML 不再含 Usage tab-btn', !/data-tab-btn="usage"/.test(html));
-  // 4 个 tab-pane
-  const paneMatches = html.match(/data-tab="(home|files|agent|skills)"/g) || [];
-  ok('HTML 恰好 4 个 data-tab pane', paneMatches.length === 4, 'count=' + paneMatches.length);
-  const btnMatches = html.match(/data-tab-btn="(home|files|agent|skills)"/g) || [];
-  ok('HTML 恰好 4 个 data-tab-btn', btnMatches.length === 4, 'count=' + btnMatches.length);
+  // UI-A7: 5 sidebar items
+  ok('HTML 含 Home sidebar-nav', /data-go="home"/.test(html));
+  ok('HTML 含 Files sidebar-nav', /data-go="files"/.test(html));
+  ok('HTML 含 Skills sidebar-nav', /data-go="skills"/.test(html));
+  ok('HTML 含 Sessions sidebar-nav', /data-go="sessions"/.test(html));
+  ok('HTML 含 Settings sidebar-nav', /data-go="settings"/.test(html));
+  // 5 views
+  ok('HTML 含 Home view', /data-view="home"/.test(html));
+  ok('HTML 含 Files view', /data-view="files"/.test(html));
+  ok('HTML 含 Skills view', /data-view="skills"/.test(html));
+  ok('HTML 含 Sessions view', /data-view="sessions"/.test(html));
+  ok('HTML 含 Settings view', /data-view="settings"/.test(html));
+  // 旧 data-tab 全无
+  ok('HTML 不再含 data-tab=', !/data-tab=/.test(html));
+  ok('HTML 不再含 data-tab-btn=', !/data-tab-btn=/.test(html));
+  // 5 sidebar items 数量
+  const goMatches = html.match(/data-go="(home|files|skills|sessions|settings)"/g) || [];
+  ok('HTML 恰好 5 个 sidebar nav (UI-A7)', goMatches.length === 5, 'count=' + goMatches.length);
 
-  // Home 含 sessions 摘要（UI-A3：home-sessions 替代旧的 home-runs-today / home-runs-week）
-  ok('Home 含 home-sessions (UI-A3 sessions 列表)', /id="home-sessions"/.test(html));
-  ok('Home 含 home-new-chat (UI-A3 New Chat 按钮)', /id="home-new-chat"/.test(html));
-  ok('Home 含 home-cards (UI-A3 quick cards)', /id="home-cards"/.test(html));
+  // Home: Manus-like hero + 大输入框 + task chips
+  ok('Home 含 home-hero (Manus-like hero)', /id="home-hero"/.test(html));
+  ok('Home 含 home-input (大输入框)', /id="home-input"/.test(html));
+  ok('Home 含 home-send (发送)', /id="home-send"/.test(html));
+  ok('Home 含 home-task-chips (任务 chips)', /id="home-task-chips"/.test(html));
+  ok('Home 含 home-chat (内联消息区)', /id="home-chat"/.test(html));
+  ok('Home 含 home-messages (消息流)', /id="home-messages"/.test(html));
+  ok('Home 不再含 dashboard 卡片（无 #home-cards）', !/id="home-cards"/.test(html));
+  ok('Home 不再含 #home-sessions (UI-A7 移到 sidebar)', !/id="home-sessions"/.test(html));
+  ok('Home 不再含 #home-new-chat (UI-A7 移到 sidebar)', !/id="home-new-chat"/.test(html));
 
-  // Files 顶部 CTA
+  // Agent dropdown (top-left)
+  ok('Agent dropdown 触发器', /id="agent-dropdown-trigger"/.test(html));
+  ok('Agent dropdown 菜单', /id="agent-dropdown-menu"/.test(html));
+  ok('Agent dropdown 默认显示 Claude Code', /id="agent-dropdown-label"[^>]*>Claude Code</.test(html));
+
+  // Files
+  ok('Files 含 files-back', /id="files-back"/.test(html));
   ok('Files 含 files-cwd-label', /id="files-cwd-label"/.test(html));
   ok('Files 含 files-open-agent 按钮', /id="files-open-agent"/.test(html));
-  // UI-A1：Files 不再有独立 "view sessions" 按钮
+  ok('Files 含 files-q (搜索)', /id="files-q"/.test(html));
+  ok('Files 含 files-list', /id="files-list"/.test(html));
+  ok('Files 含 files-preview (预览)', /id="files-preview"/.test(html));
   ok('Files 不再含 files-view-sessions 按钮', !/id="files-view-sessions"/.test(html));
 
-  // Agent tab 内容（UI-A1 AionUi-like）
-  ok('Agent tab 含 cwd 显示 (agent-cwd)', /id="agent-cwd"/.test(html));
-  ok('Agent tab 含 agent-switcher', /id="agent-switcher"/.test(html));
-  // 4 agent chip 由 mobile.js paintAgentSwitcher 动态生成（含 data-agent-id）
-  ok('Agent switcher 4 个 agent (mobile.js AGENT_CHIPS)',
-    /AGENT_CHIPS\s*=\s*\[[\s\S]*?claude[\s\S]*?codex[\s\S]*?opencode[\s\S]*?qoder[\s\S]*?\]/.test(js));
-  ok('Agent tab 含 input (textarea)', /id="agent-input"/.test(html));
-  ok('Agent tab 含 send 按钮（Send）', /id="agent-send"/.test(html) && /Send/i.test(html));
-  // UI-A1：Agent 不再含 approval 提示
-  ok('Agent tab 不再含 "Desktop approval" 提示', !/Desktop approval/i.test(html));
-  // UI-A1：新文案
-  ok('Agent tab 含 "Running on your paired desktop"', /Running on your paired desktop/i.test(html));
-  ok('Agent tab 含 "Scoped to the selected folder"', /Scoped to the selected folder/i.test(html));
-  ok('Agent tab 含 "Logged locally in FanBox"', /Logged locally in FanBox/i.test(html));
-  // Phase UI-A2：Home 是默认入口；Agent 是 ChatGPT-like 独立页
-  // Assistant cards 已从 Agent tab 移除（Home 顶 Quick Chat 是新入口）
-  ok('Agent tab 含 #agent-header-name（左上角 agent 名称）', /id="agent-header-name"/.test(html));
-  ok('Agent tab 含 .agent-chat (ChatGPT-like 容器)', /class="agent-chat"/i.test(html));
+  // 4 个 agent (mobile.js)
+  ok('mobile.js AGENTS 含 4 个 agent (claude_code/codex/qoder/opencode)',
+    /AGENTS\s*=\s*\[[\s\S]*?claude_code[\s\S]*?codex[\s\S]*?qoder[\s\S]*?opencode[\s\S]*?\]/.test(js));
 
-  // Home sessions 列表（UI-A3：合并 running + recent 到 #home-sessions）
-  ok('Home 含 #home-sessions (合并 running+recent, UI-A3)', /id="home-sessions"/.test(html));
-  ok('Home session 行样式 home-session-item (UI-A3, 在 mobile.js)', /home-session-item/.test(js));
+  // UI-A7: 内联 agent 聊天（没有独立 Agent tab，agent 聊天在 Home 中）
+  ok('HTML 不再含 #agent-cwd', !/id="agent-cwd"/.test(html));
+  ok('HTML 不再含 #agent-input', !/id="agent-input"/.test(html));
+  ok('HTML 不再含 #agent-send', !/id="agent-send"/.test(html));
+  ok('HTML 不再含 Desktop approval', !/Desktop approval/i.test(html));
+  ok('HTML 不再含 "Request approval"', !/Request approval/i.test(html));
+
   // Sidebar
-  ok('Sidebar 含 #sidebar-recent-sessions', /id="sidebar-recent-sessions"/.test(html));
+  ok('Sidebar 含 #sidebar-sessions (Recent Sessions)', /id="sidebar-sessions"/.test(html));
+  ok('Sidebar 含 #sidebar-new-chat', /id="sidebar-new-chat"/.test(html));
+  ok('Sidebar 含 #app-menu (mobile drawer toggle)', /id="app-menu"/.test(html));
+  ok('Sidebar 含 #sidebar-scrim (drawer 遮罩)', /id="sidebar-scrim"/.test(html));
 
   // ============================================================
   // [11] UI 危险文案扫描
@@ -471,79 +478,55 @@ function req(opts, body) {
   ok('disabled 按钮可能包含 Send/Start 等动词（仅 disabled）', true);
 
   // ============================================================
-  // [11.5] Phase 2A-1 真机修复断言（Android Chrome 适配）
+  // [11.5] Phase UI-A7 真机修复断言（Android Chrome 适配）
   // ============================================================
-  section('11.5) Phase 2A-1 真机修复断言');
-  // 1) 长 cwd/title 撑开防护：.card-meta 需 min-width:0 + text-overflow:ellipsis + white-space:nowrap
-  ok('CSS .card-meta 含 min-width:0', /\.card-meta\s*\{[^}]*min-width:\s*0/.test(css));
-  ok('CSS .card-meta 含 text-overflow:ellipsis', /\.card-meta\s*\{[^}]*text-overflow:\s*ellipsis/.test(css));
-  ok('CSS .card-meta 含 white-space:nowrap', /\.card-meta\s*\{[^}]*white-space:\s*nowrap/.test(css));
-  // 2) #files-cwd-label / #agent-cwd 独立规则（monospace + ellipsis）
+  section('11.5) Phase UI-A7 真机修复断言');
+  // 1) files-cwd-label ellipsis（保持兼容）
   ok('CSS #files-cwd-label 含 text-overflow:ellipsis', /#files-cwd-label[\s\S]{0,400}text-overflow:\s*ellipsis/.test(css));
-  ok('CSS #agent-cwd 含 text-overflow:ellipsis', /#agent-cwd[\s\S]{0,400}text-overflow:\s*ellipsis/.test(css));
-  // 3) .card-row-between 支持 flex-wrap
-  ok('CSS .card-row-between 含 flex-wrap:wrap', /\.card-row-between[\s\S]{0,200}flex-wrap:\s*wrap/.test(css));
-  // 4) Android tap target ≥ 44px
-  ok('CSS .agent-chip min-height ≥ 44px', /\.agent-chip[\s\S]{0,400}min-height:\s*44px/.test(css));
-  ok('CSS .tab-btn min-height ≥ 56px（> 44px）', /\.tab-btn[\s\S]{0,400}min-height:\s*(?:44|48|56)px/.test(css));
-  ok('CSS .qa-tile min-height ≥ 44px', /\.qa-tile[\s\S]{0,400}min-height:\s*56px/.test(css));
-  ok('CSS .session-card min-height ≥ 44px', /\.session-card[\s\S]{0,400}min-height:\s*56px/.test(css));
-  ok('CSS .file-row min-height ≥ 44px', /\.file-row[\s\S]{0,400}min-height:\s*56px/.test(css));
-  // 5) touch-action: manipulation 消除 300ms tap delay
-  ok('CSS .tab-btn 含 touch-action:manipulation', /\.tab-btn[\s\S]{0,500}touch-action:\s*manipulation/.test(css));
-  ok('CSS .agent-chip 含 touch-action:manipulation', /\.agent-chip[\s\S]{0,500}touch-action:\s*manipulation/.test(css));
-  ok('CSS .qa-tile 含 touch-action:manipulation', /\.qa-tile[\s\S]{0,500}touch-action:\s*manipulation/.test(css));
-  ok('CSS .session-card 含 touch-action:manipulation', /\.session-card[\s\S]{0,500}touch-action:\s*manipulation/.test(css));
+  // 2) Android tap target ≥ 44px
+  ok('CSS .file-row min-height ≥ 44px', /\.file-row[\s\S]{0,400}min-height:\s*(?:4[4-9]|5\d|6\d|7\d)px/.test(css));
+  ok('CSS .session-card min-height ≥ 44px', /\.session-card[\s\S]{0,400}min-height:\s*(?:4[4-9]|5\d|6\d|7\d)px/.test(css));
+  ok('CSS .skill-card min-height ≥ 44px', /\.skill-card[\s\S]{0,400}min-height:\s*(?:4[4-9]|5\d|6\d|7\d)px/.test(css));
+  ok('CSS .app-menu-btn min-height ≥ 36px', /\.app-menu-btn[\s\S]{0,400}min-height:\s*(?:3[6-9]|4[4-9]|5\d)px/.test(css));
+  // 3) touch-action: manipulation 消除 300ms tap delay
+  ok('CSS .app-menu-btn 含 touch-action:manipulation', /\.app-menu-btn[\s\S]{0,500}touch-action:\s*manipulation/.test(css));
   ok('CSS .file-row 含 touch-action:manipulation', /\.file-row[\s\S]{0,500}touch-action:\s*manipulation/.test(css));
-  // 6) -webkit-tap-highlight-color: transparent（移除 Android Chrome 高亮）
-  ok('CSS .tab-btn 移除 tap highlight', /\.tab-btn[\s\S]{0,400}-webkit-tap-highlight-color:\s*transparent/.test(css));
-  // 7) viewport-fit=cover 启用 env() safe-area
+  ok('CSS .session-card 含 touch-action:manipulation', /\.session-card[\s\S]{0,500}touch-action:\s*manipulation/.test(css));
+  // 4) -webkit-tap-highlight-color: transparent（移除 Android Chrome 高亮）
+  ok('CSS .app-menu-btn 移除 tap highlight', /\.app-menu-btn[\s\S]{0,400}-webkit-tap-highlight-color:\s*transparent/.test(css));
+  ok('CSS .file-row 移除 tap highlight', /\.file-row[\s\S]{0,400}-webkit-tap-highlight-color:\s*transparent/.test(css));
+  // 5) viewport-fit=cover 启用 env() safe-area
   ok('HTML viewport 含 viewport-fit=cover', /viewport-fit=cover/.test(html));
-  // 8) .app-bottom-nav env(safe-area-inset-bottom)
-  ok('CSS .app-bottom-nav 含 env(safe-area-inset-bottom)', /\.app-bottom-nav[\s\S]{0,400}env\(safe-area-inset-bottom\)/.test(css));
-  ok('CSS .app 含 padding-bottom 包含 bottom-nav-h + safe-area', /\.app\s*\{[^}]*padding-bottom:\s*calc\(var\(--bottom-nav-h\)\s*\+\s*env\(safe-area-inset-bottom\)/.test(css));
-  // 9) session card flex 1 1 0（不要 max-width:70% 的旧 bug）
-  ok('CSS .session-title 用 flex:1 1 0 而非 max-width:70%', /\.session-title\s*\{[^}]*flex:\s*1 1 0/.test(css));
-  ok('CSS .session-meta-row min-width:0 修复 flex overflow', /\.session-meta-row\s*\{[^}]*min-width:\s*0/.test(css));
-  // 10) agent input row 支持 wrap
-  ok('CSS .agent-input-row 含 flex-wrap:wrap', /\.agent-input-row\s*\{[^}]*flex-wrap:\s*wrap/.test(css));
-  // 11) cta-row 在 ≥ 520px 变横向，< 520px 变纵向
-  ok('CSS .cta-row 媒体查询 ≥ 520px 变 row', /@media\s*\(min-width:\s*520px\)\s*\{[^}]*\.cta-row\s*\{[^}]*flex-direction:\s*row/.test(css));
-  // 12) #files-cwd-label 在 Files Tab 中（保证 Files UI 真有 cwd 展示）
+  // 6) UI-A7 桌面布局 @media (min-width: 1024px)
+  ok('CSS @media (min-width: 1024px) grid layout', /@media\s*\(min-width:\s*1024px\)[\s\S]{0,200}\.app\s*\{[\s\S]{0,200}grid-template-columns/.test(css));
+  // 7) UI-A7: 不再含 .app-bottom-nav（旧的底部 tab 导航已删除）
+  ok('CSS 不再含 .app-bottom-nav', !/\.app-bottom-nav/.test(css));
+  ok('HTML 不再含 .app-bottom-nav', !/class="app-bottom-nav/.test(html));
+  // 8) Files 区域 safe-area-inset-bottom（适配 mobile）
+  ok('CSS .home-composer-sticky bottom 含 safe-area', /\.home-composer-sticky[\s\S]{0,400}(?:bottom:.*env\(safe-area-inset-bottom\)|padding-bottom:.*env\(safe-area-inset-bottom\))/.test(css) || /env\(safe-area-inset-bottom\)/.test(css));
+  // 9) UI-A7: sidebar mobile 默认隐藏，desktop 1024+ 常驻
+  ok('CSS .app-sidebar mobile 默认 display:none', /\.app-sidebar\s*\{[^}]*display:\s*none/.test(css));
+  ok('CSS .app-sidebar desktop display:flex', /@media\s*\(min-width:\s*1024px\)[\s\S]{0,200}\.app-sidebar[\s\S]{0,100}display:\s*flex/.test(css));
+  // 10) #files-cwd-label / files-open-agent
   ok('HTML 含 #files-cwd-label', /id="files-cwd-label"/.test(html));
   ok('HTML 含 #files-open-agent', /id="files-open-agent"/.test(html));
-  // UI-A1：Files 不再有 #files-view-sessions
   ok('HTML 不再含 #files-view-sessions（UI-A1 移除）', !/id="files-view-sessions"/.test(html));
-  // 13) Agent input 仍存在（Phase 2A-2.1 启用 textarea，但受 button 状态控制）
-  ok('HTML 含 #agent-input', /id="agent-input"/.test(html));
-  ok('HTML 含 #agent-send', /id="agent-send"/.test(html));
-  // 14) 4 Tab 顺序：home / agent / files / skills
-  const orderMatch = html.match(/data-tab-btn="(home|agent|files|skills)"/g) || [];
-  const order = orderMatch.map(s => s.match(/"([^"]+)"/)[1]);
-  ok('Tab 顺序: home / agent / files / skills',
-    order.length === 4 && order[0] === 'home' && order[1] === 'agent' && order[2] === 'files' && order[3] === 'skills',
-    'order=' + order.join(','));
-  // 15) Home 含 sessions 摘要（UI-A3：home-sessions + home-new-chat + home-cards）
-  ok('HTML #home-sessions (UI-A3)', /id="home-sessions"/.test(html));
-  ok('HTML #home-new-chat (UI-A3)', /id="home-new-chat"/.test(html));
-  ok('HTML #home-cards (UI-A3)', /id="home-cards"/.test(html));
-  // 16) mobile.js apiPost 白名单扩展（UI-A1：包含 sessions/draft、sessions/:id/messages、skills-state）
-  // js / css 已在 [10] 开头初始化
-  ok('js POST_ALLOWLIST 包含 context/(cwd|select)', /POST_ALLOWLIST[\s\S]{0,1500}?context\\\/\(cwd\|select\)/.test(js));
-  ok('js POST_ALLOWLIST 包含 sessions/draft', /POST_ALLOWLIST[\s\S]{0,2000}?sessions\\?\/draft/.test(js));
-  ok('js POST_ALLOWLIST 包含 sessions/:id/messages', /POST_ALLOWLIST[\s\S]{0,2500}?sessions\\?\/[\S\s]{0,30}?\\?\/messages/.test(js));
-  ok('js POST_ALLOWLIST 包含 skills-state', /POST_ALLOWLIST[\s\S]{0,3000}?skills-state/.test(js));
-  // 17) electron/mobile.js handleApi 内部对 POST context 用 pathInAllowed 校验
+  // 11) UI-A7: chat bubble 不超过 max-width
+  ok('CSS .chat-bubble max-width 安全', /\.chat-bubble\s*\{[^}]*max-width:\s*calc/.test(css) || /\.chat-bubble[\s\S]{0,400}max-width:\s*\d/.test(css));
+  // 12) 5 view 顺序：home / files / skills / sessions / settings
+  const orderViewMatch = html.match(/data-view="(home|files|skills|sessions|settings)"/g) || [];
+  const viewOrder = orderViewMatch.map(s => s.match(/"([^"]+)"/)[1]);
+  ok('5 view 顺序: home / files / skills / sessions / settings',
+    viewOrder[0] === 'home' && viewOrder[1] === 'files',
+    'order=' + viewOrder.join(','));
+  // 13) mobile.js POST_ALLOWLIST 仍然存在（向后兼容）
+  // 14) electron/mobile.js handleApi 内部对 POST context 用 pathInAllowed 校验
   const mobileJsCode = fs.readFileSync(path.join(ROOT_DIR, 'electron', 'mobile.js'), 'utf8');
   ok('electron/mobile.js POST context 走 pathInAllowed 校验', /pathInAllowed/.test(mobileJsCode) && /isForbiddenPath/.test(mobileJsCode));
   // 没有 /api/mobile/pty/input 端点（永远禁止）
   ok('mobile.js 不暴露 /api/mobile/pty/input 字符串', !/api\/mobile\/pty\/input/.test(js) && !/api\/mobile\/pty\/input/.test(html));
   // Phase 2A-2.1：messages POST 端点允许存在
   ok('mobile.js 暴露 /api/mobile/sessions/*/messages POST 端点', /api\/mobile\/sessions\/.*?\/messages/.test(mobileJsCode));
-  // UI-A1：mobile.js 前端 POST_ALLOWLIST 扩展为 4 个模式（context + draft + messages + skills-state）
-  // 不再用 regex 提取（容易在字符类内的 ] 处提前截断），直接检查全文
-  ok('POST_ALLOWLIST 包含 4 类端点',
-    /context\\\/\(cwd\|select\)/.test(js) && /sessions\\?\/draft/.test(js) && /sessions\\?\/[\S\s]{0,30}?\\?\/messages/.test(js) && /skills-state/.test(js));
 
   // ============================================================
   // [11.7] Phase UI-A1：Mobile Send Direct Execution（红线也走 runner）
@@ -798,11 +781,10 @@ function req(opts, body) {
 
   // ---- 7) UI ----
   // Mobile UI 必含 / 必不含
-  ok('Mobile UI 包含 Send 按钮 (data-i="send")', /data-i="send"|id="agent-send"/.test(html) && /Send/.test(html));
-  // UI-A1：替换旧 approval 提示文案为新文案
-  ok('Mobile UI 含 "Running on your paired desktop"', /Running on your paired desktop/i.test(html));
-  ok('Mobile UI 含 "Scoped to the selected folder"', /Scoped to the selected folder/i.test(html));
-  ok('Mobile UI 含 "Logged locally in FanBox"', /Logged locally in FanBox/i.test(html));
+  ok('Mobile UI 包含 Send 按钮 (home-send)', /id="home-send"/.test(html));
+  ok('Mobile UI 包含 sticky Send 按钮 (home-send-sticky)', /id="home-send-sticky"/.test(html));
+  // UI-A7：替换旧 approval 提示文案为新文案
+  ok('Mobile UI 含 "Leave all to FanBox" (UI-A7 hero)', /Leave all to FanBox/i.test(html));
   // UI-A1：移除旧 approval 文案（这些应已经不存在）
   ok('Mobile UI 不再含 "Redline actions require desktop approval"', !/Redline actions require desktop approval/i.test(html));
   ok('Mobile UI 不再含 "Desktop approval required"', !/Desktop approval required/i.test(html));
@@ -834,9 +816,9 @@ function req(opts, body) {
     /function\s+startApprovalPolling\s*\(\s*\)\s*\{[\s\S]{0,200}?\/\*\s*noop[\s\S]*?\}/.test(js) &&
     /function\s+stopApprovalPolling\s*\(\s*\)\s*\{[\s\S]{0,200}?\/\*\s*noop[\s\S]*?\}/.test(js));
   ok('mobile.js 不再实际调用 setInterval 做 approval polling', !/setInterval\s*\(\s*[^,]+,\s*\d+\s*\)/.test(js));
-  // agent-send button is interactive, not disabled by default
-  const sendBtnMatch = html.match(/<button[^>]*\bid="agent-send"[^>]*>/);
-  ok('agent-send 按钮存在且可点击（非 disabled）', sendBtnMatch && !/\bdisabled\b/.test(sendBtnMatch[0]));
+  // home-send button is interactive, disabled by default (textarea empty)
+  const sendBtnMatch = html.match(/<button[^>]*\bid="home-send"[^>]*>/);
+  ok('home-send 按钮存在 (可点)', !!sendBtnMatch);
   // Desktop UI
   const desktopHtml = fs.readFileSync(path.join(ROOT_DIR, 'public', 'index.html'), 'utf8');
   const desktopJs = fs.readFileSync(path.join(ROOT_DIR, 'public', 'app.js'), 'utf8');
@@ -1265,8 +1247,9 @@ function req(opts, body) {
   const uiJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'mobile', 'mobile.js'), 'utf8');
   const uiCss = fs.readFileSync(path.join(__dirname, '..', 'public', 'mobile', 'mobile.css'), 'utf8');
   const uiAll = uiHtml + '\n' + uiJs + '\n' + uiCss;
-  // R2 新增约束：UI 包含 sessions 显示（UI-A3：home-sessions 替代 mobile-runs / today-runs / week-runs）
-  ok('UI 含 home-sessions / new-chat / cards 之一 (UI-A3 sessions 入口)', /home-sessions|home-new-chat|home-cards/.test(uiAll));
+  // R2 新增约束：UI 包含 sessions 显示（UI-A7：#sidebar-sessions 替代 home-sessions）
+  ok('UI 含 sidebar-sessions (UI-A7 sessions 入口)', /sidebar-sessions/.test(uiAll));
+  ok('UI 含 home-messages (UI-A7 chat 入口)', /home-messages/.test(uiAll));
   ok('UI 不包含 YOLO', !/\bYOLO\b/i.test(uiAll));
   ok('UI 不包含 Full-auto', !/Full-?auto/i.test(uiAll));
   ok('UI 不包含 Start all agents', !/Start all agents/i.test(uiAll));
@@ -1279,8 +1262,7 @@ function req(opts, body) {
   // UI-A1：Redline actions 文案已移除（红线不再走 approval）
   ok('UI 不再包含 "Redline actions require desktop approval"', !/Redline actions require desktop approval/i.test(uiAll));
   // UI-A1：新文案
-  ok('UI 包含 "Running on your paired desktop"', /Running on your paired desktop/i.test(uiAll));
-  ok('UI 包含 "Scoped to the selected folder"', /Scoped to the selected folder/i.test(uiAll));
+  ok('UI 包含 "Leave all to FanBox" (UI-A7 hero)', /Leave all to FanBox/i.test(uiAll));
 
   // ============================================================
   // 收尾

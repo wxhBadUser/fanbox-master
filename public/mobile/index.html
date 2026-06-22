@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light">
-  <meta name="theme-color" content="#F9FAFB">
-  <title>FanBox · Command Agent Workspace</title>
+  <meta name="theme-color" content="#FFFFFF">
+  <title>FanBox · Agent Workspace</title>
   <link rel="stylesheet" href="/mobile/mobile.css">
 </head>
 <body>
@@ -26,320 +26,270 @@
 
   <!-- 主应用（配对成功后显示） -->
   <div id="app" class="app" hidden>
-    <!-- Sidebar（仅 desktop 宽度可见；mobile 隐藏） -->
-    <aside class="app-sidebar" aria-label="Sidebar">
-      <div class="sidebar-brand">
-        <div class="sidebar-logo" aria-hidden="true">◆</div>
-        <div class="sidebar-brand-text">FanBox</div>
+    <!-- =========================================================
+         Sidebar  (Phase UI-A7 · Manus-like)
+         ---------------------------------------------------------
+         Desktop: 常驻
+         Mobile : 默认隐藏，drawer 打开
+         内容:   FanBox / New Chat / Session / File / Skill / Setting
+         ========================================================= -->
+    <aside class="app-sidebar" id="app-sidebar" aria-label="Sidebar">
+      <div class="sidebar-head">
+        <div class="sidebar-brand">
+          <div class="sidebar-logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2 L20 7 L20 17 L12 22 L4 17 L4 7 Z"/>
+              <circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/>
+            </svg>
+          </div>
+          <div class="sidebar-brand-text">FanBox</div>
+        </div>
+        <button id="sidebar-close" class="sidebar-close" type="button" aria-label="Close sidebar">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+        </button>
       </div>
-      <button class="sidebar-item sidebar-item-cta" id="sidebar-new-chat" type="button">
-        <span class="sidebar-icon" data-i="newchat"></span>
+
+      <button class="sidebar-cta" id="sidebar-new-chat" type="button" title="Start a new chat">
+        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="10" y1="3" x2="10" y2="17"/>
+          <line x1="3" y1="10" x2="17" y2="10"/>
+        </svg>
         <span>New Chat</span>
       </button>
-      <button class="sidebar-item" id="sidebar-search" type="button" data-go="search">
-        <span class="sidebar-icon" data-i="search"></span>
-        <span>Search</span>
-      </button>
-      <button class="sidebar-item" type="button" data-go="agent">
-        <span class="sidebar-icon" data-i="agents"></span>
-        <span>Agents</span>
-      </button>
-      <button class="sidebar-item" type="button" data-go="files">
-        <span class="sidebar-icon" data-i="files"></span>
-        <span>Projects</span>
-      </button>
-      <button class="sidebar-item" type="button" data-go="skills">
-        <span class="sidebar-icon" data-i="skills"></span>
-        <span>Skills</span>
-      </button>
-      <div class="sidebar-h">Recent Sessions</div>
-      <div id="sidebar-recent-sessions" class="sidebar-recent"></div>
-      <div class="sidebar-foot">
-        <button class="sidebar-item" type="button" data-go="settings">
-          <span class="sidebar-icon" data-i="settings"></span>
-          <span>Settings</span>
+
+      <nav class="sidebar-nav" aria-label="Workspace navigation">
+        <button class="sidebar-item" data-go="home" type="button" title="Chat">
+          <span class="sidebar-item-icon" data-i="home"></span>
+          <span>Chat</span>
         </button>
+        <button class="sidebar-item" data-go="files" type="button" title="Files">
+          <span class="sidebar-item-icon" data-i="files"></span>
+          <span>File</span>
+        </button>
+        <button class="sidebar-item" data-go="skills" type="button" title="Skills">
+          <span class="sidebar-item-icon" data-i="skills"></span>
+          <span>Skill</span>
+        </button>
+        <button class="sidebar-item" data-go="sessions" type="button" title="Sessions">
+          <span class="sidebar-item-icon" data-i="sessions"></span>
+          <span>Session</span>
+        </button>
+        <button class="sidebar-item" data-go="settings" type="button" title="Settings">
+          <span class="sidebar-item-icon" data-i="settings"></span>
+          <span>Setting</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-section">
+        <div class="sidebar-h">
+          <span>Recent Sessions</span>
+        </div>
+        <div id="sidebar-sessions" class="sidebar-sessions" role="list" aria-label="Recent sessions"></div>
+      </div>
+
+      <div class="sidebar-foot">
+        <span class="sidebar-foot-meta">LAN · Token</span>
       </div>
     </aside>
 
-    <header class="app-topbar">
-      <button id="app-menu" class="btn-icon btn-icon-menu" type="button" aria-label="Menu" title="Toggle sidebar">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-      </button>
-      <div class="app-topbar-left">
-        <div class="app-title">Mobile Console</div>
-        <div id="app-sub" class="app-sub">FanBox · Agent workspace</div>
-      </div>
-      <button id="app-refresh" class="btn-icon" type="button" aria-label="刷新">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><polyline points="21 4 21 9 16 9"/></svg>
-      </button>
-    </header>
+    <!-- drawer 遮罩 (mobile) -->
+    <div id="sidebar-scrim" class="sidebar-scrim" aria-hidden="true"></div>
 
-    <main class="app-main">
-      <!-- ============================================================== -->
-      <!-- Home Tab  (Phase UI-A3 / Phase UI-A3b · Mobile-first Workspace)  -->
-      <!--                                                                  -->
-      <!-- Mobile (<= 1024px) ：单列堆叠，sidebar 收为 drawer                -->
-      <!--                       顶部 hero / agent chips / 大输入框          -->
-      <!-- Desktop (>= 1024px)：左栏 280px + 右栏自适应（不被挤压）          -->
-      <!-- ============================================================== -->
-      <section class="tab-pane is-active" data-tab="home">
-        <div class="home-workspace">
-          <!-- LEFT SIDEBAR：品牌 + New Chat + 历史 sessions -->
-          <aside class="home-sidebar" id="home-sidebar" aria-label="Sessions sidebar">
-            <div class="home-sidebar-brand">
-              <div class="home-sidebar-logo" aria-hidden="true">
-                <svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M10 2 L17 6.5 L17 13.5 L10 18 L3 13.5 L3 6.5 Z"/>
-                  <circle cx="10" cy="10" r="2.2" fill="currentColor" stroke="none"/>
-                </svg>
-              </div>
-              <div class="home-sidebar-brand-text">FanBox Mobile</div>
-              <button id="home-sidebar-close" class="home-sidebar-close" type="button" aria-label="Close sidebar">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
-              </button>
-            </div>
-            <div class="home-sidebar-section home-section-new-chat">
-              <button id="home-new-chat" class="home-new-chat" type="button" title="Start a new chat">
-                <span class="home-new-chat-icon" aria-hidden="true">
-                  <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="10" y1="3" x2="10" y2="17"/><line x1="3" y1="10" x2="17" y2="10"/></svg>
-                </span>
-                <span>New Chat</span>
-              </button>
-            </div>
-            <div class="home-sidebar-section home-section-sessions" id="home-session-groups">
-              <div id="home-sessions" class="home-sessions" role="list" aria-label="Recent sessions"></div>
-            </div>
-            <div class="home-sidebar-foot">
-              <button class="home-sidebar-link" data-go="settings" type="button" title="Settings">
-                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <circle cx="10" cy="10" r="2.2"/>
-                  <path d="M10 2 L10 4 M10 16 L10 18 M2 10 L4 10 M16 10 L18 10 M4.2 4.2 L5.6 5.6 M14.4 14.4 L15.8 15.8 M4.2 15.8 L5.6 14.4 M14.4 5.6 L15.8 4.2"/>
-                </svg>
-                <span>Settings</span>
-              </button>
-            </div>
-          </aside>
+    <!-- =========================================================
+         Main column
+         ---------------------------------------------------------
+         Top bar:  menu / Agent dropdown / cwd / refresh
+         Content :  Home (Manus-like) | Files | Skills | Sessions | Settings
+         ========================================================= -->
+    <div class="app-main-col">
+      <header class="app-topbar">
+        <button id="app-menu" class="app-menu-btn" type="button" aria-label="Toggle sidebar" title="Toggle sidebar">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
 
-          <!-- RIGHT MAIN：greeting + agent chips + 大输入框 + meta -->
-          <div class="home-main">
-            <div class="home-section home-section-quickchat" id="home-quickchat">
-              <div class="home-hero">
-                <div id="home-hero-greet" class="home-hero-greet">Hi, what's your plan for today?</div>
-                <div id="home-hero-sub" class="home-hero-sub">Send a message, continue a session, or start work in the current folder.</div>
-              </div>
-              <div class="home-agent-chips" id="home-agent-chips" role="tablist" aria-label="Agent switcher (Home)"></div>
-              <div class="home-composer">
-                <div class="skill-indicator" id="home-skill-indicator" hidden></div>
-                <div class="slash-palette" id="home-slash-palette" hidden></div>
-                <textarea id="home-input" class="home-composer-input" rows="3" maxlength="4000"
-                  placeholder="Send a message, open a folder, or ask an agent to work in this project..."></textarea>
-                <div class="home-composer-foot">
-                  <div class="home-composer-meta">
-                    <span id="home-cwd" class="home-composer-cwd">Work in: —</span>
-                    <span id="home-model" class="home-composer-model">Model: —</span>
-                    <span id="home-effort" class="home-composer-effort">Effort: —</span>
-                    <span id="home-status-pill"></span>
-                  </div>
-                  <button id="home-send" class="home-composer-send" type="button" aria-label="Send" disabled>
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <line x1="12" y1="19" x2="12" y2="5"/>
-                      <polyline points="5 12 12 5 19 12"/>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              <!-- 可选：精简 assistant cards（不喧宾夺主） -->
-              <div class="home-cards" id="home-cards" aria-label="Quick action cards">
-                <!-- 动态生成；保持简洁，4 张以内 -->
-              </div>
-            </div>
-
-            <!-- 安全提示：保留 3 条 -->
-            <div class="card card-tip home-safety">
-              <div class="card-row">
-                <span class="status-dot status-dot-ok"></span><span class="card-p">Running on your paired desktop</span>
-              </div>
-              <div class="card-row">
-                <span class="status-dot status-dot-ok"></span><span class="card-p">Scoped to the selected folder</span>
-              </div>
-              <div class="card-row">
-                <span class="status-dot status-dot-ok"></span><span class="card-p">Logged locally in FanBox</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ============================================================== -->
-      <!-- Agent Tab  (Phase UI-A2 · ChatGPT-like Independent Page)       -->
-      <!-- 左上角：当前 agent (Claude Code / Codex / OpenCode / Qoder)     -->
-      <!-- ============================================================== -->
-      <section class="tab-pane" data-tab="agent" hidden>
-        <div class="agent-header card">
-          <div class="agent-header-top">
-            <div class="agent-header-left">
-              <div class="agent-header-icon" id="agent-header-icon" aria-hidden="true"></div>
-              <div class="agent-header-name-block">
-                <div id="agent-header-name" class="agent-header-name">Claude Code</div>
-                <span id="agent-header-status" class="agent-header-status">ready</span>
-              </div>
-            </div>
-            <button id="agent-header-back" class="btn-ghost" type="button">Back to Home</button>
-          </div>
-          <div class="agent-header-meta">
-            <span class="agent-header-meta-row"><span class="card-meta">cwd</span><span id="agent-meta-cwd" class="agent-meta-cwd">—</span></span>
-            <span class="agent-header-meta-row"><span class="card-meta">model</span><span id="agent-meta-model">default</span></span>
-            <span class="agent-header-meta-row"><span class="card-meta">effort</span><span id="agent-meta-effort">normal</span></span>
-          </div>
-          <!-- 顶部 agent switcher（同一 cwd 下切换 agent） -->
-          <div class="agent-chips" id="agent-switcher" role="tablist" aria-label="Agent switcher"></div>
+        <div class="agent-dropdown" id="agent-dropdown">
+          <button id="agent-dropdown-trigger" class="agent-dropdown-trigger" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Current agent">
+            <span class="agent-dropdown-icon" id="agent-dropdown-icon" aria-hidden="true"></span>
+            <span class="agent-dropdown-label" id="agent-dropdown-label">Claude Code</span>
+            <svg class="agent-dropdown-caret" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+          <div id="agent-dropdown-menu" class="agent-dropdown-menu" role="menu" hidden></div>
         </div>
 
-        <!-- 消息区：ChatGPT-like 上下排列 -->
-        <div id="agent-messages" class="agent-chat">
-          <div class="empty">
-            <div class="empty-strong">No messages yet</div>
-            <div>Type a message below to start a conversation with this agent.</div>
-          </div>
-        </div>
+        <div class="app-topbar-spacer"></div>
 
-        <!-- 输入区（ChatGPT-like 底部 textarea + Send） -->
-        <div class="agent-composer card">
-          <div class="skill-indicator" id="agent-skill-indicator" hidden></div>
-          <div class="slash-palette" id="agent-slash-palette" hidden></div>
-          <textarea id="agent-input" class="agent-composer-input" rows="3" maxlength="4000"
-            placeholder="Send a message to this agent..."></textarea>
-          <div class="agent-composer-foot">
-            <div class="agent-composer-meta">
-              <span id="agent-cwd" class="agent-composer-cwd">Work in: —</span>
-              <span id="agent-session-status" class="agent-composer-session">session: —</span>
-              <span id="agent-status-pill"></span>
-            </div>
-            <button id="agent-send" class="agent-composer-send" type="button" aria-label="Send">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="19" x2="12" y2="5"/>
-                <polyline points="5 12 12 5 19 12"/>
+        <div class="app-topbar-meta" aria-hidden="false">
+          <span id="topbar-cwd" class="topbar-meta-item" title="Working folder">—</span>
+          <button id="app-refresh" class="app-icon-btn" type="button" aria-label="Refresh" title="Refresh">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><polyline points="21 4 21 9 16 9"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="app-main" id="app-main">
+        <!-- =========================================================
+             Home Tab · Manus-like Agent Chat Workspace
+             ---------------------------------------------------------
+             Phase UI-A7: 中间就是 Agent 对话框；无独立 Agent Tab。
+             状态 1: hero + 大输入框 + chips
+             状态 2: 内联消息流 + 底部固定输入框
+             ========================================================= -->
+        <section class="view is-active" data-view="home">
+          <!-- hero / 欢迎态 -->
+          <div class="home-hero" id="home-hero">
+            <div class="home-hero-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2 L20 7 L20 17 L12 22 L4 17 L4 7 Z"/>
+                <circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/>
               </svg>
-            </button>
-          </div>
-        </div>
-
-        <!-- 安全提示 -->
-        <div class="agent-safety card card-tip">
-          <div class="card-row">
-            <span class="status-dot status-dot-ok"></span><span class="card-p">Running on your paired desktop</span>
-          </div>
-          <div class="card-row">
-            <span class="status-dot status-dot-ok"></span><span class="card-p">Scoped to the selected folder</span>
-          </div>
-          <div class="card-row">
-            <span class="status-dot status-dot-ok"></span><span class="card-p">Logged locally in FanBox</span>
-          </div>
-        </div>
-      </section>
-
-      <!-- ============================================================== -->
-      <!-- Files Tab  (Phase UI-A2 · Phone File Manager)                  -->
-      <!-- 竖向文件夹/文件列表 + breadcrumb + Ask AI in this folder        -->
-      <!-- ============================================================== -->
-      <section class="tab-pane" data-tab="files" hidden>
-        <!-- 顶部：当前路径 breadcrumb + back -->
-        <div class="card files-breadcrumb-card">
-          <div class="files-breadcrumb">
-            <button id="files-back" class="btn-icon" type="button" aria-label="Back" title="Up">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            </button>
-            <div id="files-path" class="files-path">/</div>
-            <button id="files-refresh" class="btn-icon" type="button" aria-label="Refresh" title="Refresh">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><polyline points="21 4 21 9 16 9"/></svg>
-            </button>
-          </div>
-        </div>
-
-        <!-- 搜索框 -->
-        <div class="card">
-          <input id="files-q" class="field field-input" type="search" placeholder="搜索文件名…" maxlength="80" autocomplete="off">
-        </div>
-
-        <!-- 当前文件夹 CTA：在此文件夹打开 Agent -->
-        <div class="card card-cta">
-          <div class="card-row card-row-between">
-            <div style="min-width: 0; flex: 1 1 0;">
-              <div class="card-h">当前文件夹</div>
-              <div id="files-cwd-label" class="card-meta">未选择</div>
             </div>
-            <button id="files-open-agent" class="btn-primary" type="button" disabled style="margin-top: 0; width: auto;">Ask AI in this folder</button>
+            <h1 id="home-hero-greet" class="home-hero-greet">Leave all to FanBox</h1>
+            <p id="home-hero-sub" class="home-hero-sub">Your AI agent workspace</p>
           </div>
-        </div>
 
-        <!-- 文件列表（手机文件管理器样式：竖向） -->
-        <div class="card">
-          <div class="card-row card-row-between">
-            <div class="card-h">Files</div>
-            <div id="files-meta" class="card-meta"></div>
-          </div>
-          <div id="files-list" class="files-manager-list">
-            <div class="empty">
-              <div class="empty-strong">Loading…</div>
+          <!-- 大输入框 (hero 状态) -->
+          <div class="home-composer" id="home-composer">
+            <textarea id="home-input" class="home-composer-input" rows="1" maxlength="4000"
+              placeholder="Assign a task or ask anything..."></textarea>
+            <div class="home-composer-foot">
+              <div class="home-composer-meta">
+                <button id="home-skill-button" class="home-composer-chip" type="button" title="Use a skill">
+                  <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2L4 13h6l-1 7 7-11h-6l1-7z"/></svg>
+                  <span id="home-skill-button-label">Skill</span>
+                </button>
+                <span id="home-status-pill" class="home-status-pill" aria-live="polite"></span>
+              </div>
+              <button id="home-send" class="home-composer-send" type="button" aria-label="Send" disabled>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="12" y1="19" x2="12" y2="5"/>
+                  <polyline points="5 12 12 5 19 12"/>
+                </svg>
+              </button>
             </div>
           </div>
-        </div>
 
-        <!-- 预览 -->
-        <div id="files-preview" class="card card-preview" hidden>
-          <div class="card-row card-row-between">
-            <div class="card-h" id="files-preview-name"></div>
-            <button id="files-preview-close" class="btn-icon" type="button" aria-label="关闭">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+          <!-- task chips -->
+          <div class="home-chips" id="home-task-chips" aria-label="Task suggestions"></div>
+
+          <!-- ChatGPT-like 消息区 (发消息后显示) -->
+          <div class="home-chat" id="home-chat" hidden>
+            <div id="home-messages" class="home-messages" aria-live="polite"></div>
+            <div class="home-composer home-composer-sticky" id="home-composer-sticky">
+              <textarea id="home-input-sticky" class="home-composer-input" rows="1" maxlength="4000"
+                placeholder="Assign a task or ask anything..."></textarea>
+              <div class="home-composer-foot">
+                <div class="home-composer-meta">
+                  <button id="home-skill-button-sticky" class="home-composer-chip" type="button" title="Use a skill">
+                    <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2L4 13h6l-1 7 7-11h-6l1-7z"/></svg>
+                    <span id="home-skill-button-sticky-label">Skill</span>
+                  </button>
+                  <span id="home-status-pill-sticky" class="home-status-pill" aria-live="polite"></span>
+                </div>
+                <button id="home-send-sticky" class="home-composer-send" type="button" aria-label="Send" disabled>
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="12" y1="19" x2="12" y2="5"/>
+                    <polyline points="5 12 12 5 19 12"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =========================================================
+             Files Tab · Phone File Manager
+             ========================================================= -->
+        <section class="view" data-view="files" hidden>
+          <header class="view-header">
+            <button class="view-back" id="files-back" type="button" aria-label="Back">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <h2 class="view-title" id="files-title">Files</h2>
+            <button class="view-icon-btn" id="files-refresh" type="button" aria-label="Refresh">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><polyline points="21 4 21 9 16 9"/></svg>
+            </button>
+          </header>
+
+          <div class="files-search">
+            <svg class="files-search-icon" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="9" r="6"/><line x1="17" y1="17" x2="13.5" y2="13.5"/></svg>
+            <input id="files-q" class="files-search-input" type="search" placeholder="搜索文件名" maxlength="80" autocomplete="off">
+          </div>
+
+          <div class="files-cwd-bar">
+            <div class="files-cwd-bar-text">
+              <div class="files-cwd-bar-h">当前文件夹</div>
+              <div id="files-cwd-label" class="files-cwd-bar-path">未选择</div>
+            </div>
+            <button id="files-open-agent" class="files-cwd-bar-cta" type="button" disabled>
+              <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2L4 13h6l-1 7 7-11h-6l1-7z"/></svg>
+              <span>从当前文件夹与 AI 对话</span>
             </button>
           </div>
-          <div id="files-preview-meta" class="card-meta"></div>
-          <div id="files-preview-body" class="preview-body"></div>
-        </div>
-      </section>
 
-      <!-- ============================================================== -->
-      <!-- Skills Tab  (Phase UI-A5 · Skill Library)                     -->
-      <!-- search + filter (All/Enabled/Disabled) + toggle                -->
-      <!-- ============================================================== -->
-      <section class="tab-pane" data-tab="skills" hidden>
-        <div class="card">
-          <div class="field-row">
-            <input id="skills-q" class="field field-input" type="search" placeholder="Search skill name or description…" maxlength="60" autocomplete="off">
+          <div class="files-list" id="files-list" role="list" aria-label="File list"></div>
+
+          <div id="files-preview" class="files-preview" hidden>
+            <header class="files-preview-head">
+              <div class="files-preview-meta">
+                <div id="files-preview-name" class="files-preview-name"></div>
+                <div id="files-preview-sub" class="files-preview-sub"></div>
+              </div>
+              <button id="files-preview-close" class="view-icon-btn" type="button" aria-label="Close preview">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+              </button>
+            </header>
+            <div id="files-preview-body" class="files-preview-body"></div>
+          </div>
+        </section>
+
+        <!-- =========================================================
+             Skills Tab · Skill Library
+             ========================================================= -->
+        <section class="view" data-view="skills" hidden>
+          <header class="view-header">
+            <h2 class="view-title">Skills</h2>
+          </header>
+          <div class="skills-search">
+            <svg class="files-search-icon" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="9" r="6"/><line x1="17" y1="17" x2="13.5" y2="13.5"/></svg>
+            <input id="skills-q" class="files-search-input" type="search" placeholder="搜索技能" maxlength="60" autocomplete="off">
           </div>
           <div class="skills-filter" role="tablist" aria-label="Filter">
             <button class="skills-filter-btn is-active" data-filter="all" type="button" role="tab" aria-selected="true">All</button>
             <button class="skills-filter-btn" data-filter="enabled" type="button" role="tab" aria-selected="false">Enabled</button>
             <button class="skills-filter-btn" data-filter="disabled" type="button" role="tab" aria-selected="false">Disabled</button>
           </div>
-        </div>
-        <div id="skills-list" class="skills-list">
-          <div class="skeleton" style="height: 64px; margin-bottom: 10px;"></div>
-          <div class="skeleton" style="height: 64px; margin-bottom: 10px;"></div>
-        </div>
-      </section>
-    </main>
+          <div id="skills-list" class="skills-list" role="list" aria-label="Skills"></div>
+        </section>
 
-    <nav class="app-bottom-nav" role="tablist">
-      <button class="tab-btn is-active" data-tab-btn="home" type="button" role="tab">
-        <span class="tab-icon" data-i="home"></span>
-        <span class="tab-label">Home</span>
-      </button>
-      <button class="tab-btn" data-tab-btn="agent" type="button" role="tab">
-        <span class="tab-icon" data-i="agents"></span>
-        <span class="tab-label">Agent</span>
-      </button>
-      <button class="tab-btn" data-tab-btn="files" type="button" role="tab">
-        <span class="tab-icon" data-i="files"></span>
-        <span class="tab-label">Files</span>
-      </button>
-      <button class="tab-btn" data-tab-btn="skills" type="button" role="tab">
-        <span class="tab-icon" data-i="skills"></span>
-        <span class="tab-label">Skills</span>
-      </button>
-    </nav>
+        <!-- =========================================================
+             Sessions Tab · 全量 sessions 列表
+             ========================================================= -->
+        <section class="view" data-view="sessions" hidden>
+          <header class="view-header">
+            <h2 class="view-title">Sessions</h2>
+            <button class="view-icon-btn" id="sessions-refresh" type="button" aria-label="Refresh">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><polyline points="21 4 21 9 16 9"/></svg>
+            </button>
+          </header>
+          <div id="sessions-list" class="sessions-list" role="list" aria-label="All sessions"></div>
+        </section>
+
+        <!-- =========================================================
+             Settings Tab · 占位
+             ========================================================= -->
+        <section class="view" data-view="settings" hidden>
+          <header class="view-header">
+            <h2 class="view-title">Settings</h2>
+          </header>
+          <div class="settings-card">
+            <p class="settings-card-h">Settings</p>
+            <p class="settings-card-p">Mobile settings will be available in a future update.</p>
+          </div>
+        </section>
+      </main>
+    </div>
   </div>
 
   <script src="/mobile/mobile.js" defer></script>
