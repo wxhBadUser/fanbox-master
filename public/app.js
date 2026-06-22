@@ -3343,6 +3343,7 @@ const term = {
   // 一键在终端启动 coding agent：当前标签是空闲 shell 就地启动；正跑着东西（claude/codex/任何前台程序）
   // 则新开标签，不打断也不把命令打进别的程序里
   async launchAgent(cmd) {
+    if (this.sessions.length >= 4) { toast('最多同时打开 4 个终端会话，请先关闭一个', true); return; }
     if (!this.available()) { openWith(state.cwd, 'terminal'); return; } // 网页版降级到系统终端
     let sess = null;
     if (this.sessions.length) {
@@ -3352,6 +3353,13 @@ const term = {
     }
     if (!sess) sess = await this.openInDir(state.cwd); // 等 spawn 完，拿确切 session 写入
     if (sess && !sess.dead) {
+      // 记录 agent 类型，供会话菜单第二行显示
+      const cmdLow = cmd.toLowerCase().replace(/^--[\w-]+\s+/, ''); // 去掉前置 flag
+      if (cmdLow.startsWith('claude --dangerously-skip-permissions') || cmdLow.startsWith('claude --skip')) sess.agent = 'Claude Code';
+      else if (cmdLow.startsWith('codex')) sess.agent = 'Codex';
+      else if (cmdLow.startsWith('opencode')) sess.agent = 'OpenCode';
+      else if (cmdLow.startsWith('qoder')) sess.agent = 'Qoder';
+      else sess.agent = ''; // 未知命令不留 agent 标签
       this.input(sess.id, cmd + '\r'); sess.xterm.focus(); toast('已在终端启动 ' + cmd);
     }
     else toast('终端启动失败', true);
@@ -3561,6 +3569,7 @@ const term = {
     } catch { /* 取不到就保持原标题 */ }
   },
   async newTab(cwdOverride) {
+    if (this.sessions.length >= 4) { toast('最多同时打开 4 个终端会话，请先关闭一个', true); return null; }
     const startDir = cwdOverride || state.cwd;
     const id = 't' + (++this.seq);
     const host = document.createElement('div');
@@ -3613,7 +3622,7 @@ const term = {
       } catch { /* 回退默认 DOM renderer */ }
     }
     if (fit) try { fit.fit(); } catch { /* */ }
-    const sess = { id, xterm, fit, host, dead: false, status: 'idle', unread: false, startDir, title: baseOf(startDir || '') || 'shell' };
+    const sess = { id, xterm, fit, host, dead: false, status: 'idle', unread: false, startDir, title: baseOf(startDir || '') || 'shell', agent: '' };
     this.sessions.push(sess);
     this.activate(id);
     updateWatches(); // 新终端的项目目录也纳入监听
@@ -3923,20 +3932,176 @@ const term = {
       menu.innerHTML = '<div class="session-empty">暂无可切换会话<br>打开一个终端或启动 agent 后会出现在这里</div>';
       return;
     }
-    menu.innerHTML = '<div class="session-menu-head">当前打开的终端</div>';
+    let h = '<div class="session-menu-head">当前打开的终端</div>';
     this.sessions.forEach((s) => {
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.className = 'session-menu-item' + (s.id === this.active ? ' active' : '');
-      item.dataset.id = s.id;
-      item.innerHTML = `<span class="session-dot ${this.sessionState(s)}"></span><span><span class="session-menu-name">${escapeHtml(s.title || 'shell')}</span><span class="session-menu-cwd">${escapeHtml(this.sessionPlace(s))}</span></span><span class="session-menu-state">${escapeHtml(this.sessionStateLabel(s))}</span>`;
-      item.onclick = () => { this.open(); this.activate(s.id); this.closeSessionMenu(); };
-      menu.appendChild(item);
+      const ac = s.id === this.active ? ' active' : '';
+      const st = `session-dot ${this.sessionState(s)}`;
+      const name = escapeHtml(s.title || 'shell');
+            const baseAgent = s.agent ? s.agent : 'Terminal';
+      // 同项目同 agent 编号（#1 / #2 ...）
+      let agentLabel = baseAgent;
+      const sameKey = baseOf(s.cwd || s.startDir || '') + '|' + baseAgent;
+      const sameCount = this.sessions.filter((x) => (baseOf(x.cwd || x.startDir || '') + '|' + (x.agent || 'Terminal')) === sameKey).length;
+      if (sameCount > 1) {
+        const idx = this.sessions.filter((x) => (baseOf(x.cwd || x.startDir || '') + '|' + (x.agent || 'Terminal')) === sameKey && this.sessions.indexOf(x) <= this.sessions.indexOf(s)).length;
+        agentLabel += ' #' + idx;
+      }
+      const subtitle = escapeHtml(agentLabel);
+      const label = escapeHtml(this.sessionStateLabel(s));
+      h += `<button type="button" class="session-menu-item${ac}" data-sid="${s.id}"><span class="${st}"></span><span><span class="session-menu-name">${name}</span><span class="session-menu-cwd">${subtitle}</span></span><span class="session-menu-state">${label}</span><span class="session-menu-close" data-close="${s.id}" title="关闭此终端">✕</span></button>`;
     });
-    const foot = document.createElement('div');
-    foot.className = 'session-empty';
-    foot.textContent = '最近对话 / resume 暂未接入';
-    menu.appendChild(foot);
+    // 跟随状态
+    const fol = follow.on && follow.sid;
+    h += '<hr class="session-section-divider">';
+    h += '<div class="section-head">当前跟随</div>';
+    if (fol) {
+      const s = this.sessions.find((x) => x.id === follow.sid);
+      const baseFollowAgent = s ? (s.agent || 'Terminal') : '—';
+      let followLabel = baseFollowAgent;
+      if (s && s.agent) {
+        const key = baseOf(s.cwd || s.startDir || '') + '|' + s.agent;
+        const sameCount = this.sessions.filter((x) => (baseOf(x.cwd || x.startDir || '') + '|' + (x.agent || 'Terminal')) === key).length;
+        if (sameCount > 1) {
+          const idx = this.sessions.filter((x) => (baseOf(x.cwd || x.startDir || '') + '|' + (x.agent || 'Terminal')) === key && this.sessions.indexOf(x) <= this.sessions.indexOf(s)).length;
+          followLabel = s.agent + ' #' + idx;
+        }
+      }
+      const label = s ? escapeHtml(followLabel) : '—';
+      h += `<div class="follow-info follow-active">正在跟随：<span class="follow-label">${label}</span><span class="fn-sep">/</span>正在关注文件改动</div>`;
+    } else {
+      h += '<div class="follow-info">当前未跟随任何对话</div>';
+    }
+    // 跟随文件改动
+    const changedFiles = this.getFollowChangedFiles();
+    h += '<hr class="session-section-divider">';
+    h += '<div class="section-head">跟随中的文件改动</div>';
+    if (fol) {
+      if (changedFiles.length) {
+        changedFiles.forEach((f) => {
+          const expanded = menu._expandedFile === f.path ? 'expanded' : '';
+          const arrow = menu._expandedFile === f.path ? '▾' : '▸';
+          h += `<div class="follow-file-row" data-ffpath="${f.path}"><span class="ff-name">${escapeHtml(f.path)}</span><span class="ff-status">${escapeHtml(f.status || '修改')}</span><span class="ff-expand ${expanded}">${arrow}</span></div>`;
+        });
+      } else {
+        h += '<div class="follow-info">当前跟随会话还没有检测到文件改动</div>';
+      }
+    } else {
+      h += '<div class="follow-info">开始跟随一个对话后，这里会显示它改动过的文件</div>';
+    }
+    // 操作提示
+    h += '<hr class="session-section-divider">';
+    h += '<div class="session-empty" style="padding:8px 8px 4px;font-size:11px;color:var(--text-faint)">点击<strong>✕</strong>关闭终端 · 点击行主体切换 · 点击文件展开 diff</div>';
+    menu.innerHTML = h;
+    // 事件绑定
+    menu.querySelectorAll('.session-menu-item').forEach((item) => {
+      item.onclick = (e) => {
+        if (e.target.classList.contains('session-menu-close')) {
+          e.stopPropagation();
+          const sid = e.target.dataset.close;
+          if (sid && confirm('结束这个终端会话？')) { this.closeTab(sid); }
+          return;
+        }
+        const sid = item.dataset.sid;
+        if (sid) { this.open(); this.activate(sid); this.closeSessionMenu(); }
+      };
+    });
+    menu.querySelectorAll('.follow-file-row').forEach((row) => {
+      row.onclick = (e) => {
+        e.stopPropagation();
+        const path = row.dataset.ffpath;
+        if (!path) return;
+        const wasExpanded = menu._expandedFile === path;
+        menu._expandedFile = wasExpanded ? null : path;
+        this.renderSessionMenu();
+        if (!wasExpanded) this.showDiffPanel(path, menu);
+      };
+    });
+  },
+  // R1.6: 获取跟随会话改动过的文件列表
+  getFollowChangedFiles() {
+    if (!follow.on || !follow.sid) return [];
+    const s = this.sessions.find((x) => x.id === follow.sid);
+    if (!s) return [];
+    // 基于 state.changeLog 过滤属于该终端目录的变更
+    const root = (s.cwd || s.startDir || '').replace(/\/$/, '');
+    const changed = state.changeLog.filter((c) => {
+      if (!root) return false;
+      return c.path === root || c.path.startsWith(root + '/');
+    });
+    return changed.slice(0, 20).map((c) => {
+      const rel = c.path.startsWith(root + '/') ? c.path.slice(root.length + 1) : c.name;
+      return { path: rel, status: '修改' };
+    });
+  },
+  // R1.6: 显示 diff 面板
+  async showDiffPanel(path, menu) {
+    const existing = menu.querySelector(`.diff-panel[data-dfpath="${path}"]`);
+    if (existing) { existing.remove(); return; }
+    // 移除旧的 diff panel
+    const oldPanel = menu.querySelector('.diff-panel');
+    if (oldPanel) oldPanel.remove();
+    const row = menu.querySelector(`.follow-file-row[data-ffpath="${path}"]`);
+    if (!row) return;
+    const panel = document.createElement('div');
+    panel.className = 'diff-panel';
+    panel.dataset.dfpath = path;
+    panel.innerHTML = '<pre style="padding:12px;text-align:center;color:var(--text-faint)">加载中…</pre>';
+    row.after(panel);
+    try {
+      const resp = await fetch(`/api/git-file?path=${encodeURIComponent(path)}`);
+      const data = await resp.json();
+      if (!data.diffable) {
+        panel.innerHTML = '<pre style="padding:12px;text-align:center;color:var(--text-faint)">无可对比的 diff（新文件或非 git 文件）</pre>';
+        return;
+      }
+      const diff = this.computeDiff(data.original || '', data.modified || '');
+      this.renderDiff(panel, diff);
+    } catch (e) {
+      panel.innerHTML = '<pre style="padding:12px;text-align:center;color:var(--text-faint)">加载 diff 失败</pre>';
+    }
+  },
+  // R1.6: 计算 diff（简易 unified diff）
+  computeDiff(original, modified) {
+    const origLines = original.split('\n');
+    const modLines = modified.split('\n');
+    // 简易行 diff：只比较行是否相同
+    const maxLen = Math.max(origLines.length, modLines.length);
+    const diff = [];
+    let lineNum = 0;
+    let i = 0, j = 0;
+    // 简单的行对行数对比
+    while (i < origLines.length || j < modLines.length) {
+      lineNum++;
+      if (i >= origLines.length) {
+        diff.push({ type: 'added', line: modLines[j++] });
+      } else if (j >= modLines.length) {
+        diff.push({ type: 'removed', line: origLines[i++] });
+      } else if (origLines[i] === modLines[j]) {
+        diff.push({ type: 'context', line: modLines[j++] }); i++;
+      } else {
+        diff.push({ type: 'removed', line: origLines[i++] });
+        diff.push({ type: 'added', line: modLines[j++] });
+      }
+    }
+    return diff;
+  },
+  // R1.6: 渲染 VSCode 风格 diff
+  renderDiff(panel, diff) {
+    const maxLines = 200;
+    const truncated = diff.length > maxLines;
+    if (truncated) diff = diff.slice(0, maxLines);
+    let h = '<pre>';
+    let ln = 0;
+    diff.forEach((d) => {
+      ln++;
+      const gutter = d.type === 'added' ? '+' : (d.type === 'removed' ? '-' : ' ');
+      const cls = d.type === 'added' ? 'added' : (d.type === 'removed' ? 'removed' : 'context');
+      const content = escapeHtml(d.line);
+      h += `<div class="diff-line ${cls}"><span class="dg">${ln}</span><span class="dc">${gutter}</span><span class="dt">${content}</span></div>`;
+    });
+    if (truncated) h += '<div class="diff-truncated">diff 较长，已截断 (200 行)</div>';
+    h += '</pre>';
+    panel.innerHTML = h;
   },
   toggleSessionMenu() {
     const menu = $('#terminal-session-menu');
@@ -3956,22 +4121,7 @@ const term = {
   },
   renderTabs() {
     const bar = $('#term-tabs');
-    bar.innerHTML = '';
-    this.sessions.forEach((s) => {
-      const t = document.createElement('div');
-      const dotState = s.dead ? 'dead' : (s.status === 'busy' ? 'busy' : 'idle');
-      const followed = follow.on && follow.sid === s.id; // 文件跟随正盯着这个 tab
-      t.className = 'term-tab' + (s.id === this.active ? ' active' : '') + (s.unread ? ' unread' : '') + (followed ? ' following' : '');
-      const dotTitle = s.dead ? '进程已退出' : (s.status === 'busy' ? 'agent 运行中' : '空闲');
-      // 终端图标按项目路径染色：同项目同色，和面包屑的配对色点呼应
-      const hue = this.hueOf(s.cwd || s.startDir);
-      t.title = followed ? '文件跟随正盯着这个终端 · 双击跳到它所在目录' : '双击：文件区跳到该终端所在目录';
-      const eye = followed ? `<span class="tab-eye" title="文件跟随盯着它">${ic('eye', 'currentColor', 11)}</span>` : '';
-      t.innerHTML = `<span class="tab-dot ${dotState}" title="${dotTitle}"></span>${eye}${ic('term', `hsl(${hue} 62% 48%)`, 12)}<span>${escapeHtml(s.title)}</span><span class="tab-x" title="关闭">✕</span>`;
-      t.onclick = (e) => { if (e.target.classList.contains('tab-x')) { this.closeTab(s.id); return; } this.activate(s.id); };
-      t.ondblclick = (e) => { if (e.target.classList.contains('tab-x')) return; this.locateCwd(); };
-      bar.appendChild(t);
-    });
+    if (bar) bar.innerHTML = '';
     this.updateSessionSwitcher();
     const menu = $('#terminal-session-menu');
     if (menu && !menu.classList.contains('hidden')) this.renderSessionMenu();
@@ -4985,6 +5135,7 @@ function kindFromName(p) {
 const follow = {
   on: false,
   sid: null,         // 开启时绑定的终端会话 id——只跟这个 agent 项目目录里的写入
+	  agent: 'agent',    // R1.6: 当前绑定的 agent 类型名称，用于显示
   label: '',         // 绑定终端的项目名，给 UI 显示「在跟哪个 agent」
   path: null,        // 正在跟随的文件（绝对路径）
   lastContent: null, // 上次渲染的文本内容，用于定位本次改动行
@@ -5022,6 +5173,7 @@ function setFileFollow(on, offMsg) {
     const s = term.sessions.find((x) => x.id === sid);
     if (s) term.refreshCwd(s, true).catch(() => {}); // 立刻校准 cwd，scope 从第一笔就准（不靠回车后的延迟轮询）
     follow.label = s ? (baseOf(s.cwd || s.startDir || '') || s.title || '') : '';
+	      follow.agent = s ? (s.title && s.title.indexOf('Claude') >= 0 ? 'Claude Code' : s.title && s.title.indexOf('Codex') >= 0 ? 'Codex' : s.title && s.title.indexOf('opencode') >= 0 ? 'OpenCode' : s.title && s.title.indexOf('qoder') >= 0 ? 'Qoder' : 'agent') : 'agent';
   } else {
     follow.sid = null; follow.label = ''; // 浏览器版无终端：维持旧口径（全跟）
   }
