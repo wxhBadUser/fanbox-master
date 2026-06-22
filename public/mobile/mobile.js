@@ -296,12 +296,14 @@ const S = {
   currentAgent: "claude_code",
   currentTab:  "home",
   cwd:         null,
+  cwdLabel:    null,    // Phase UI-A8-4: 友好名（folder basename）
   sidebarOpen: false,
   messages:    [],   // current session messages
   sessionId:   null,
   files:       [],   // current directory listing
   fileHistory:  [],   // navigation stack for back button
   skills:      [],
+  skillState:  {},    // Phase UI-A8-4: mobile 端 skills enabled/disabled map
   allSessions: [],
   allProjects: [],          // Phase UI-A8-3: sessions 聚合后的 projects
   currentProject: null,     // Phase UI-A8-3: 当前 Project Detail
@@ -441,6 +443,11 @@ function init () {
   wireAgentDropdown();
   wireFiles();
   wireSkills();
+  // Phase UI-A8-4: 技能库 refresh 按钮
+  const skillsRefresh = $("skills-refresh");
+  if (skillsRefresh) skillsRefresh.addEventListener("click", loadSkills);
+  const projectRefresh = $("project-refresh");
+  if (projectRefresh) projectRefresh.addEventListener("click", loadAllProjects);
   wireProject();
   wireTopbar();
 
@@ -684,6 +691,61 @@ function updateHomeAgentAvatar () {
 function updateTopbarCwd () {
   $("topbar-cwd").textContent = S.cwd ? truncate(S.cwd, 20) : "—";
   $("topbar-cwd").title = S.cwd || "";
+  // Phase UI-A8-4: 同步更新 Home 当前工作区显示
+  updateWorkspaceDisplay();
+}
+
+/* =========================================================
+   Phase UI-A8-4 · Home current workspace display
+   ========================================================= */
+function updateWorkspaceDisplay () {
+  const cwd = S.cwd || "";
+  const cwdLabel = S.cwdLabel || "";
+  const hasWorkspace = !!cwd;
+
+  // Derive display name: cwdLabel > basename(cwd) > "未选择工作区"
+  let displayName;
+  if (cwdLabel) {
+    displayName = cwdLabel;
+  } else if (cwd) {
+    displayName = cwd.split(/[/\\]/).filter(Boolean).pop() || cwd;
+  } else {
+    displayName = "未选择工作区";
+  }
+
+  // Short cwd for display
+  const shortCwd = cwd ? (cwd.length > 50 ? "…" + cwd.slice(-50) : cwd) : "";
+
+  // Hero workspace button
+  const heroBtn = $("home-workspace");
+  const heroName = $("home-workspace-name");
+  const heroCwd = $("home-workspace-cwd");
+  if (heroName) heroName.textContent = displayName;
+  if (heroCwd) {
+    heroCwd.textContent = shortCwd;
+    heroCwd.title = cwd;
+  }
+  if (heroBtn) {
+    heroBtn.classList.toggle("is-empty", !hasWorkspace);
+    heroBtn.title = cwd ? "打开 Project: " + displayName : "打开 Project";
+  }
+
+  // Chat-bar workspace button
+  const barBtn = $("home-workspace-bar-btn");
+  const barName = $("home-workspace-bar-name");
+  if (barName) barName.textContent = displayName;
+  if (barBtn) {
+    barBtn.classList.toggle("is-empty", !hasWorkspace);
+    barBtn.title = cwd ? "打开 Project: " + displayName : "打开 Project";
+  }
+}
+
+/** Phase UI-A8-4 · 点击当前工作区 → 进入 Project 页面 */
+function goToProjectFromWorkspace () {
+  closeSidebar();
+  showTab("project");
+  // 触发一次刷新
+  if (typeof loadAllProjects === "function") loadAllProjects();
 }
 
 /* =========================================================
@@ -725,6 +787,12 @@ function wireHome () {
 
   // skill button
   $("home-skill-button").addEventListener("click", openSkillPicker);
+
+  // Phase UI-A8-4: 点击当前工作区 → 打开 Project
+  const wsBtn = $("home-workspace");
+  if (wsBtn) wsBtn.addEventListener("click", goToProjectFromWorkspace);
+  const wsBarBtn = $("home-workspace-bar-btn");
+  if (wsBarBtn) wsBarBtn.addEventListener("click", goToProjectFromWorkspace);
 }
 
 function renderTaskChips () {
@@ -828,6 +896,10 @@ function enterChatState () {
   if (shell) shell.classList.add("is-chat");
   $("home-hero").hidden = true;
   $("home-task-chips").hidden = true;
+  // Phase UI-A8-4: 显示 chat 态顶部工作区条带
+  const bar = $("home-workspace-bar");
+  if (bar) bar.hidden = false;
+  updateWorkspaceDisplay();
 }
 
 function exitChatState () {
@@ -836,6 +908,10 @@ function exitChatState () {
   if (shell) shell.classList.remove("is-chat");
   $("home-hero").hidden = false;
   $("home-task-chips").hidden = false;
+  // Phase UI-A8-4: 隐藏 chat 态顶部工作区条带
+  const bar = $("home-workspace-bar");
+  if (bar) bar.hidden = true;
+  updateWorkspaceDisplay();
 }
 
 /* noop - phase UI-A7 removed approval polling; kept as noop for backward compat */
@@ -972,10 +1048,12 @@ async function loadFiles (path) {
     if (path && path !== S.cwd) {
       S.fileHistory.push(S.cwd);
       S.cwd = path;
+      S.cwdLabel = (path || "").split(/[/\\]/).filter(Boolean).pop() || null;
       localStorage.setItem(CWD_KEY, path);
       updateTopbarCwd();
     } else if (!S.cwd && target) {
       S.cwd = target;
+      S.cwdLabel = (target || "").split(/[/\\]/).filter(Boolean).pop() || null;
       localStorage.setItem(CWD_KEY, target);
       updateTopbarCwd();
     }
@@ -1248,16 +1326,203 @@ function toast (msg) {
 }
 
 /* =========================================================
-   Skills View
+   Phase UI-A8-4 · Skills Library
+   - 真实技能库 (normalizeSkill / skillAgentScope / skillCategory / skillChineseDescription)
+   - 顶部搜索 + Agent / Status / Type 三组 filter
+   - 卡片显示 name / cnDescription / agentScope / category / source / toggle
+   - toggle 调 POST /api/mobile/skills-state; 失败回滚
+   - Use in chat 切回 Home 并填入 prompt (不发送)
    ========================================================= */
+
+/** Skill category → 中文 label + icon key */
+const SKILL_CATEGORIES = {
+  Document:   { label: "文档",   icon: "document" },
+  Code:       { label: "代码",   icon: "code" },
+  Research:   { label: "研究",   icon: "research" },
+  File:       { label: "文件",   icon: "file" },
+  Agent:      { label: "智能体", icon: "agent" },
+  Automation: { label: "自动化", icon: "automation" },
+  Media:      { label: "媒体",   icon: "media" },
+  Other:      { label: "其他",   icon: "other" },
+};
+
+/** Skill agent scope → 中文 label */
+const SKILL_AGENT_LABELS = {
+  "all":      "All agents",
+  "claude":   "Claude Code",
+  "codex":    "Codex",
+  "qoder":    "Qoder",
+  "opencode": "OpenCode",
+  "fanbox":   "FanBox",
+};
+
+/** skill id/key → 中文简介（spec §5.2 表） */
+const SKILL_CN_DESCRIPTIONS = {
+  "ppt":                    "生成、编辑和整理演示文稿，适合制作汇报、路演和课程展示。",
+  "docx":                   "生成和编辑 Word 文档，适合简历、报告、方案和正式材料。",
+  "xlsx":                   "处理 Excel 表格、数据清洗、统计分析和结构化表格生成。",
+  "pdf":                    "阅读、整理和分析 PDF 文件内容，提取关键信息。",
+  "markdown":               "生成和整理 Markdown 文档，适合计划、笔记和项目文档。",
+  "md":                     "生成和整理 Markdown 文档，适合计划、笔记和项目文档。",
+  "code-review":            "检查代码结构、潜在风险、可维护性和实现逻辑。",
+  "summary":                "总结文件、目录、会话或长文本内容，提炼重点。",
+  "research":               "围绕一个主题进行资料整理、问题拆解和研究计划生成。",
+  "file-manager":           "查看和理解当前文件夹内容，辅助在指定目录中工作。",
+  "wechat":                 "辅助处理微信相关内容、会话整理和自动化连接规划。",
+  "slides":                 "生成演示文稿大纲、页面结构和内容草稿。",
+  "spreadsheet":            "处理表格、CSV、数据统计和格式化输出。",
+  "document":               "生成、润色和整理正式文档。",
+  "image":                  "分析图片内容或辅助生成图像相关提示。",
+  "agent":                  "调用或协同指定智能体完成任务。",
+  "terminal":               "理解命令行输出和开发环境状态，但不直接暴露裸 shell。",
+  "git":                    "分析 Git 状态、提交记录、diff 和代码变更风险。",
+};
+
+/** name/title 显示优化（spec §5.1） */
+const SKILL_TITLE_MAP = {
+  "ppt":      "PPT",
+  "docx":     "Word Document",
+  "xlsx":     "Excel Spreadsheet",
+  "pdf":      "PDF",
+  "markdown": "Markdown",
+  "md":       "Markdown",
+};
+
+/** 标准化一个 skill（spec §五） */
+function normalizeSkill (raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const idRaw = (raw.id || raw.name || raw.skillId || "").toString();
+  if (!idRaw) return null;
+  const id = idRaw.toLowerCase();
+  const name = id;
+  const titleRaw = raw.title || raw.name || id;
+  const title = SKILL_TITLE_MAP[id] || SKILL_TITLE_MAP[name] || titleRaw;
+  const description = raw.description || raw.desc || "";
+  const enabled = raw.enabled === true;
+  const usageCount = (typeof raw.usageCount === "number") ? raw.usageCount : null;
+  const lastUsedAt = raw.lastUsedAt || raw.lastUsed || null;
+  const source = raw.source || (raw.agent ? raw.agent : "Built-in");
+  const agentScope = skillAgentScope(raw);
+  const category = skillCategory(raw);
+  const cnDescription = skillChineseDescription(raw);
+
+  return {
+    id,
+    name,
+    title,
+    description,
+    cnDescription,
+    agentScope,
+    category,
+    source: String(source),
+    enabled,
+    usageCount,
+    lastUsedAt,
+  };
+}
+
+/** 推断所属智能体 (spec §5.3) */
+function skillAgentScope (raw) {
+  if (!raw || typeof raw !== "object") return "fanbox";
+  if (raw.agent && typeof raw.agent === "string") {
+    const a = raw.agent.toLowerCase();
+    if (a === "all" || a === "all-agents" || a === "all_agents") return "all";
+    if (a === "claude" || a === "claude_code") return "claude";
+    if (a === "codex")  return "codex";
+    if (a === "qoder")  return "qoder";
+    if (a === "opencode" || a === "open-code" || a === "open_code") return "opencode";
+  }
+  const blob = ((raw.id || "") + " " + (raw.name || "") + " " + (raw.path || "") + " " + (raw.source || "")).toLowerCase();
+  if (/claude|claude_code/.test(blob))  return "claude";
+  if (/\bcodex\b/.test(blob))           return "codex";
+  if (/\bqoder\b/.test(blob))           return "qoder";
+  if (/opencode|open.code|open_code/.test(blob)) return "opencode";
+  // 通用类型 → All agents
+  if (/\b(ppt|docx|xlsx|pdf|markdown|md|summary|spreadsheet|document|file|files|file-manager)\b/.test(blob)) return "all";
+  return "fanbox";
+}
+
+/** 推断分类 (spec §5.4) */
+function skillCategory (raw) {
+  if (!raw || typeof raw !== "object") return "Other";
+  if (raw.category && typeof raw.category === "string") {
+    const c = raw.category;
+    if (SKILL_CATEGORIES[c]) return c;
+    const low = c.toLowerCase();
+    if (low === "doc" || low === "document") return "Document";
+    if (low === "code" || low === "coding")  return "Code";
+    if (low === "research" || low === "search") return "Research";
+    if (low === "file" || low === "files")    return "File";
+    if (low === "agent")                      return "Agent";
+    if (low === "automation" || low === "bridge" || low === "mobile") return "Automation";
+    if (low === "media" || low === "image")   return "Media";
+  }
+  const blob = ((raw.id || "") + " " + (raw.name || "") + " " + (raw.description || "")).toLowerCase();
+  if (/\b(ppt|docx|pdf|markdown|\bmd\b|xlsx|spreadsheet|slides|document)\b/.test(blob)) return "Document";
+  if (/\b(code|code-review|\bgit\b|test|debug|tdd|prototype|review)\b/.test(blob))     return "Code";
+  if (/\b(research|search|paper|academic|literature|investigation)\b/.test(blob))      return "Research";
+  if (/\b(file|files|folder|path|fs)\b/.test(blob))                                    return "File";
+  if (/\b(agent|claude|codex|qoder|opencode)\b/.test(blob))                            return "Agent";
+  if (/\b(wechat|bridge|mobile|automation|workflow)\b/.test(blob))                     return "Automation";
+  if (/\b(image|audio|video|media)\b/.test(blob))                                      return "Media";
+  return "Other";
+}
+
+/** 中文简介 (spec §5.2) */
+function skillChineseDescription (raw) {
+  if (!raw) return "暂无简介";
+  const id = (raw.id || raw.name || "").toString().toLowerCase();
+  // 1) 内置中文映射
+  if (SKILL_CN_DESCRIPTIONS[id]) return SKILL_CN_DESCRIPTIONS[id];
+  // 2) 已有 SKILL_CN 映射 (向前兼容)
+  if (SKILL_CN[id]) return SKILL_CN[id];
+  // 3) 原始 description
+  if (raw.description && raw.description.trim()) return raw.description.trim();
+  return "暂无简介";
+}
+
+/** Inline SVG icons for category (spec §七) */
+function skillCategoryIcon (cat) {
+  const meta = SKILL_CATEGORIES[cat] || SKILL_CATEGORIES.Other;
+  const map = {
+    document:   '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>',
+    code:       '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
+    research:   '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+    file:       '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>',
+    agent:      '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+    automation: '<polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+    media:      '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+    other:      '<circle cx="12" cy="12" r="9"/>',
+  };
+  const d = map[meta.icon] || map.other;
+  return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+}
+
 function wireSkills () {
+  // search
   $("skills-q").addEventListener("input", debounce(filterSkills, 200));
-  qsa(".skills-filter-btn").forEach(btn => {
+  // agent filter
+  qsa(".skills-filter-agent").forEach(btn => {
     btn.addEventListener("click", () => {
-      qsa(".skills-filter-btn").forEach(b => {
-        b.classList.remove("is-active");
-        b.setAttribute("aria-selected", "false");
-      });
+      qsa(".skills-filter-agent").forEach(b => { b.classList.remove("is-active"); b.setAttribute("aria-selected", "false"); });
+      btn.classList.add("is-active");
+      btn.setAttribute("aria-selected", "true");
+      filterSkills();
+    });
+  });
+  // status filter
+  qsa(".skills-filter-status").forEach(btn => {
+    btn.addEventListener("click", () => {
+      qsa(".skills-filter-status").forEach(b => { b.classList.remove("is-active"); b.setAttribute("aria-selected", "false"); });
+      btn.classList.add("is-active");
+      btn.setAttribute("aria-selected", "true");
+      filterSkills();
+    });
+  });
+  // type filter
+  qsa(".skills-filter-type").forEach(btn => {
+    btn.addEventListener("click", () => {
+      qsa(".skills-filter-type").forEach(b => { b.classList.remove("is-active"); b.setAttribute("aria-selected", "false"); });
       btn.classList.add("is-active");
       btn.setAttribute("aria-selected", "true");
       filterSkills();
@@ -1267,49 +1532,96 @@ function wireSkills () {
 
 async function loadSkills () {
   const listEl = $("skills-list");
-  listEl.innerHTML = `<div class="skeleton" style="height:80px;margin-bottom:8px"></div><div class="skeleton" style="height:80px;margin-bottom:8px"></div>`;
+  listEl.innerHTML = `<div class="skeleton" style="height:84px;margin-bottom:8px"></div><div class="skeleton" style="height:84px;margin-bottom:8px"></div>`;
 
+  // 1) 拉 skills
+  let rawSkills = [];
   try {
     const data = await api("/api/mobile/skills");
-    S.skills = Array.isArray(data) ? data : (data?.skills || []);
-    renderSkills(S.skills);
+    rawSkills = Array.isArray(data) ? data : (data?.skills || []);
   } catch (e) {
-    listEl.innerHTML = `<div class="skills-empty"><div class="skills-empty-strong">加载失败</div>${htmlEscape(e.message)}</div>`;
+    listEl.innerHTML = `<div class="skills-empty"><div class="skills-empty-strong">加载失败</div>${htmlEscape(e.message || String(e))}</div>`;
+    return;
   }
+
+  // 2) 拉 skills-state (mobile 端 enabled/disabled)
+  let skillState = {};
+  try {
+    const st = await api("/api/mobile/skills-state");
+    if (st && typeof st === "object") {
+      if (st.skills && typeof st.skills === "object") skillState = st.skills;
+      else if (st.state && typeof st.state === "object") skillState = st.state;
+      else skillState = st;
+    }
+  } catch (e) {
+    // 失败时使用空 state (默认 disabled 走 skill.enabled)
+  }
+  S.skillState = skillState;
+
+  // 3) normalize + 合并 state
+  const normalized = rawSkills
+    .map(s => {
+      const n = normalizeSkill(s);
+      if (!n) return null;
+      // 用 mobile state 覆盖 enabled
+      if (Object.prototype.hasOwnProperty.call(skillState, n.id)) {
+        n.enabled = !!skillState[n.id];
+      } else if (Object.prototype.hasOwnProperty.call(skillState, n.name)) {
+        n.enabled = !!skillState[n.name];
+      }
+      return n;
+    })
+    .filter(Boolean);
+
+  S.skills = normalized;
+  renderSkills(normalized);
 }
 
 function renderSkills (skills) {
   const listEl = $("skills-list");
   listEl.innerHTML = "";
 
-  if (skills.length === 0) {
-    listEl.innerHTML = `<div class="skills-empty"><div class="skills-empty-strong">暂无技能</div>请在电脑端启用技能</div>`;
+  if (!skills || skills.length === 0) {
+    listEl.innerHTML = `<div class="skills-empty"><div class="skills-empty-strong">没有找到匹配的技能</div>请尝试其他关键词或筛选</div>`;
     return;
   }
 
   skills.forEach(skill => {
-    const cnDesc = SKILL_CN[skill.name] || null;
-    const desc = cnDesc || skill.description || skill.desc || "暂无简介";
-    const isEmpty = !skill.description && !cnDesc;
+    const card = el("div", "skill-card" + (skill.enabled ? " is-enabled" : " is-disabled"));
+    card.setAttribute("data-skill-id", skill.id);
+    card.setAttribute("data-agent", skill.agentScope);
+    card.setAttribute("data-category", skill.category);
+    card.setAttribute("data-enabled", skill.enabled ? "1" : "0");
 
-    const card = el("div", "skill-card");
+    const catLabel = (SKILL_CATEGORIES[skill.category] || SKILL_CATEGORIES.Other).label;
+    const agentLabel = SKILL_AGENT_LABELS[skill.agentScope] || "FanBox";
+    const isEmptyDesc = !skill.cnDescription || skill.cnDescription === "暂无简介";
+
     card.innerHTML =
-      `<div class="skill-head">` +
-        `<span class="skill-name">${htmlEscape(skill.name)}</span>` +
-        `<span class="skill-source">${htmlEscape(skill.source || "local")}</span>` +
-      `</div>` +
-      `<p class="skill-desc${isEmpty ? " is-empty" : ""}">${htmlEscape(desc)}</p>` +
-      `<div class="skill-foot">` +
-        `<span class="skill-stats">` +
-          (skill.usageCount != null ? `<span>使用 ${skill.usageCount} 次</span>` : "") +
-          (skill.lastUsed ? `<span>${timeAgo(skill.lastUsed)}</span>` : "") +
-        `</span>` +
-        `<button class="skill-toggle${skill.enabled ? " is-enabled" : ""}" data-skill="${htmlEscape(skill.name)}" type="button">${skill.enabled ? "Enabled" : "Disabled"}</button>` +
+      `<div class="skill-card-icon">${skillCategoryIcon(skill.category)}</div>` +
+      `<div class="skill-card-body">` +
+        `<div class="skill-card-head">` +
+          `<div class="skill-card-title">${htmlEscape(skill.title)}</div>` +
+          `<button class="skill-toggle ${skill.enabled ? "is-on" : "is-off"}" data-skill-id="${htmlEscape(skill.id)}" type="button" role="switch" aria-checked="${skill.enabled ? "true" : "false"}" aria-label="Toggle ${htmlEscape(skill.title)}">` +
+            `<span class="skill-toggle-knob"></span>` +
+          `</button>` +
+        `</div>` +
+        `<p class="skill-card-desc ${isEmptyDesc ? "is-empty" : ""}">${htmlEscape(skill.cnDescription)}</p>` +
+        `<div class="skill-card-meta">` +
+          `<span class="skill-badge skill-badge-agent" data-agent="${skill.agentScope}">${htmlEscape(agentLabel)}</span>` +
+          `<span class="skill-badge skill-badge-cat" data-cat="${skill.category}">${htmlEscape(catLabel)}</span>` +
+          `<span class="skill-source">${htmlEscape(skill.source)}</span>` +
+          `<button class="skill-use-btn" data-skill-id="${htmlEscape(skill.id)}" data-skill-title="${htmlEscape(skill.title)}" type="button">Use in chat</button>` +
+        `</div>` +
       `</div>`;
 
-    card.querySelector(".skill-toggle").addEventListener("click", function () {
-      const isEnabled = this.classList.toggle("is-enabled");
-      this.textContent = isEnabled ? "Enabled" : "Disabled";
+    // toggle handler
+    card.querySelector(".skill-toggle").addEventListener("click", () => {
+      toggleSkill(skill);
+    });
+    // use in chat handler
+    card.querySelector(".skill-use-btn").addEventListener("click", () => {
+      useSkillInChat(skill);
     });
 
     listEl.appendChild(card);
@@ -1317,20 +1629,73 @@ function renderSkills (skills) {
 }
 
 function filterSkills () {
-  const q = $("skills-q").value.toLowerCase().trim();
-  const filter = qsa(".skills-filter-btn.is-active")[0]?.getAttribute("data-filter") || "all";
+  const q = ($("skills-q").value || "").toLowerCase().trim();
+  const agent = (qsa(".skills-filter-agent.is-active")[0]?.getAttribute("data-agent") || "all").toLowerCase();
+  const status = (qsa(".skills-filter-status.is-active")[0]?.getAttribute("data-status") || "all").toLowerCase();
+  const type = (qsa(".skills-filter-type.is-active")[0]?.getAttribute("data-type") || "all").toLowerCase();
 
-  const filtered = S.skills.filter(s => {
-    const matchQ = !q || (s.name || "").toLowerCase().includes(q) ||
-      (SKILL_CN[s.name] || "").toLowerCase().includes(q) ||
-      (s.description || "").toLowerCase().includes(q);
-    const matchFilter = filter === "all" ||
-      (filter === "enabled" && s.enabled) ||
-      (filter === "disabled" && !s.enabled);
-    return matchQ && matchFilter;
+  const filtered = (S.skills || []).filter(s => {
+    if (agent !== "all" && s.agentScope !== agent) return false;
+    if (status === "enabled"  && !s.enabled) return false;
+    if (status === "disabled" &&  s.enabled) return false;
+    if (type !== "all" && s.category !== type) return false;
+    if (!q) return true;
+    const hay = [
+      s.title || "",
+      s.name || "",
+      s.cnDescription || "",
+      (SKILL_AGENT_LABELS[s.agentScope] || ""),
+      (SKILL_CATEGORIES[s.category] || SKILL_CATEGORIES.Other).label,
+      s.source || ""
+    ].join(" ").toLowerCase();
+    return hay.includes(q);
   });
 
   renderSkills(filtered);
+}
+
+/** 切换 enabled 状态 (调 POST /api/mobile/skills-state, 失败回滚) */
+async function toggleSkill (skill) {
+  if (!skill || !skill.id) return;
+  const prevEnabled = skill.enabled;
+  const newEnabled = !prevEnabled;
+  // 乐观更新
+  skill.enabled = newEnabled;
+  if (S.skillState) S.skillState[skill.id] = newEnabled;
+  // 重渲染当前列表
+  filterSkills();
+  try {
+    const res = await api("/api/mobile/skills-state", {
+      method: "POST",
+      body: JSON.stringify({ skillId: skill.id, enabled: newEnabled })
+    });
+    if (!res || res.ok === false) {
+      throw new Error((res && res.error) || "toggle failed");
+    }
+  } catch (e) {
+    // 回滚
+    skill.enabled = prevEnabled;
+    if (S.skillState) S.skillState[skill.id] = prevEnabled;
+    filterSkills();
+    toast("状态更新失败: " + (e.message || e));
+  }
+}
+
+/** Use in chat → 切回 Home + 填入 prompt (不发送) */
+function useSkillInChat (skill) {
+  if (!skill) return;
+  const title = skill.title || skill.name;
+  S.currentSkill = skill.id;
+  const input = $("home-input");
+  if (input) {
+    input.value = "使用「" + title + "」帮我……";
+    autoResize(input);
+    const send = $("home-send");
+    if (send) send.disabled = !input.value.trim() || S.running;
+  }
+  closeSidebar();
+  showTab("home");
+  setTimeout(() => { if (input) input.focus(); }, 60);
 }
 
 /* =========================================================
@@ -1637,6 +2002,7 @@ async function continueSession (session) {
   }
   if (session.cwd) {
     S.cwd = session.cwd;
+    S.cwdLabel = (session.cwd || "").split(/[/\\]/).filter(Boolean).pop() || null;
     localStorage.setItem(CWD_KEY, session.cwd);
     updateTopbarCwd();
   }

@@ -387,14 +387,20 @@ function req(opts, body) {
   section('G) Skills · 中文简介');
   ok('HTML 含 #skills-list', /id="skills-list"/.test(html));
   ok('HTML 含 #skills-q (搜索)', /id="skills-q"/.test(html));
-  ok('Skills 三个 filter: All / Enabled / Disabled', /data-filter="all"/.test(html) && /data-filter="enabled"/.test(html) && /data-filter="disabled"/.test(html));
+  ok('Skills 三个 status filter: All / Enabled / Disabled (UI-A8-4)',
+    /data-status="all"/.test(html) && /data-status="enabled"/.test(html) && /data-status="disabled"/.test(html));
+  ok('Skills 五个 agent filter: All / Claude / Codex / Qoder / OpenCode (UI-A8-4)',
+    /data-agent="all"/.test(html) && /data-agent="claude"/.test(html) && /data-agent="codex"/.test(html) && /data-agent="qoder"/.test(html) && /data-agent="opencode"/.test(html));
+  ok('Skills type filter: Document / Code / Research / File / Agent (UI-A8-4)',
+    /data-type="Document"/.test(html) && /data-type="Code"/.test(html) && /data-type="Research"/.test(html) && /data-type="File"/.test(html) && /data-type="Agent"/.test(html));
   ok('mobile.js SKILL_CN 映射表存在', /SKILL_CN\s*=/.test(js));
   ok('SKILL_CN 含 ppt', /SKILL_CN[\s\S]{0,300}["']ppt["']/.test(js));
   ok('SKILL_CN 含 docx', /SKILL_CN[\s\S]{0,300}["']docx["']/.test(js));
   ok('SKILL_CN 含 xlsx', /SKILL_CN[\s\S]{0,300}["']xlsx["']/.test(js));
   ok('SKILL_CN 含 code-review', /SKILL_CN[\s\S]{0,300}["']code-review["']/.test(js));
   ok('SKILL_CN 含 summary', /SKILL_CN[\s\S]{0,300}["']summary["']/.test(js));
-  ok('mobile.js renderSkills 优先 SKILL_CN 中文', /renderSkills[\s\S]{0,500}SKILL_CN\[/.test(js));
+  ok('mobile.js renderSkills 使用 SKILL_CN_DESCRIPTIONS / SKILL_CN 中文',
+    /function\s+renderSkills[\s\S]{0,3000}SKILL_CN_DESCRIPTIONS|function\s+skillChineseDescription[\s\S]{0,500}SKILL_CN_DESCRIPTIONS|function\s+skillChineseDescription[\s\S]{0,500}SKILL_CN\[/.test(js));
   ok('无简介时显示 "暂无简介"', /暂无简介/.test(js));
   ok('CSS .skill-desc 简介框', /\.skill-desc\s*\{/.test(css));
   ok('CSS .skill-toggle 开关', /\.skill-toggle\s*\{/.test(css));
@@ -737,6 +743,238 @@ function req(opts, body) {
   ok('L.cwd: continueSession 恢复后 send 用同一个 session (doSend 用 S.sessionId)',
     /doSend[\s\S]{0,2000}sessionId:\s*S\.sessionId/.test(js) &&
     /continueSession[\s\S]{0,2000}S\.sessionId\s*=\s*sid/.test(js));
+
+  // ============================================================
+  // [M] Phase UI-A8-4 · Skills Library + Home Current Workspace
+  // ============================================================
+  section('M) Skills Library + Home Workspace · UI-A8-4');
+
+  // [M.1] Home current workspace display
+  ok('M.home: HTML 含 #home-workspace (hero 态按钮)', /id="home-workspace"/.test(html));
+  ok('M.home: HTML 含 #home-workspace-bar (chat 态条带)', /id="home-workspace-bar"/.test(html));
+  ok('M.home: HTML 含 #home-workspace-name (主名称)', /id="home-workspace-name"/.test(html));
+  ok('M.home: HTML 含 #home-workspace-cwd (完整路径)', /id="home-workspace-cwd"/.test(html));
+  ok('M.home: HTML 含 #home-workspace-bar-btn (chat 态按钮)', /id="home-workspace-bar-btn"/.test(html));
+  ok('M.home: HTML 含 #home-workspace-bar-name (chat 态名称)', /id="home-workspace-bar-name"/.test(html));
+  ok('M.home: CSS .home-workspace 卡片 (圆角/轻边框)', /\.home-workspace\s*\{[^}]*border-radius:\s*12px/.test(css));
+  ok('M.home: CSS .home-workspace-name ellipsis',
+    /\.home-workspace-name[\s\S]{0,200}text-overflow:\s*ellipsis/.test(css));
+  ok('M.home: CSS .home-workspace-cwd ellipsis (路径过长)',
+    /\.home-workspace-cwd[\s\S]{0,200}text-overflow:\s*ellipsis/.test(css));
+  ok('M.home: CSS .home-workspace.is-empty (无 cwd 态)',
+    /\.home-workspace\.is-empty/.test(css));
+  ok('M.home: CSS .home-workspace-bar (chat 态条带)',
+    /\.home-workspace-bar\s*\{/.test(css));
+  ok('M.home: mobile.js updateWorkspaceDisplay 函数存在',
+    /function\s+updateWorkspaceDisplay/.test(js));
+  ok('M.home: updateWorkspaceDisplay 显示 "未选择工作区" 当无 cwd',
+    /updateWorkspaceDisplay[\s\S]{0,2000}未选择工作区/.test(js));
+  ok('M.home: updateWorkspaceDisplay 优先 cwdLabel',
+    /updateWorkspaceDisplay[\s\S]{0,2000}cwdLabel/.test(js));
+  ok('M.home: updateWorkspaceDisplay fallback basename(cwd)',
+    /updateWorkspaceDisplay[\s\S]{0,2000}split\([\/\\\\]/.test(js));
+  ok('M.home: mobile.js S.cwdLabel 字段存在',
+    /S\s*=\s*\{[\s\S]{0,200}cwdLabel/.test(js) || /cwdLabel:\s*null/.test(js));
+  ok('M.home: continueSession 设置 S.cwdLabel',
+    /continueSession[\s\S]{0,2000}S\.cwdLabel\s*=/.test(js));
+  ok('M.home: openAgentInCurrentFolder 用 cwdLabel (s.cwdLabel 或 basename)',
+    /openAgentInCurrentFolder[\s\S]{0,2000}cwdLabel/.test(js));
+  ok('M.home: loadFilePath (open) 设置 S.cwdLabel',
+    /S\.cwdLabel\s*=[\s\S]{0,200}split\([\/\\\\]/.test(js));
+  ok('M.home: updateTopbarCwd 触发 updateWorkspaceDisplay',
+    /updateTopbarCwd[\s\S]{0,500}updateWorkspaceDisplay\(\)/.test(js));
+  ok('M.home: enterChatState 显示 home-workspace-bar',
+    /enterChatState[\s\S]{0,2000}home-workspace-bar[\s\S]{0,500}\.hidden\s*=\s*false/.test(js));
+  ok('M.home: exitChatState 隐藏 home-workspace-bar',
+    /exitChatState[\s\S]{0,2000}home-workspace-bar[\s\S]{0,500}\.hidden\s*=\s*true/.test(js));
+  ok('M.home: workspace 按钮 click → goToProjectFromWorkspace',
+    /home-workspace["\s\S]{0,400}addEventListener\(['"]click['"][\s\S]{0,200}goToProjectFromWorkspace/.test(js));
+  ok('M.home: goToProjectFromWorkspace 调 showTab("project")',
+    /goToProjectFromWorkspace[\s\S]{0,500}showTab\(\s*['"]project['"]\s*\)/.test(js));
+  ok('M.home: Home 仍只有 1 个 #home-input', (html.match(/id="home-input"/g) || []).length === 1);
+  ok('M.home: Home 仍只有 1 个 #home-send', (html.match(/id="home-send"/g) || []).length === 1);
+  ok('M.home: 不出现第二个 textarea',
+    (html.match(/<textarea/gi) || []).length === 1);
+  ok('M.home: CSS .home-shell.is-chat 切换 (hero/chat)',
+    /\.home-shell\.is-chat\s*\.home-hero[\s\S]{0,300}display:\s*none/.test(css));
+
+  // [M.2] Skills 数据来源
+  ok('M.skills-data: mobile.js loadSkills 调 /api/mobile/skills',
+    /loadSkills[\s\S]{0,500}\/api\/mobile\/skills/.test(js));
+  ok('M.skills-data: loadSkills 调 /api/mobile/skills-state',
+    /loadSkills[\s\S]{0,2000}\/api\/mobile\/skills-state/.test(js));
+  ok('M.skills-data: toggleSkill 调 POST /api/mobile/skills-state',
+    /toggleSkill[\s\S]{0,2000}\/api\/mobile\/skills-state[\s\S]{0,2000}method:\s*['"]POST['"]/.test(js));
+  ok('M.skills-data: toggleSkill 失败时回滚 + toast',
+    /toggleSkill[\s\S]{0,2000}catch[\s\S]{0,500}skill\.enabled\s*=\s*prevEnabled[\s\S]{0,500}toast/.test(js));
+  ok('M.skills-data: mobile.js normalizeSkill 函数',
+    /function\s+normalizeSkill[\s\S]{0,2000}agentScope[\s\S]{0,500}category[\s\S]{0,500}cnDescription/.test(js));
+  ok('M.skills-data: mobile.js skillAgentScope 函数 (推断智能体)',
+    /function\s+skillAgentScope[\s\S]{0,2000}return\s+['"]all['"]|function\s+skillAgentScope[\s\S]{0,2000}claude/.test(js));
+  ok('M.skills-data: mobile.js skillCategory 函数 (推断分类)',
+    /function\s+skillCategory[\s\S]{0,2000}return\s+['"]Document['"]|function\s+skillCategory[\s\S]{0,2000}Document/.test(js));
+  ok('M.skills-data: mobile.js skillChineseDescription 函数',
+    /function\s+skillChineseDescription[\s\S]{0,2000}SKILL_CN_DESCRIPTIONS/.test(js));
+  ok('M.skills-data: skillChineseDescription 兜底 "暂无简介"',
+    /skillChineseDescription[\s\S]{0,2000}暂无简介/.test(js));
+
+  // [M.3] Skills UI 结构
+  ok('M.skills-ui: HTML 含 data-view="skills" 视图', /data-view="skills"/.test(html));
+  ok('M.skills-ui: HTML 含 #skills-list 列表容器', /id="skills-list"/.test(html));
+  ok('M.skills-ui: HTML 含 #skills-q 搜索框', /id="skills-q"/.test(html));
+  ok('M.skills-ui: HTML 含 skills-filter-agent (5 个)',
+    (html.match(/class="skills-filter-agent[^"]*"/g) || []).length === 5);
+  ok('M.skills-ui: HTML 含 skills-filter-status (3 个)',
+    (html.match(/class="skills-filter-status[^"]*"/g) || []).length === 3);
+  ok('M.skills-ui: HTML 含 skills-filter-type (7 个)',
+    (html.match(/class="skills-filter-type[^"]*"/g) || []).length >= 5);
+  ok('M.skills-ui: CSS .skills-filter-row 横向 chip 行',
+    /\.skills-filter-row\s*\{/.test(css));
+  ok('M.skills-ui: CSS .skills-filter-agent.is-active 选中态',
+    /\.skills-filter-agent\.is-active/.test(css));
+  ok('M.skills-ui: CSS .skill-card 卡片',
+    /\.skill-card\s*\{/.test(css));
+  ok('M.skills-ui: CSS .skill-card-icon 类目图标',
+    /\.skill-card-icon\s*\{/.test(css));
+  ok('M.skills-ui: CSS .skill-card-title ellipsis',
+    /\.skill-card-title[\s\S]{0,200}text-overflow:\s*ellipsis/.test(css));
+  ok('M.skills-ui: CSS .skill-card-desc 简介 (min-height 36px)',
+    /\.skill-card-desc\s*\{[^}]*min-height:\s*36px/.test(css));
+  ok('M.skills-ui: CSS .skill-card-desc.is-empty 空态',
+    /\.skill-card-desc\.is-empty/.test(css));
+  ok('M.skills-ui: CSS .skill-toggle 开关 (width 38px)',
+    /\.skill-toggle\s*\{[^}]*width:\s*38px/.test(css));
+  ok('M.skills-ui: CSS .skill-toggle.is-on 启用态',
+    /\.skill-toggle\.is-on/.test(css));
+  ok('M.skills-ui: CSS .skill-badge-agent Claude/Codex 区分颜色',
+    /\.skill-badge-agent\[data-agent="claude"\]/.test(css) &&
+    /\.skill-badge-agent\[data-agent="codex"\]/.test(css));
+  ok('M.skills-ui: CSS .skill-badge-cat Document/Code 区分颜色',
+    /\.skill-badge-cat\[data-cat="Document"\]/.test(css) &&
+    /\.skill-badge-cat\[data-cat="Code"\]/.test(css));
+  ok('M.skills-ui: CSS .skill-use-btn 按钮',
+    /\.skill-use-btn\s*\{/.test(css));
+  ok('M.skills-ui: CSS .skills-list mobile 单列 / desktop 两列',
+    /\.skills-list\s*\{[^}]*grid-template-columns:\s*1fr/.test(css) &&
+    /@media\s*\(min-width:\s*1024px\)[\s\S]{0,500}\.skills-list[\s\S]{0,200}1fr\s+1fr/.test(css));
+  ok('M.skills-ui: CSS .skills-empty 空状态',
+    /\.skills-empty\s*\{/.test(css) && /\.skills-empty-strong\s*\{/.test(css));
+
+  // [M.4] 中文简介映射
+  ok('M.cn-desc: SKILL_CN_DESCRIPTIONS 表 (skill id → 中文)',
+    /SKILL_CN_DESCRIPTIONS\s*=\s*\{/.test(js));
+  ok('M.cn-desc: SKILL_CN_DESCRIPTIONS 含 ppt',
+    /SKILL_CN_DESCRIPTIONS[\s\S]{0,2000}["']ppt["']/.test(js));
+  ok('M.cn-desc: SKILL_CN_DESCRIPTIONS 含 docx',
+    /SKILL_CN_DESCRIPTIONS[\s\S]{0,2000}["']docx["']/.test(js));
+  ok('M.cn-desc: SKILL_CN_DESCRIPTIONS 含 xlsx',
+    /SKILL_CN_DESCRIPTIONS[\s\S]{0,2000}["']xlsx["']/.test(js));
+  ok('M.cn-desc: SKILL_CN_DESCRIPTIONS 含 pdf',
+    /SKILL_CN_DESCRIPTIONS[\s\S]{0,2000}["']pdf["']/.test(js));
+  ok('M.cn-desc: SKILL_CN_DESCRIPTIONS 含 markdown',
+    /SKILL_CN_DESCRIPTIONS[\s\S]{0,2000}["']markdown["']/.test(js));
+  ok('M.cn-desc: SKILL_CN_DESCRIPTIONS 含 md',
+    /SKILL_CN_DESCRIPTIONS[\s\S]{0,2000}["']md["']/.test(js));
+  ok('M.cn-desc: SKILL_CN_DESCRIPTIONS 含 code-review',
+    /SKILL_CN_DESCRIPTIONS[\s\S]{0,2000}["']code-review["']/.test(js));
+  ok('M.cn-desc: SKILL_CN_DESCRIPTIONS 含 summary',
+    /SKILL_CN_DESCRIPTIONS[\s\S]{0,2000}["']summary["']/.test(js));
+  ok('M.cn-desc: SKILL_CN_DESCRIPTIONS 含 file-manager',
+    /SKILL_CN_DESCRIPTIONS[\s\S]{0,2000}["']file-manager["']/.test(js));
+  ok('M.cn-desc: SKILL_CN_DESCRIPTIONS 含 research',
+    /SKILL_CN_DESCRIPTIONS[\s\S]{0,2000}["']research["']/.test(js));
+  ok('M.cn-desc: 未知 skill 显示 "暂无简介"',
+    /skillChineseDescription[\s\S]{0,2000}暂无简介/.test(js) ||
+    /normalizeSkill[\s\S]{0,2000}暂无简介/.test(js));
+
+  // [M.5] Agent scope 推断
+  ok('M.agent-scope: skillAgentScope 返回 "claude"',
+    /function\s+skillAgentScope[\s\S]{0,2000}return\s+['"]claude['"]/.test(js));
+  ok('M.agent-scope: skillAgentScope 返回 "codex"',
+    /function\s+skillAgentScope[\s\S]{0,2000}return\s+['"]codex['"]/.test(js));
+  ok('M.agent-scope: skillAgentScope 返回 "qoder"',
+    /function\s+skillAgentScope[\s\S]{0,2000}return\s+['"]qoder['"]/.test(js));
+  ok('M.agent-scope: skillAgentScope 返回 "opencode"',
+    /function\s+skillAgentScope[\s\S]{0,2000}return\s+['"]opencode['"]/.test(js));
+  ok('M.agent-scope: skillAgentScope 返回 "all" 或 "fanbox"',
+    /function\s+skillAgentScope[\s\S]{0,2000}return\s+['"]all['"]/.test(js) ||
+    /function\s+skillAgentScope[\s\S]{0,2000}return\s+['"]fanbox['"]/.test(js));
+
+  // [M.6] Category 推断
+  ok('M.category: skillCategory 返回 Document',
+    /function\s+skillCategory[\s\S]{0,2000}return\s+['"]Document['"]/.test(js));
+  ok('M.category: skillCategory 返回 Code',
+    /function\s+skillCategory[\s\S]{0,2000}return\s+['"]Code['"]/.test(js));
+  ok('M.category: skillCategory 返回 Research',
+    /function\s+skillCategory[\s\S]{0,2000}return\s+['"]Research['"]/.test(js));
+  ok('M.category: skillCategory 返回 File',
+    /function\s+skillCategory[\s\S]{0,2000}return\s+['"]File['"]/.test(js));
+  ok('M.category: skillCategory 返回 Agent',
+    /function\s+skillCategory[\s\S]{0,2000}return\s+['"]Agent['"]/.test(js));
+  ok('M.category: skillCategory 返回 Other (兜底)',
+    /function\s+skillCategory[\s\S]{0,2000}return\s+['"]Other['"]/.test(js));
+
+  // [M.7] 交互 (Use in chat / toggle)
+  ok('M.interact: useSkillInChat 调 closeSidebar + showTab("home")',
+    /useSkillInChat[\s\S]{0,500}closeSidebar[\s\S]{0,500}showTab\(\s*['"]home['"]\s*\)/.test(js));
+  ok('M.interact: useSkillInChat 填入 "使用「{title}」帮我……" (不发送)',
+    /useSkillInChat[\s\S]{0,1000}input\.value\s*=\s*['"]使用《/.test(js) ||
+    /useSkillInChat[\s\S]{0,1000}input\.value\s*=\s*"使用「/.test(js) ||
+    /useSkillInChat[\s\S]{0,1000}使用「\$\{title\}」/.test(js));
+  ok('M.interact: useSkillInChat 不调 doSend / send',
+    !/useSkillInChat[\s\S]{0,2000}doSend|useSkillInChat[\s\S]{0,2000}\.click\(\)/.test(js));
+  ok('M.interact: renderSkills 调 toggleSkill',
+    /renderSkills[\s\S]{0,2000}toggleSkill|renderSkills[\s\S]{0,2000}useSkillInChat/.test(js));
+  ok('M.interact: filterSkills 用 q + agent + status + type 过滤',
+    /filterSkills[\s\S]{0,2000}agentScope[\s\S]{0,500}category[\s\S]{0,500}enabled/.test(js));
+
+  // [M.8] Skills API 真实数据
+  // 注入 mock skills 数据到 ~/.fanbox/mobile/skills-state.json 和 skills registry
+  // 验证 GET /api/mobile/skills 返回非空
+  const rSkills = await req({ path: '/api/mobile/skills', method: 'GET', headers: auth });
+  ok('M.api: GET /api/mobile/skills 200', rSkills.status === 200,
+    'status=' + rSkills.status);
+  let jSkills = null;
+  try { jSkills = JSON.parse(rSkills.body); } catch (e) { jSkills = null; }
+  const skillsArr = Array.isArray(jSkills) ? jSkills : (jSkills?.skills || []);
+  ok('M.api: skills 响应是数组或 {skills: []}', Array.isArray(skillsArr) || Array.isArray(jSkills?.skills),
+    'type=' + (jSkills === null ? 'null' : Array.isArray(jSkills) ? 'array' : typeof jSkills));
+  ok('M.api: skills 响应不含真实路径字段 (path/file)',
+    !/("path"|"file")\s*:\s*"[A-Za-z]:[\\\/][^"]+"/.test(rSkills.body));
+  ok('M.api: skills 响应不含 token/cookie/apiKey',
+    !/("token"|"apiKey"|"cookie")\s*:\s*"[A-Za-z0-9]/.test(rSkills.body));
+  const rSkillState = await req({ path: '/api/mobile/skills-state', method: 'GET', headers: auth });
+  ok('M.api: GET /api/mobile/skills-state 200', rSkillState.status === 200,
+    'status=' + rSkillState.status);
+
+  // [M.9] 禁止项 (UI-A8-4 范围)
+  ok('M.forbid: Skills 页不含 Delete',
+    !/data-view="skills"[\s\S]{0,8000}>[\s]*Delete[\s]*</i.test(html));
+  ok('M.forbid: Skills 页不含 Move/Rename/Upload',
+    !/data-view="skills"[\s\S]{0,8000}(Move File|Rename File|Upload File)/i.test(html));
+  ok('M.forbid: skills 响应不含 Delete/Move/Rename/Upload 字段',
+    !/("action"|"op")\s*:\s*"(delete|move|rename|upload)"/i.test(rSkills.body));
+  ok('M.forbid: UI 不含 YOLO', !/\bYOLO\b/.test(allUi));
+  ok('M.forbid: UI 不含 Team Mode', !/Team\s*Mode/i.test(allUi));
+  ok('M.forbid: UI 不暴露 raw stdout', !/raw\s*stdout/i.test(allUi));
+  ok('M.forbid: UI 不暴露 .jsonl', !/\.jsonl/.test(allUi));
+  ok('M.forbid: UI 不暴露 claudeSession/codexSession 字段', !/(claudeSession|codexSession)\s*:/.test(allUi));
+  ok('M.forbid: UI 不暴露 token/cookie/apiKey', !/Bearer\s+[A-Za-z0-9]|sk-[a-zA-Z0-9]{8,}/.test(allUi));
+  ok('M.forbid: mobile.js toggleSkill 不调 Delete/Move/Rename/Upload API',
+    !/toggleSkill[\s\S]{0,3000}\/(api\/mobile\/(delete|move|rename|upload))/i.test(js));
+  ok('M.forbid: mobile.js useSkillInChat 不调 DoSend / DoStart',
+    !/useSkillInChat[\s\S]{0,2000}doSend|useSkillInChat[\s\S]{0,2000}doStart/.test(js));
+
+  // [M.10] Files / Project / Session 数据源未改
+  ok('M.intact: Files 仍用 data.items || data.files', /data\.items\s*\|\|\s*data\.files/.test(js));
+  ok('M.intact: Files 仍调 /api/mobile/files?path=', /\/api\/mobile\/files\?path=/.test(js));
+  ok('M.intact: Files 仍调 /api/mobile/roots', /\/api\/mobile\/roots/.test(js));
+  ok('M.intact: Project 仍调 /api/mobile/sessions',
+    /loadAllProjects[\s\S]{0,500}\/api\/mobile\/sessions/.test(js));
+  ok('M.intact: Project groupSessionsByProject 仍存在',
+    /function\s+groupSessionsByProject/.test(js));
+  ok('M.intact: continueSession 仍存在 (恢复 sessionId/agentId/cwd)',
+    /function\s+continueSession[\s\S]{0,2000}S\.sessionId\s*=\s*sid/.test(js));
 
   // ============================================================
   // Done
