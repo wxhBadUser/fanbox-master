@@ -35,12 +35,14 @@ const PLATFORM = process.platform;
 
 // 搜索 / 遍历时跳过的重目录，避免 vibe coding 项目里 node_modules 拖垮速度
 const IGNORE_DIRS = new Set([
-  'node_modules', '.git', '.next', 'dist', 'build', '.cache', '.venv', 'venv',
-  '__pycache__', '.DS_Store', 'Pods', '.gradle', 'target', '.idea', '.vscode-test',
-  'DerivedData', '.expo', '.turbo', 'vendor', '.svn', '.hg',
+  'node_modules', '.git', '.next', '.nuxt', '.vite', 'dist', 'build', 'out',
+  '.cache', '.venv', 'venv', 'env', '__pycache__', '.DS_Store', 'Pods',
+  '.gradle', 'target', '.idea', '.vscode-test', 'DerivedData', '.expo',
+  '.turbo', 'vendor', '.svn', '.hg', 'coverage',
   // Windows 系统与缓存目录——盘符根目录直接跳过，避免权限报错或死循环
   'AppData', 'Local Settings', 'Application Data', '$Recycle.Bin',
-  'System Volume Information',
+  'System Volume Information', 'Temp', 'tmp', 'Downloads',
+  'Windows', 'Program Files', 'Program Files (x86)', 'ProgramData',
 ]);
 
 const TEXT_EXT = new Set([
@@ -359,7 +361,7 @@ async function readFile(filePath) {
 
 // 递归遍历，带忽略表、结果上限与时间预算。返回是否因上限/超时而提前中断（截断）
 // onDir（可选）让调用方也拿到目录，用于「按文件夹名搜索」——目录不计入 limit。
-async function walk(root, { onFile, onDir, limit = 4000, deadline }) {
+async function walk(root, { onFile, onDir, limit = 4000, deadline, skipStat = false }) {
   const queue = [root];
   let count = 0;
   let truncated = false;
@@ -380,15 +382,15 @@ async function walk(root, { onFile, onDir, limit = 4000, deadline }) {
         if (IGNORE_DIRS.has(d.name)) continue;
         if (onDir) {
           let mtime = 0;
-          try { mtime = (await fsp.lstat(full)).mtimeMs; } catch { /* */ }
+          if (!skipStat) try { mtime = (await fsp.lstat(full)).mtimeMs; } catch { /* */ }
           onDir({ name: d.name, path: full, dir, isDir: true, kind: 'dir', mtime, size: 0 });
         }
         queue.push(full);
       } else {
         count++;
         let mtime = 0, size = 0;
-        try { const st = await fsp.lstat(full); mtime = st.mtimeMs; size = st.size; } catch { /* */ }
-        onFile({ name: d.name, path: full, dir, isDir: false, kind: kindOf(d.name, false), mtime, size });
+        if (!skipStat) { try { const st = await fsp.lstat(full); mtime = st.mtimeMs; size = st.size; } catch { /* */ } }
+        onFile({ name: d.name, path: full, dir, isDir: false, kind: skipStat ? 'unknown' : kindOf(d.name, false), mtime, size });
         if (count >= limit) { truncated = true; break; }
       }
     }
@@ -427,18 +429,32 @@ async function searchFiles(query, rootPath, deadlineTs) {
     if (s <= 0) return;
     const pathBonus = fuzzyScore(q, f.path) > 0 ? 3 : 0;
     // 近期修改加权，让「我刚做的东西」优先浮出
-    const recencyBonus = Math.max(0, 20 - (Date.now() - f.mtime) / 86400000) * 0.6;
+    const recencyBonus = f.mtime ? Math.max(0, 20 - (Date.now() - f.mtime) / 86400000) * 0.6 : 0;
     matches.push({ ...f, score: s + pathBonus + recencyBonus + bonus });
   };
+  const deadline = deadlineTs || Date.now() + 3000;
   const { truncated } = await walk(root, {
-    limit: 60000,
-    deadline: deadlineTs || Date.now() + 4000, // 多根搜索时传共享截止点，封顶总耗时
+    limit: 20000,
+    deadline,
+    skipStat: true,
     onFile: (f) => scoreInto(f, 0),
     // 文件夹小幅加权——vibe coding「一下午起十个项目」，最常找的就是项目目录本身
     onDir: (f) => scoreInto(f, 6),
   });
   matches.sort((a, b) => b.score - a.score);
-  return { results: matches.slice(0, 80), truncated, engine: PLATFORM + '-walk' };
+  const results = matches.slice(0, 100);
+  // 为 top 结果补回 stat 信息（kind / size / mtime），用于前端展示
+  for (const r of results) {
+    if (r.kind === 'unknown' || !r.mtime) {
+      try {
+        const st = await fsp.lstat(r.path);
+        r.mtime = st.mtimeMs;
+        r.size = st.size;
+        r.kind = kindOf(r.name, false);
+      } catch { /* */ }
+    }
+  }
+  return { results, truncated, engine: PLATFORM + '-walk' };
 }
 
 async function grepFiles(query, rootPath) {

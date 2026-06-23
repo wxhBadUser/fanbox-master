@@ -2255,14 +2255,14 @@ function truncNote() {
 
 // ---------- 命令面板 ----------
 const cmdk = {
-  results: [], active: 0, timer: null, scopeAll: true,
+  results: [], active: 0, timer: null, scopeAll: true, _reqId: 0,
   open() {
     $('#cmdk').classList.remove('hidden');
     this.updateScopeLabel();
     const inp = $('#cmdk-input');
     inp.value = '';
     inp.focus();
-    $('#cmdk-results').innerHTML = '<div class="cmdk-loading">输入开始搜索 · 文件名模糊匹配，「内容:」搜全文（含 PDF、截图里的文字）</div>';
+    $('#cmdk-results').innerHTML = '<div class="cmdk-loading">输入开始搜索 · 文件名模糊匹配，「内容:」搜文本文件内容</div>';
     this.results = [];
     this.active = 0;
   },
@@ -2276,8 +2276,14 @@ const cmdk = {
   },
   search(q) {
     clearTimeout(this.timer);
-    if (!q.trim()) { $('#cmdk-results').innerHTML = '<div class="cmdk-loading">输入开始搜索</div>'; return; }
+    if (!q.trim() || q.trim().length < 2) {
+      $('#cmdk-results').innerHTML = q.trim().length < 2 && q.trim().length > 0
+        ? '<div class="cmdk-loading">请输入至少 2 个字符</div>'
+        : '<div class="cmdk-loading">输入开始搜索 · 文件名模糊匹配，「内容:」搜文本文件内容</div>';
+      return;
+    }
     const isContent = /^(内容[:：]|content:)/i.test(q);
+    const myId = ++this._reqId;
     $('#cmdk-results').innerHTML = '<div class="cmdk-loading">搜索中…</div>';
     this.timer = setTimeout(async () => {
       const root = this.root();
@@ -2286,14 +2292,17 @@ const cmdk = {
         if (isContent) {
           term = q.replace(/^(内容[:：]|content:)/i, '').trim();
           data = await api(`/api/content?q=${encodeURIComponent(term)}&root=${encodeURIComponent(root)}`);
+          if (myId !== this._reqId) return; // 旧请求，丢弃
           this.results = data.results.map((r) => ({ ...r, content: true }));
         } else {
           term = q.trim();
           data = await api(`/api/search?q=${encodeURIComponent(term)}&root=${encodeURIComponent(root)}`);
+          if (myId !== this._reqId) return; // 旧请求，丢弃
           this.results = data.results;
         }
         if (data.engine) console.debug('[search] engine:', data.engine);
       } catch (e) {
+        if (myId !== this._reqId) return;
         console.error('[search] error:', e);
         $('#cmdk-results').innerHTML = '<div class="cmdk-loading">⚠ 搜索请求失败，请重试</div>';
         this.results = [];
@@ -2304,12 +2313,16 @@ const cmdk = {
       this.term = term;
       this.active = 0;
       this.renderResults();
-    }, 150);
+    }, 250);
   },
   renderResults() {
     const ul = $('#cmdk-results');
     if (!this.results.length) { ul.innerHTML = '<div class="cmdk-loading">没有结果</div>'; return; }
     ul.innerHTML = '';
+    const countLabel = this.truncated
+      ? `已显示前 ${this.results.length} 条（结果较多，可缩小范围）`
+      : `${this.results.length} 条结果`;
+    ul.insertAdjacentHTML('afterbegin', `<div class="cmdk-count">${countLabel}</div>`);
     this.results.forEach((r, i) => {
       const li = document.createElement('li');
       if (i === this.active) li.className = 'active';
@@ -2323,7 +2336,6 @@ const cmdk = {
       li.onclick = () => this.choose(i, false);
       ul.appendChild(li);
     });
-    if (this.truncated) ul.insertAdjacentHTML('beforeend', `<div class="cmdk-loading">⚠ 已显示部分结果，结果可能不完整。换更具体的关键词或缩小搜索范围</div>`);
     this.scrollActive();
   },
   move(d) { if (!this.results.length) return; this.active = (this.active + d + this.results.length) % this.results.length; this.renderResults(); },
@@ -2371,7 +2383,7 @@ function maybeShowGuide() {
     <h2>欢迎用 FanBox</h2>
     <p>vibe coding 的驾驶舱——找文件、跑 agent、看它改、随手改，都在一个窗口：</p>
     <ul>
-      <li><b>⌘K</b> 全局搜文件和文件夹；<b>⌘↵</b> 把项目直接在编辑器整包打开；<code>内容:关键词</code> 搜文件里的字</li>
+      <li><b>Ctrl+K</b> 全局搜文件和文件夹；<b>Ctrl+Enter</b> 把项目直接在编辑器整包打开；<code>内容:关键词</code> 搜文件里的字</li>
       <li>顶部 <b>终端</b> 按钮开内嵌终端跑 Claude Code 等 agent；<b>把文件/文件夹拖进终端</b> 即插入路径喂给它当上下文</li>
       <li><b>单击</b> 预览，<b>双击</b> 系统打开；预览里 <b>编辑</b> md 走所见即所得、<b>编辑图片</b> 可标注/打码/转格式</li>
       <li>agent 改了哪些文件，列表实时高亮「改·N」，不用切窗口盯着看</li>
@@ -2948,7 +2960,11 @@ function bindEvents() {
     if (e.key === 'Escape' && $('#context-menu')) { closeContextMenu(); return; }
     const cmdkOpen = !$('#cmdk').classList.contains('hidden');
     const lbOpen = !!document.querySelector('.lightbox');
-    if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); cmdkOpen ? cmdk.close() : cmdk.open(); return; }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      // 如果焦点在 xterm 终端内，不拦截 Ctrl+K，避免干扰终端快捷键
+      const inTerminal = document.activeElement && document.activeElement.closest('.xterm');
+      if (!inTerminal) { e.preventDefault(); cmdkOpen ? cmdk.close() : cmdk.open(); return; }
+    }
     if (cmdkOpen) {
       if (e.key === 'Escape') cmdk.close();
       else if (e.key === 'ArrowDown') { e.preventDefault(); cmdk.move(1); }

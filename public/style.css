@@ -1033,6 +1033,7 @@ kbd {
 .cmdk-results .r-path { font-size: 11px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cmdk-results .r-hit { font-size: 11px; color: var(--yellow); font-family: ui-monospace, monospace; margin-top: 2px; }
 .cmdk-loading { padding: 30px; text-align: center; color: var(--text-faint); font-size: 13px; }
+.cmdk-count { padding: 8px 16px; font-size: 12px; color: var(--text-faint); border-bottom: 1px solid var(--border); }
 
 /* ---------- toast ---------- */
 .toast {
