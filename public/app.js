@@ -347,71 +347,105 @@ function escapeHtml(s) {
 
 // 根据用户第一句话生成简短会话标题；不调用 AI，只用本地规则
 function titleFromFirstUserMessage(text) {
-  const raw = String(text || '').replace(/\s+/g, ' ').trim();
+  let raw = String(text || '').replace(/\s+/g, ' ').trim();
   if (!raw) return '';
   const isChinese = /[\u4e00-\u9fa5]/.test(raw);
+  raw = raw.replace(/[。，！？;?,!\.]+$/, '');
 
-  // 去掉礼貌前缀/语气词
+  // 去掉礼貌前缀/语气词；保留动作动词本身，否则无法识别“分析/修复/优化...”
   let t = raw
-    .replace(/^(请|麻烦|帮我|请你|希望|现在|当前|我想|我要|我需要|我想要|能否|可否|可以|请帮我|请帮我一下|请帮我个忙)\s*/i, '')
+    .replace(/^(请你帮我|请帮我|请你|帮我|请|麻烦|希望|现在|当前|我想|我要|我需要|我想要|能否|可否|可以|请帮我一下|请帮我个忙)\s*/i, '')
     .replace(/^\s*(please|can you|could you|i want|i need|i would like|would you|will you|could you please|can you please)\s*/i, '')
-    .replace(/^\s*(分析一下|分析|看看|看一下|看一下这个|看一下下面|帮我看看|帮我分析|帮我处理|帮我解决|帮我修复|帮我优化|帮我创建|帮我生成|帮我写|帮我做|帮我添加|帮我实现|帮我重载|帮我重构)\s*/i, '')
-    .replace(/^\s*(analyze|look at|look into|check|check out|review|help me|help us|handle|fix|solve|resolve|optimize|create|generate|write|make|add|implement|refactor)\s*/i, '')
-    .replace(/[\s。，！？;?]+$/, '')
     .trim();
   if (!t) t = raw;
 
-  // 中文：按关键词映射动作
-  const actionMapCN = [
-    { re: /初始化|创建|生成|写一个标准的最佳|新建/, out: '初始化' },
-    { re: /分析|了解|理解|查看|梳理|探索|调查/, out: '分析' },
-    { re: /修复|解决|处理|报错|bug|失败|错误|崩溃|异常/, out: '修复' },
-    { re: /优化|改进|提升|性能|加速/, out: '优化' },
-    { re: /添加|增加|实现|引入|集成|支持/, out: '添加' },
-    { re: /重构|改写|重写|整理|调整/, out: '重构' },
-    { re: /测试|验证|检查|排查/, out: '测试' },
-  ];
-  let actionCN = '';
-  for (const m of actionMapCN) {
-    if (m.re.test(t)) { actionCN = m.out; break; }
-  }
-
-  // 提取文件名（含扩展名）
+  // 提取文件路径/名（含扩展名）
   const fileMatch = t.match(/([A-Za-z0-9_\-\.\/]+\.(?:md|markdown|js|ts|jsx|tsx|vue|html|css|scss|json|py|java|go|rs|rb|php|cs|cpp|c|h|sh|ps1|txt|yml|yaml|xml|sql))/i);
-  const fileName = fileMatch ? fileMatch[1].split('/').pop() : '';
+  const fileName = fileMatch ? fileMatch[1] : '';
 
   if (isChinese) {
+    // 高优先级的具体组合
+    const hasClaudeMd = /CLAUDE\.md/i.test(t);
+    if (hasClaudeMd && /(初始化|创建|生成|写|新建)/.test(t)) return '初始化 CLAUDE.md';
+    if (/(分析|了解|理解|查看|梳理|探索|调查)/.test(t) && /(项目|代码库|架构|结构)/.test(t)) return '项目结构分析';
+    if (/(优化|改进|提升|性能|加速)/.test(t)) {
+      if (fileName) {
+        const title = '优化 ' + fileName;
+        return title.length > 18 ? title.slice(0, 18).replace(/\s+$/, '') + '…' : title;
+      }
+      return '优化代码';
+    }
+    if (/(Git|分支|提交|commit|review)/i.test(t)) return 'Git 工作流优化';
+
+    const actionMapCN = [
+      { re: /^(根据当前项目)?(初始化|创建|生成|写一个标准的最佳|新建)/, out: '初始化' },
+      { re: /^(分析|了解|理解|查看|梳理|探索|调查)/, out: '分析' },
+      { re: /^(修复|解决|处理|报错|bug|失败|错误|崩溃|异常)/, out: '修复' },
+      { re: /^(优化|改进|提升|性能|加速)/, out: '优化' },
+      { re: /^(添加|增加|实现|引入|集成|支持)/, out: '添加' },
+      { re: /^(重构|改写|重写|整理|调整)/, out: '重构' },
+      { re: /^(测试|验证|检查|排查)/, out: '测试' },
+    ];
+    let actionCN = '', rest = t;
+    for (const m of actionMapCN) {
+      const match = t.match(m.re);
+      if (match) { actionCN = m.out; rest = t.slice(match.index + match[0].length).trim(); break; }
+    }
+    let objectCN = rest.replace(/^[的\s]+/, '').replace(/\s*(加载失败|失败|报错|错误|bug|异常|问题|需求|任务).*$/i, '').replace(/[的\s]+$/, '').trim();
     let title = actionCN;
     if (fileName) title = (title ? title + ' ' : '') + fileName;
-    if (!title) title = t.slice(0, 18);
+    else if (objectCN) title = (title ? title + ' ' : '') + objectCN;
+    else if (!title) title = t.slice(0, 18);
     if (title.length > 18) title = title.slice(0, 18).replace(/\s+$/, '') + '…';
     return title || raw.slice(0, 18);
   }
 
-  // 英文：动词 + 宾语
+  // 英文：高优先级的具体组合
+  const hasClaudeMd = /CLAUDE\.md/i.test(t);
+  if (hasClaudeMd && /(create|initialize|init|generate|write|build|setup|set up)/i.test(t)) return 'Create CLAUDE.md';
+  if (/(analyze|analyse|understand|explore|investigate|examine|study)/i.test(t) && /(codebase|project|structure|architecture)/i.test(t)) return 'Analyze codebase';
+  if (/(fix|resolve|solve|repair|debug|handle|address)/i.test(t)) {
+    if (/(diff|path|error)/i.test(t)) return 'Fix diff path';
+    if (fileName) {
+      const title = 'Fix ' + fileName;
+      return title.length > 48 ? title.slice(0, 48).replace(/\s+$/, '') + '…' : title;
+    }
+    return 'Fix issue';
+  }
+  if (/(add|implement|introduce|integrate|support)/i.test(t) && /(git|review)/i.test(t)) return 'Add Git review';
+  if (/(optimize|improve|enhance|boost|performance)/i.test(t)) {
+    if (fileName) {
+      const title = 'Optimize ' + fileName;
+      return title.length > 48 ? title.slice(0, 48).replace(/\s+$/, '') + '…' : title;
+    }
+    return 'Optimize performance';
+  }
+
+  // 英文 fallback：动词 + 宾语
   const actionMapEN = [
     { re: /^(initialize|init|create|generate|write|build|setup|set up)\b/i, out: 'Create' },
-    { re: /^(analyze|analyse|understand|explore|review|investigate|examine|study)\b/i, out: 'Analyze' },
     { re: /^(fix|resolve|solve|repair|debug|handle|address)\b/i, out: 'Fix' },
-    { re: /^(optimize|improve|enhance|boost|performance)\b/i, out: 'Optimize' },
     { re: /^(add|implement|introduce|integrate|support)\b/i, out: 'Add' },
+    { re: /^(optimize|improve|enhance|boost|performance)\b/i, out: 'Optimize' },
     { re: /^(refactor|rewrite|restructure|reorganize|clean up)\b/i, out: 'Refactor' },
     { re: /^(test|verify|validate|check)\b/i, out: 'Test' },
+    { re: /^(analyze|analyse|understand|explore|review|investigate|examine|study)\b/i, out: 'Analyze' },
   ];
-  let actionEN = '';
+  let actionEN = '', restEN = t;
   for (const m of actionMapEN) {
-    if (m.re.test(t)) { actionEN = m.out; break; }
+    const match = t.match(m.re);
+    if (match) { actionEN = m.out; restEN = t.slice(match.index + match[0].length).trim(); break; }
   }
   if (!actionEN) {
     const firstWord = t.match(/^([A-Za-z]+)/);
     actionEN = firstWord ? (firstWord[1][0].toUpperCase() + firstWord[1].slice(1).toLowerCase()) : '';
+    restEN = t.slice(firstWord ? firstWord[0].length : 0).trim();
   }
 
-  // 英文宾语：文件名 或 前几个有意义的词
   let objectEN = '';
   if (fileName) objectEN = fileName;
   else {
-    const words = t.replace(/[^A-Za-z0-9\-_\s]/g, ' ').split(/\s+/).filter(Boolean);
+    const words = restEN.replace(/[^A-Za-z0-9\-_\s]/g, ' ').split(/\s+/).filter(Boolean);
     const skip = new Set(['a', 'an', 'the', 'this', 'that', 'these', 'those', 'is', 'are', 'was', 'were', 'to', 'for', 'of', 'in', 'on', 'with', 'and', 'or', 'from', 'by', 'my', 'our', 'me', 'us', 'it', 'its']);
     const meaningful = words.filter((w) => !skip.has(w.toLowerCase()));
     objectEN = meaningful.slice(0, 4).join(' ');
@@ -3337,9 +3371,9 @@ const term = {
       brightBlack: '#57534a', brightRed: '#e8302a', brightGreen: '#00a33e', brightYellow: '#a67c00', brightBlue: '#2222dd', brightMagenta: '#b03aa0', brightCyan: '#008a9a', brightWhite: '#0a0a0a',
     },
     soft: {
-      background: '#fbfcf8', foreground: '#2f332d', cursor: '#7d9270', cursorAccent: '#fbfcf8', selectionBackground: '#7d927038',
-      black: '#3e433b', red: '#b45b52', green: '#5f8f69', yellow: '#a67c3d', blue: '#5f7798', magenta: '#8a6f8f', cyan: '#5d8a86', white: '#f8faf6',
-      brightBlack: '#7f8878', brightRed: '#c66b61', brightGreen: '#6fa77a', brightYellow: '#b9914c', brightBlue: '#728bab', brightMagenta: '#9b80a2', brightCyan: '#6e9f9a', brightWhite: '#ffffff',
+      background: '#fbfbfa', foreground: '#2f312d', cursor: '#849178', cursorAccent: '#fbfbfa', selectionBackground: 'rgba(132, 145, 124, 0.18)',
+      black: '#3f413d', red: '#b45b52', green: '#5f8f69', yellow: '#9a783f', blue: '#5f7798', magenta: '#806d8c', cyan: '#5d8582', white: '#f7f8f5',
+      brightBlack: '#7d8279', brightRed: '#c66b61', brightGreen: '#6fa77a', brightYellow: '#ad894a', brightBlue: '#728bab', brightMagenta: '#927d9b', brightCyan: '#6e9995', brightWhite: '#ffffff',
     },
   },
   theme() { return this.themes[state.theme] || this.themes.terminal; },
@@ -3995,17 +4029,32 @@ const term = {
     const p = (s && (s.cwd || s.startDir)) || '';
     return p ? (baseOf(p) || p.replace(state.home, '~')) : '未定位目录';
   },
-  // 统一的会话显示标题：
-  // 1) 自定义标题 / 由 firstUserMessage 生成的 chatTitle
-  // 2) Agent + cwd（fallback，用户不想再优先看到这个）
-  // 3) cwd 名
+  // 工作目录标签：cwd basename > startDir basename > title 里的目录名 > shell
+  getSessionCwdLabel(s) {
+    if (!s) return '未定位目录';
+    if (s.cwd) return baseOf(s.cwd) || s.cwd.replace(state.home, '~') || '未定位目录';
+    if (s.startDir) return baseOf(s.startDir) || s.startDir.replace(state.home, '~') || '未定位目录';
+    if (s.title && s.title !== 'shell') return baseOf(s.title) || s.title;
+    return 'shell';
+  },
+  // 对话标题：由 firstUserMessage 生成 > 自定义 title > Agent + cwd > cwd
+  getConversationTitle(s) {
+    if (!s) return '未命名对话';
+    if (s.chatTitle) return s.chatTitle;
+    if (s.title && s.title !== this.sessionPlace(s) && s.title !== 'shell') return s.title;
+    const agent = s.agent || '';
+    if (agent && agent !== 'Terminal') return `${agent} · ${this.sessionPlace(s)}`;
+    return this.sessionPlace(s);
+  },
+  // 统一的会话显示标题：对话标题 · 工作目录
   sessionDisplayTitle(s) {
     if (!s) return '未命名对话';
-    if (s.chatTitle) return escapeHtml(s.chatTitle);
-    if (s.title && s.title !== this.sessionPlace(s) && s.title !== 'shell') return escapeHtml(s.title);
-    const agent = s.agent || '';
-    if (agent && agent !== 'Terminal') return escapeHtml(`${agent} · ${this.sessionPlace(s)}`);
-    return escapeHtml(this.sessionPlace(s));
+    const title = this.getConversationTitle(s);
+    const cwd = this.getSessionCwdLabel(s);
+    if (!cwd || cwd === '未定位目录' || cwd === 'shell') return escapeHtml(title);
+    // 如果标题已经包含 cwd，避免重复
+    if (title.includes(cwd)) return escapeHtml(title);
+    return escapeHtml(`${title} · ${cwd}`);
   },
   // Agent 标签：Claude Code / Codex / Qoder / OpenCode / Terminal，同目录同 Agent 时加 #n
   sessionAgentLabel(s) {
@@ -4042,7 +4091,7 @@ const term = {
     if (!line || line.length < 2) return;
     // 忽略 agent 启动命令本身，从“第一条真实请求”开始记录
     const low = line.toLowerCase();
-    if (/^(claude|codex|qoder|opencode)(?:\.exe)?(?:\s+.*)?$/.test(low)) return;
+    if (/^\s*(?:(?:headroom|npx|npm|pnpm|yarn)\s+(?:wrap|exec|run)\s+)?(claude|codex|qoder|opencode)(?:\.exe)?(?:\s+.*)?$/i.test(low)) return;
     s.firstUserMessage = line;
     s.chatTitle = titleFromFirstUserMessage(line);
     this.updateSessionSwitcher();
