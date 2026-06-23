@@ -345,6 +345,19 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// 清洗显示名称：去除乱码字符（U+FFFD），含乱码时返回 fallback
+function cleanDisplayName(value, fallback) {
+  if (value == null) return fallback != null ? fallback : '';
+  let s = String(value).trim();
+  if (!s) return fallback != null ? fallback : '';
+  // 包含 replacement character → 视为乱码
+  if (s.includes('\uFFFD')) return fallback != null ? fallback : '';
+  // 去掉控制字符
+  s = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').trim();
+  if (!s) return fallback != null ? fallback : '';
+  return escapeHtml(s);
+}
+
 // 根据用户第一句话生成简短会话标题；不调用 AI，只用本地规则
 function titleFromFirstUserMessage(text) {
   let raw = String(text || '').replace(/\s+/g, ' ').trim();
@@ -639,12 +652,12 @@ function renderFiles() {
       it.dataset.path = e.path;
 
       // 构建额外信息
-      const vol = e.volumeName ? escapeHtml(e.volumeName) : '';
+      const vol = cleanDisplayName(e.volumeName, '');
       const typeLabel = e.driveTypeLabel || '';
       const fsLabel = e.fileSystem || '';
       let metaLine = '';
       if (vol && typeLabel) metaLine = `${typeLabel} / ${vol}`;
-      else if (vol) metaLine = vol;
+      else if (vol) metaLine = `${typeLabel || '本地磁盘'} / ${vol}`;
       else if (typeLabel) metaLine = typeLabel;
 
       let sizeHtml = '';

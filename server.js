@@ -147,6 +147,18 @@ function sendJSON(res, code, obj) {
 
 // ---------- 业务逻辑 ----------
 
+// 清洗字符串：去除乱码字符（replacement character U+FFFD 及连续不可见字符）
+function cleanStr(v) {
+  if (v == null) return '';
+  let s = String(v).trim();
+  if (!s) return '';
+  // 包含 replacement character 则视为乱码，返回空
+  if (s.includes('\uFFFD')) return '';
+  // 去掉过多控制字符（保留常见空白）
+  const cleaned = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  return cleaned.trim();
+}
+
 // 预设驱动类型标签
 const DRIVE_TYPE_LABELS = {
   2: '可移动磁盘', 3: '本地磁盘', 4: '网络驱动器',
@@ -171,7 +183,7 @@ function listWindowsDrives() {
   try {
     const raw = execFileSync('powershell.exe', [
       '-NoProfile', '-Command',
-      'Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID,DriveType,VolumeName,FileSystem,Size,FreeSpace | ConvertTo-Json -Compress'
+      '[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID,DriveType,VolumeName,FileSystem,Size,FreeSpace | ConvertTo-Json -Compress'
     ], { timeout: 2000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
     if (raw && raw.trim()) {
       psData = JSON.parse(raw.trim());
@@ -200,7 +212,7 @@ function listWindowsDrives() {
       drives.push({
         name, path: root, isDir: true, kind: 'dir', drive: true,
         size: 0, mtime: 0, btime: 0, hidden: false,
-        volumeName: d.VolumeName || '',
+        volumeName: cleanStr(d.VolumeName),
         fileSystem: d.FileSystem || '',
         driveType: Number(d.DriveType) || 0,
         driveTypeLabel: DRIVE_TYPE_LABELS[Number(d.DriveType)] || '磁盘',
