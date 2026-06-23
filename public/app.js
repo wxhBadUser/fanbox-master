@@ -3956,6 +3956,70 @@ const term = {
     if (!s || !s.fit) return;
     requestAnimationFrame(() => { try { s.fit.fit(); } catch { /* */ } });
   },
+  // 从 xterm buffer 中提取用户最近的输入文本，生成会话标题
+  // 在 agent 从 idle→busy 时调用（用户刚提交了提问）
+  tryExtractTitleFromBuffer(s) {
+    if (!s || s.firstUserMessage) return;
+    try {
+      const buf = s.xterm.buffer.active;
+      // 读取最近 30 行
+      const lines = [];
+      for (let i = Math.max(0, buf.length - 30); i < buf.length; i++) {
+        const ln = buf.getLine(i);
+        if (ln) lines.push(ln.translateToString(true));
+      }
+      // Claude Code 用户输入回显模式：
+      //   ╭──────────────────────────────────────╮
+      //   │ > 用户输入的文本                       │
+      //   ╰──────────────────────────────────────╯
+      // 或简化的 > 用户输入
+      // Codex 用户输入回显模式：> 用户输入
+      // 通用：找最后一个 > 开头的非空行
+      let userText = '';
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const trimmed = lines[i].trim();
+        // 匹配 > 后面跟文本（Claude Code / Codex 的用户输入回显）
+        const m = trimmed.match(/^>\s+(.+)$/);
+        if (m && m[1].trim().length >= 2) {
+          userText = m[1].trim();
+          break;
+        }
+        // Claude Code Ink 框架：输入框行可能以 │ > 开头
+        const m2 = trimmed.match(/^│\s*>\s+(.+)$/);
+        if (m2 && m2[1].trim().length >= 2) {
+          userText = m2[1].trim();
+          break;
+        }
+      }
+      // 如果没找到 > 开头的行，尝试找最近的有意义文本行
+      if (!userText) {
+        // 从底部往上找，跳过框线、空行、状态行
+        const JUNK = /^(╭|╰|╮|╯|│|├|┤|─|━|┄|┆|┈|·|•|…|\s)*$|esc to interrupt|\? for shortcuts|for commands|bypass|auto-accept|accept edits|plan mode|shift\+tab|context left|tokens used|still running/i;
+        for (let i = lines.length - 1; i >= 0; i--) {
+          const trimmed = lines[i].trim();
+          if (!trimmed || JUNK.test(trimmed)) continue;
+          // 跳过太短的行
+          if (trimmed.length < 4) continue;
+          // 跳过纯符号行
+          if (/^[╭╰╮╯├┤─━┄┆┈·•．.…*=_-│\s>]+$/.test(trimmed)) continue;
+          // 这可能是用户输入
+          userText = trimmed.replace(/^[│>\s]+/, '').trim();
+          if (userText.length >= 2) break;
+        }
+      }
+      if (!userText || userText.length < 2) return;
+      // 忽略 agent 启动命令
+      const low = userText.toLowerCase();
+      if (/^\s*(?:(?:headroom|npx|npm|pnpm|yarn)\s+(?:wrap|exec|run)\s+)?(claude|codex|qoder|opencode)(?:\.exe)?(?:\s+.*)?$/i.test(low)) return;
+      // 忽略纯命令
+      if (/^(cd|ls|pwd|dir|cat|echo|clear|exit|help|quit)\b/i.test(low)) return;
+      s.firstUserMessage = userText;
+      s.chatTitle = titleFromFirstUserMessage(userText);
+      this.updateSessionSwitcher();
+      const menu = $('#terminal-session-menu');
+      if (menu && !menu.classList.contains('hidden')) this.renderSessionMenu();
+    } catch { /* */ }
+  },
   // agent 态势感知：终端有输出→busy；静默 >2.5s→idle；进程退出→dead。
   // 非活动标签产生输出标记未读小点；长任务（busy>4s）完成且窗口失焦/非当前标签时发系统通知。
   markBusy(s) {
@@ -3964,9 +4028,16 @@ const term = {
     // 回显过滤：距上次用户输入 <400ms 的输出多半是回显/TUI 重绘，不算 agent 自主干活：
     // 不进入 busy、不推 busyStart；已在 busy 则只续命（agent 干活时排队打字不打断）。
     // 续命只刷新 lastData（推迟评估时机），不刷新 lastReal（任务时长只数自发输出，打字不算工时）
+    const wasIdle = s.status !== 'busy';
+    // 标题提取必须在回显过滤之前：用户输入后 agent 立即响应，第一次输出距 lastInput <400ms
+    if (wasIdle && !s.firstUserMessage) {
+      this.tryExtractTitleFromBuffer(s);
+    }
     if (now - (s.lastInput || 0) < 400) { if (s.status === 'busy') s.lastData = now; return; }
     s.lastData = now; s.lastReal = now;
-    if (s.status !== 'busy') { s.status = 'busy'; s.busyStart = now; this.renderTabs(); }
+    if (wasIdle) {
+      s.status = 'busy'; s.busyStart = now; this.renderTabs();
+    }
     if (s.id !== this.active) { if (!s.unread) { s.unread = true; this.renderTabs(); } }
     this.ensureStatusTick();
   },
@@ -4094,22 +4165,37 @@ const term = {
     return `${baseAgent} #${idx}`;
   },
   // 记录用户第一次真实输入，用于生成会话标题
+  // 双重策略：1) 裸 shell 里靠 \r 触发 finalize；2) Agent TUI 里靠 debounce 定时器触发
   captureInputLine(s, d) {
     if (!s || s.firstUserMessage) return;
     if (!s.inputBuffer) s.inputBuffer = '';
     // 忽略 bracketed paste 内容（通常是代码/长文本，不是请求）
     if (d.includes('\x1b[200~') || d.includes('\x1b[201~')) return;
-    for (let i = 0; i < d.length; i++) {
-      const ch = d[i];
+    // 忽略纯 escape 序列（方向键、功能键、鼠标事件等），只保留可打印文本
+    const stripped = d.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').replace(/\x1b\[[\?]?[0-9;]*[hl]/g, '');
+    for (let i = 0; i < stripped.length; i++) {
+      const ch = stripped[i];
       const code = ch.charCodeAt(0);
       if (ch === '\r' || ch === '\n') {
         this.finalizeInputLine(s);
         s.inputBuffer = '';
+        return;
       } else if (code === 127 || code === 8) {
         s.inputBuffer = s.inputBuffer.slice(0, -1);
       } else if (code >= 32 && code !== 127) {
         s.inputBuffer += ch;
       }
+    }
+    // Agent TUI 模式下（Claude Code/Codex 等），用户输入不会以 \r 结尾
+    // 用 debounce 定时器：1.5s 无新按键则 finalize
+    if (s.agent && s.inputBuffer.trim().length >= 2) {
+      clearTimeout(s._inputDebounce);
+      s._inputDebounce = setTimeout(() => {
+        if (!s.firstUserMessage && s.inputBuffer && s.inputBuffer.trim().length >= 2) {
+          this.finalizeInputLine(s);
+          s.inputBuffer = '';
+        }
+      }, 1500);
     }
   },
   // 从终端输出回显中提取用户第一句提问（Claude Code/Codex 的 TUI 会回显用户输入）
