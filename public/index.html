@@ -25,47 +25,55 @@
         <kbd>Ctrl+K</kbd>
       </button>
 
-      <nav class="nav-section">
-        <div class="nav-title">快速入口</div>
-        <ul id="roots-list" class="nav-list"></ul>
+      <nav class="nav-section sidebar-section" data-sidebar-section="quick">
+        <div class="nav-title sidebar-section-title" role="button" tabindex="0"><span class="sidebar-section-chevron">▾</span><span>快速入口</span></div>
+        <ul id="roots-list" class="nav-list sidebar-section-body"></ul>
       </nav>
 
-      <nav class="nav-section">
-        <div class="nav-title"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> 收藏</div>
-        <ul id="favs-list" class="nav-list"></ul>
+      <nav class="nav-section sidebar-section" data-sidebar-section="favorites">
+        <div class="nav-title sidebar-section-title" role="button" tabindex="0"><span class="sidebar-section-chevron">▾</span><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> <span>收藏</span></div>
+        <ul id="favs-list" class="nav-list sidebar-section-body"></ul>
       </nav>
 
-      <nav class="nav-section">
-        <div class="nav-title" title="最近被 Claude Code / Codex 处理过的项目，自动从两者的本机会话记录扫出来"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> Agent 项目</div>
-        <ul id="agent-projects-list" class="nav-list"></ul>
+      <nav class="nav-section sidebar-section" data-sidebar-section="agentProjects">
+        <div class="nav-title sidebar-section-title" role="button" tabindex="0" title="最近被 Claude Code / Codex 处理过的项目，自动从两者的本机会话记录扫出来"><span class="sidebar-section-chevron">▾</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> <span>Agent 项目</span></div>
+        <ul id="agent-projects-list" class="nav-list sidebar-section-body"></ul>
       </nav>
 
-      <div id="skills-entry" class="nav-title side-link" title="本机 Claude Code / Codex 的全部 skills：谁在干活、谁在吃灰、谁在静默失效">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="17.5" y1="14" x2="17.5" y2="21"/><line x1="14" y1="17.5" x2="21" y2="17.5"/></svg>
-        Skills 透视
-      </div>
-      <div id="usage-sec">
-        <div class="nav-title" id="usage-toggle" data-testid="usage-toggle" title="Claude Code / Codex 用量——官方限额窗口 + 本机会话日志，不用开着它们">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-          Agent 用量 <span id="usage-arrow">▸</span>
+      <div class="sidebar-section sidebar-tool-section" data-sidebar-section="skills">
+        <div class="nav-title sidebar-section-title" role="button" tabindex="0"><span class="sidebar-section-chevron">▸</span><span>Skills 透视</span></div>
+        <div class="sidebar-section-body">
+          <div id="skills-entry" class="nav-title side-link" title="本机 Claude Code / Codex 的全部 skills：谁在干活、谁在吃灰、谁在静默失效">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="17.5" y1="14" x2="17.5" y2="21"/><line x1="14" y1="17.5" x2="21" y2="17.5"/></svg>
+            打开 Skills 透视
+          </div>
         </div>
-        <div id="usage-body" data-testid="usage-body" class="hidden"></div>
       </div>
-      <div class="theme-switch" id="theme-switch">
-        <div class="theme-switch-label">皮肤</div>
-        <div class="theme-seg">
+      <div id="usage-sec" class="sidebar-section" data-sidebar-section="usage">
+        <div class="nav-title sidebar-section-title" id="usage-toggle" role="button" tabindex="0" data-testid="usage-toggle" title="Claude Code / Codex 用量——官方限额窗口 + 本机会话日志，不用开着它们">
+          <span class="sidebar-section-chevron">▸</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <span>Agent 用量</span>
+        </div>
+        <div id="usage-body" data-testid="usage-body" class="sidebar-section-body hidden"></div>
+      </div>
+      <div class="theme-switch sidebar-section" id="theme-switch" data-sidebar-section="skins">
+        <div class="theme-switch-label sidebar-section-title" role="button" tabindex="0"><span class="sidebar-section-chevron">▾</span><span>皮肤</span></div>
+        <div class="theme-seg sidebar-section-body">
           <button data-skin="warm" title="暖色纸感档案馆">档案</button>
           <button data-skin="terminal" title="终端核 Volt">终端</button>
           <button data-skin="editorial" title="编辑式 · 索引日报">索引</button>
           <button data-skin="soft" title="柔白协作">柔白</button>
         </div>
       </div>
-      <div class="mobile-access" id="mobile-access">
-        <div class="mobile-access-head" id="mobile-access-head" data-testid="mobile-access-head" title="局域网手机配对（仅本机可见）">
+      <div class="mobile-access sidebar-section" id="mobile-access" data-sidebar-section="mobile">
+        <div class="mobile-access-head sidebar-section-title" id="mobile-access-head" role="button" tabindex="0" data-testid="mobile-access-head" title="局域网手机配对（仅本机可见）">
+          <span class="sidebar-section-chevron">▾</span>
+          <svg class="section-title-icon mobile-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5"></rect><path d="M10 18.5h4"></path></svg>
           <span class="mobile-access-title">Mobile Access</span>
           <span class="mobile-access-state" id="mobile-access-state" data-testid="mobile-access-state">关闭</span>
         </div>
-        <div id="mobile-access-body" data-testid="mobile-access-body" class="hidden">
+        <div id="mobile-access-body" data-testid="mobile-access-body" class="sidebar-section-body hidden">
           <div class="mobile-access-row">
             <button class="btn" id="mobile-toggle-btn" data-testid="mobile-toggle-btn">开启</button>
             <span class="mobile-access-hint" id="mobile-access-hint">Mobile Access 未开启</span>

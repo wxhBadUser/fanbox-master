@@ -1133,6 +1133,67 @@ function applyLayout() {
   $('#app').style.gridTemplateColumns = state.sidebarCollapsed ? '1fr' : `${state.sidebarW}px 1fr`;
   document.documentElement.style.setProperty('--sidebar-w', state.sidebarW + 'px'); // 供拖拽条 fixed 定位
 }
+const SIDEBAR_SECTION_STORAGE = 'fanbox.sidebar.collapsedSections';
+const SIDEBAR_SECTION_DEFAULTS = {
+  quick: false,
+  favorites: false,
+  agentProjects: false,
+  skills: true,
+  usage: true,
+  skins: false,
+  mobile: false,
+};
+function loadSidebarCollapsedSections() {
+  try {
+    return { ...SIDEBAR_SECTION_DEFAULTS, ...(JSON.parse(localStorage.getItem(SIDEBAR_SECTION_STORAGE) || '{}') || {}) };
+  } catch {
+    return { ...SIDEBAR_SECTION_DEFAULTS };
+  }
+}
+function saveSidebarCollapsedSections(stateMap) {
+  localStorage.setItem(SIDEBAR_SECTION_STORAGE, JSON.stringify(stateMap));
+}
+function sidebarSectionCollapsed(key) {
+  return !!loadSidebarCollapsedSections()[key];
+}
+function applySidebarSection(section, collapsed) {
+  section.classList.toggle('collapsed', collapsed);
+  const title = section.querySelector('.sidebar-section-title');
+  const chevron = section.querySelector('.sidebar-section-chevron');
+  if (title) title.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  if (chevron) chevron.textContent = collapsed ? '▸' : '▾';
+}
+function setSidebarSectionCollapsed(key, collapsed) {
+  const stateMap = loadSidebarCollapsedSections();
+  stateMap[key] = !!collapsed;
+  saveSidebarCollapsedSections(stateMap);
+  const section = document.querySelector(`[data-sidebar-section="${key}"]`);
+  if (section) applySidebarSection(section, !!collapsed);
+  if (key === 'usage' && typeof usagePanel !== 'undefined') usagePanel.apply();
+  if (key === 'mobile' && typeof mobileAccess !== 'undefined') {
+    mobileAccess.apply();
+    if (!collapsed) mobileAccess.refresh();
+  }
+}
+function initSidebarCollapsibleSections() {
+  const stateMap = loadSidebarCollapsedSections();
+  document.querySelectorAll('[data-sidebar-section]').forEach((section) => {
+    const key = section.dataset.sidebarSection;
+    applySidebarSection(section, !!stateMap[key]);
+    const title = section.querySelector('.sidebar-section-title');
+    if (!title) return;
+    const toggle = (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      setSidebarSectionCollapsed(key, !sidebarSectionCollapsed(key));
+    };
+    title.addEventListener('click', toggle);
+    title.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      toggle(ev);
+    });
+  });
+}
 // WOW3：把选中的文字做成一个残影「甩」进终端，落地时终端闪一下——交互本身就是惊喜
 function flingToTerminal(text, fromRect) {
   const panel = $('#terminal-panel');
@@ -4640,19 +4701,14 @@ const usagePanel = {
     try { this.render(await api('/api/agent-usage')); }
     catch { this.render(null); }
   },
-  open() { return localStorage.getItem('fb_usage_open') === '1'; },
+  open() { return !sidebarSectionCollapsed('usage'); },
   apply() {
     const on = this.open();
     $('#usage-body').classList.toggle('hidden', !on);
-    $('#usage-arrow').textContent = on ? '▾' : '▸';
     clearInterval(this.timer); this.timer = null;
     if (on) { this.refresh(); this.timer = setInterval(() => this.refresh(), 60000); }
   },
   bind() {
-    $('#usage-toggle').onclick = () => {
-      localStorage.setItem('fb_usage_open', this.open() ? '0' : '1');
-      this.apply();
-    };
     this.apply();
   },
 };
@@ -4782,7 +4838,7 @@ const mobileApprovals = {
 };
 
 const mobileAccess = {
-  open() { return localStorage.getItem('fb_mobile_access_open') === '1'; },
+  open() { return !sidebarSectionCollapsed('mobile'); },
   apply() {
     const on = this.open();
     $('#mobile-access-body').classList.toggle('hidden', !on);
@@ -4968,12 +5024,6 @@ const mobileAccess = {
   },
   bind() {
     if (!window.fanboxMobile) return; // 非桌面 app：不挂事件
-    const head = $('#mobile-access-head');
-    if (head) head.onclick = () => {
-      localStorage.setItem('fb_mobile_access_open', this.open() ? '0' : '1');
-      this.apply();
-      if (this.open()) this.refresh();
-    };
     const tBtn = $('#mobile-toggle-btn');
     if (tBtn) tBtn.onclick = (e) => {
       e.stopPropagation();
@@ -6018,6 +6068,7 @@ async function init() {
   applyLayout();
   term.applyDock(); // 初始就给 #main-body 设好 dock 类，决定预览/文件管理方向
   bindEvents();
+  initSidebarCollapsibleSections();
   bindResizer();
   bindSidebarResizer();
   bindSelectionToTerminal();

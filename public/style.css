@@ -475,6 +475,12 @@ kbd {
 .nav-section { margin-bottom: 18px; }
 .nav-title { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1px; padding: 0 8px 6px; display: flex; align-items: center; gap: 5px; }
 .nav-title svg { flex-shrink: 0; }
+.sidebar-section-title { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 5px; }
+.sidebar-section-title:hover { color: var(--text-dim); }
+.sidebar-section-chevron { width: 12px; flex: 0 0 12px; text-align: center; color: var(--text-faint); font-size: 10px; line-height: 1; }
+.sidebar-section.collapsed > .sidebar-section-body { display: none !important; }
+.section-title-icon { flex: 0 0 auto; }
+.mobile-icon { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .brand .logo { display: inline-flex; }
 .ct-label { display: inline-flex; align-items: center; gap: 7px; }
 .nav-list { list-style: none; }
@@ -501,14 +507,13 @@ kbd {
 .agent-dot.codex { background: #10a37f; }
 .brand .logo { color: var(--accent); }
 /* ---------- Skills 透视入口（侧栏底部工具簇）---------- */
-#skills-entry { margin-top: auto; padding: 12px 16px 0; border-top: 1px solid var(--border); cursor: pointer; user-select: none; }
+.sidebar-tool-section { margin-top: auto; padding: 12px 8px 0; border-top: 1px solid var(--border); }
+#skills-entry { padding: 7px 8px 0; cursor: pointer; user-select: none; }
 #skills-entry:hover { color: var(--text-dim); }
 
 /* ---------- Agent 用量（侧栏底部，可开合）---------- */
 #usage-sec { padding: 12px 8px 6px; border-top: none; margin-top: 6px; }
-#usage-sec .nav-title { cursor: pointer; user-select: none; padding-bottom: 0; }
-#usage-sec .nav-title:hover { color: var(--text-dim); }
-#usage-arrow { margin-left: auto; font-size: 10px; }
+#usage-sec .nav-title { padding-bottom: 0; }
 #usage-body { padding: 8px 8px 2px; font-size: 12px; }
 #usage-body.hidden { display: none; }
 .usage-agent { font-size: 11px; color: var(--text-dim); font-weight: 600; margin: 7px 0 5px; display: flex; align-items: center; gap: 6px; }
@@ -541,13 +546,12 @@ kbd {
 /* ---------- Mobile Access（Phase 0A）---------- */
 .mobile-access { padding: 12px 8px 6px; border-top: 1px solid var(--border); }
 .mobile-access-head {
-  display: flex; align-items: center; justify-content: space-between;
-  cursor: pointer; user-select: none; padding: 2px 0;
+  justify-content: flex-start; padding: 2px 0;
   font-size: 12px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1.2px;
 }
-.mobile-access-head:hover { color: var(--text-dim); }
 .mobile-access-title { font-weight: 600; }
 .mobile-access-state {
+  margin-left: auto;
   font-size: 10px; padding: 2px 8px; border-radius: 10px;
   background: var(--bg-3); color: var(--text-dim); text-transform: none; letter-spacing: 0;
 }
