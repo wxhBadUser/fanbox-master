@@ -404,6 +404,73 @@ Security rules for `MobileDesktopAgent`:
 - `canSendFollowup` is always `false` in B2A. Follow-up command sending is B2C work.
 - No raw stdout, no JSONL content, no shell history is exposed.
 
+### `DesktopAgentTimelineEvent` (B2B)
+
+B2B adds a ring-buffered event stream for each desktop terminal agent. Events are read-only, scrubbed, and ANSI-stripped.
+
+```ts
+type DesktopAgentTimelineEvent = {
+  id: string;                   // stable event id: "ev-{termHash}-{seq}"
+  type:
+    | "status_snapshot"         // current state snapshot (always included as most recent)
+    | "status_change"           // process started / status transition
+    | "output_tail"             // throttled output tail snippet
+    | "waiting_input"           // (reserved for future) process is waiting for input
+    | "process_exit"            // terminal process exited
+    | "recent_files"            // recent files in cwd (periodic or on-demand)
+    | "error";                  // internal error (safe message only)
+  timestamp: number;            // unix epoch ms
+  agentId: "claude" | "codex" | "qoder" | "opencode" | "unknown";
+  desktopAgentId: string;       // safe hash id of the desktop agent
+  source: "desktop-terminal";   // fixed
+  title?: string;               // short human-readable title
+  text?: string;                // scrubbed, ANSI-stripped, length-limited content
+  status?: "running" | "idle" | "waiting_input" | "exited" | "unknown";
+  redacted?: boolean;           // true if content was scrubbed for secrets
+  meta?: {                      // safe metadata only — no pids, no tokens, no raw handles
+    exitCode?: number;
+    projectName?: string;
+    fileCount?: number;
+    outputLength?: number;
+  };
+};
+```
+
+Forbidden event types (must never appear):
+
+- `raw_input` — user keystrokes / command text are never recorded
+- `raw_pty` — raw PTY buffer is never included
+- `raw_env` — environment variables are never included
+- `raw_resume_token` — Claude/Codex resume handles are never included
+
+Ring buffer parameters:
+
+- Max events per terminal: `DESKTOP_EVENT_RING_MAX = 100`
+- Max text length per `output_tail` event: `DESKTOP_AGENT_TAIL_MAX = 500` chars (post-scrub)
+- Output throttling: minimum `DESKTOP_OUTPUT_THROTTLE_MS = 1800` ms between `output_tail` events per terminal
+
+### B2B timeline endpoint response
+
+```json
+{
+  "ok": true,
+  "id": "term-abc123",
+  "source": "desktop-terminal",
+  "agentId": "claude",
+  "label": "Claude Code · fanbox-master",
+  "status": "running",
+  "canSendFollowup": false,
+  "events": [ ... ],
+  "eventCount": 42,
+  "meta": {
+    "limit": 50,
+    "since": null,
+    "hasMore": false,
+    "timelineSource": "desktop-terminal-ring-buffer"
+  }
+}
+```
+
 ### `MobileProject`
 
 ```ts
@@ -618,3 +685,214 @@ The verifier starts the mobile server in-process, pairs a test device, creates a
 - `GET /api/mobile/devices`
 - `GET /api/mobile/audit`
 - sensitive fields are not exposed from devices or audit responses
+
+## Phase B2C — Safe Mobile Follow-up Input
+
+Phase B2C adds a minimal safe write capability: a paired mobile device with the `desktop_control` scope can send a text follow-up to an existing live desktop agent terminal. It does **not** add arbitrary shell access, public network endpoints, WebSockets, relay, or E2EE.
+
+### Device scopes
+
+Each paired device carries a `scopes: string[]` array. Known scopes:
+
+| Scope | Meaning | Granted by default? |
+| --- | --- | --- |
+| `read:status` | Read app-state, dashboard, connection state | Yes (pairing) |
+| `read:files` | Read recent files and file tree scoped to allowed roots | Yes (pairing) |
+| `desktop_control` | Send follow-up text input to a running desktop agent terminal | **No** — must be granted explicitly via a future desktop-side approval UI |
+
+Legacy devices paired before B2C only carry `['read:status', 'read:files']` and cannot send input. They continue to work for reads.
+
+### `canSendFollowup` rule
+
+A desktop agent reported through `GET /api/mobile/app-state`, `GET /api/mobile/dashboard`, or `GET /api/mobile/desktop-agents/:id/timeline` sets `canSendFollowup: true` only when **all** of the following hold:
+
+1. The agent `canOpen` (its cwd resolves inside an allowed root).
+2. The current device (request token) includes the `desktop_control` scope.
+3. The write provider has been registered (desktop main process is live and wired).
+4. The agent is in a writable state (terminal is alive and not exited).
+
+Otherwise `canSendFollowup` is `false`.
+
+### `DesktopTerminalWriteProvider` (in-process provider, not over HTTP)
+
+The desktop main process injects a write provider into `mobile.js`. `mobile.js` never accesses PTY handles, raw terminal ids, or pids directly.
+
+```ts
+type DesktopTerminalWriteProvider = {
+  sendInput(
+    desktopAgentId: string,
+    text: string,
+    options?: { appendNewline?: boolean }
+  ): Promise<{ ok: true } | { ok: false; error: string }>;
+};
+```
+
+Contract invariants:
+
+- `desktopAgentId` is the safe hashed id (the same string returned in `MobileDesktopAgent.id`), never a raw terminal id.
+- The provider is responsible for mapping `desktopAgentId` back to the internal PTY instance (by iterating terminals and matching `safeTermIdHash(rawId)`).
+- `text` is pre-validated by `mobile.js` (type, length, ANSI/NUL/control-char filtering) before the provider is called.
+- If `options.appendNewline !== false`, the provider appends a single `\n` before writing (so a single press of "send" submits the follow-up).
+- The provider must not throw. All errors are returned via the `{ ok:false, error }` envelope.
+- The provider must push a `input_sent` event to the agent's ring buffer after a successful write. The event `text` field **must not** contain the raw input; it must be the fixed string `"Mobile follow-up sent"`, with `meta.inputLength` carrying the character length.
+
+### `POST /api/mobile/desktop-agents/:id/input`
+
+Request:
+
+```json
+{
+  "text": "继续完善刚才的功能",
+  "appendNewline": true
+}
+```
+
+Request constraints (enforced by `mobile.js` before calling the provider):
+
+- `text` must be a string.
+- `text.trim()` must be non-empty.
+- `text.length` must be between 1 and `4096` (after trim is non-empty; raw length cap is 4096).
+- `text` must not contain `\x1b` (ANSI escape), `\x00` (NUL), or an excessive ratio of control characters (after excluding `\n` and `\t`, control chars count must be ≤ 10% of length and ≤ 20 absolute).
+- `appendNewline` defaults to `true`; when truthy a single `\n` is appended by the provider.
+- Request body size is capped at 8 KB by the HTTP layer.
+
+Success response:
+
+```json
+{
+  "ok": true,
+  "id": "term-<hash>",
+  "accepted": true,
+  "canSendFollowup": true,
+  "meta": {
+    "inputLength": 8,
+    "appendNewline": true,
+    "auditWritten": true
+  }
+}
+```
+
+Success response must **not** contain: the raw input text, raw terminal id, pid, token, tokenHash, resumeToken, PTY handle, or any session-internal identifier other than the safe `desktopAgentId`.
+
+Error responses (stable envelope):
+
+```json
+{ "ok": false, "error": { "code": "<errorCode>", "message": "Human-readable reason." } }
+```
+
+Error codes:
+
+| Code | HTTP status | Meaning |
+| --- | --- | --- |
+| `unauthorized` | 401 | Missing/invalid bearer token. |
+| `desktop_control_scope_required` | 403 | Device token is valid but lacks `desktop_control` scope. |
+| `write_provider_unavailable` | 503 | Desktop main process has not registered a write provider (electron not running or IPC not wired). |
+| `desktop_agent_not_found` | 404 | No desktop agent with that `desktopAgentId`, or agent not `canOpen`. |
+| `input_empty` | 400 | `text` missing or empty after trim. |
+| `input_too_long` | 400 | `text.length > 4096`. |
+| `input_rejected_control_chars` | 400 | `text` contains ANSI escape, NUL, or too many control characters. |
+| `rate_limited` | 429 | Too many inputs from this device to this agent within the rate-limit window. |
+
+Other transient provider failures (e.g. PTY write threw after terminal exited) are surfaced as HTTP 502/500 with a generic error code; they must not leak raw terminal ids or internal error stacks.
+
+### Rate limit
+
+- Key: `${deviceId}:${desktopAgentId}`.
+- Window: `1000 ms` minimum gap between accepted inputs on the same key.
+- When exceeded, respond with `rate_limited` and do **not** call the write provider.
+- Rate-limit state is held in-memory in `mobile.js` and resets on process restart (acceptable for LAN-only).
+
+### Input sent timeline event
+
+`DesktopAgentTimelineEvent.type` adds the value `input_sent`.
+
+```json
+{
+  "id": "tev-...",
+  "type": "input_sent",
+  "timestamp": 1730000000000,
+  "agentId": "claude",
+  "desktopAgentId": "term-<hash>",
+  "source": "desktop-terminal",
+  "title": "Mobile follow-up",
+  "text": "Mobile follow-up sent",
+  "meta": { "inputLength": 12 }
+}
+```
+
+Hard rules:
+
+- The `text` field is the fixed literal `"Mobile follow-up sent"`. It must never echo the user's input.
+- `meta.inputLength` records the character count of the accepted input (numeric).
+- `meta.deviceId` must NOT be present (to avoid leaking device identifiers into a multi-consumer timeline).
+
+### Audit entries
+
+Each input attempt writes an append-only audit entry via `mobileSessions.appendAudit(...)`:
+
+- Accepted: `action: "desktop_agent.input.accepted"`
+- Rejected (validation/auth/scope/provider/agent): `action: "desktop_agent.input.rejected"` with `reason: <errorCode>`
+- Rate limited: `action: "desktop_agent.input.rate_limited"`
+
+Audit fields (safe subset only):
+
+```ts
+{
+  action: string;                // one of the three actions above
+  ts: number;
+  deviceId: string;              // safe device id (already present on all audit entries)
+  desktopAgentId: string;        // safe hashed agent id
+  agentId?: string;              // "claude" | "codex" | ... if known
+  inputLength?: number;          // character length of text (accepted path only)
+  reason?: string;               // errorCode on rejected/rate_limited
+  result?: "accepted" | "rejected" | "rate_limited";
+}
+```
+
+Audit entries must **never** contain:
+
+- raw input text
+- token, tokenHash
+- secret, API key, resume token
+- raw terminal id, pid
+- PTY file descriptor or internal handle
+
+### Out of scope for B2C
+
+- `POST /api/mobile/desktop-agents/:id/interrupt` (Ctrl+C) — reserved for a later phase; B2C returns `not_implemented` if ever called, and the verifier does not require it.
+- Public network exposure, relay, WebSocket, E2EE.
+- Rewriting the mobile UI (no UI changes required; a minimal test entry may exist only inside the verifier's in-process server).
+- Sending raw ANSI sequences, binary data, or arbitrary shell commands.
+
+### Why this is not arbitrary shell access
+
+1. **LAN only.** The mobile server is bound to loopback/LAN addresses and already enforces this.
+2. **Token auth + scoped permission.** Input requires a paired bearer token that was explicitly granted `desktop_control`; default pairing is read-only.
+3. **No process creation.** There is no `/exec`, `/spawn`, `/shell`, `/kill`, `/cwd`, `/env` endpoint. The only write is to an **already-running** agent's PTY stdin.
+4. **No terminal selection by raw id.** The client passes only the safe `desktopAgentId` hash; the provider resolves it internally.
+5. **Input filtering.** ANSI escapes, NUL, and control-character-heavy payloads are rejected before reaching the PTY. The only control character that reaches the PTY is the optional trailing `\n` (submit).
+6. **Rate limiting** (1 req/sec per device+agent) prevents rapid injection.
+7. **Audit trail.** Every accepted/rejected/rate-limited attempt is appended to the audit log without storing the input text.
+8. **No raw handles exposed.** Responses never leak raw terminal ids, pids, token hashes, resume tokens, or PTY internals.
+9. **cwd scoping.** Input is only accepted for agents whose cwd is inside an allowed root (same `canOpen` rule that protects reads).
+
+### B2C verification additions
+
+The verifier (`scripts/verify-mobile-backend-contract.js`) additionally checks:
+
+- B1/B2A/B2B assertions continue to pass unchanged.
+- No token → POST input returns 401.
+- Token without `desktop_control` → `desktop_control_scope_required`.
+- Write provider not registered → `write_provider_unavailable`.
+- Unknown agent id → `desktop_agent_not_found`.
+- Empty body / empty text → `input_empty`.
+- Text longer than 4096 → `input_too_long`.
+- Text containing ANSI escape → `input_rejected_control_chars`.
+- Valid input is received by the mock write provider exactly once.
+- Success response body does not contain the input text.
+- Audit entries (via `GET /api/mobile/audit`) do not contain the input text.
+- Timeline appends a `input_sent` event whose `text` is the fixed literal (no echo of input).
+- `canSendFollowup` is `true` only when scope + provider + canOpen all hold; `false` otherwise.
+- Second input within 1 second returns `rate_limited`.
+- Success/error responses do not contain raw terminal id, pid, tokenHash, or resumeToken.
+

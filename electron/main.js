@@ -45,10 +45,57 @@ catch (e) { console.error('[fanbox] node-pty 未就绪（跑 npm run rebuild）�
 
 const terminals = new Map();
 const termTails = new Map(); // id -> 最近输出尾巴（去 ANSI），给微信 agent 感知别的终端在跑啥/卡哪
-const termMeta = new Map();  // id -> { lastActiveAt, createdAt } for B2A desktop continuation read model
+const termMeta = new Map();  // id -> { lastActiveAt, createdAt, lastStatus, lastOutputEventAt } for B2B
+const termEvents = new Map(); // id -> ring buffer of raw timeline events (B2B)
+let termEventSeq = 0;         // global monotonic sequence for event ids
 let win = null;
 
-// Phase B2A: inject read-only desktop terminal provider into mobile backend.
+// B2B ring buffer constants
+const TERM_EVENT_RING_MAX = 100;
+const TERM_OUTPUT_THROTTLE_MS = 1800;
+const TERM_TAIL_EVENT_MAX = 500;
+
+function stripAnsiForRing(str) {
+  if (!str || typeof str !== 'string') return '';
+  return str
+    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+    .replace(/\x1b[()][AB0]/g, '')
+    .replace(/\x1b\][^\x07\x1b]*[\x07\x1b\\]/g, '')
+    .replace(/\x1b[PX^_][^\x1b]*\x1b\\/g, '')
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
+    .replace(/\r/g, '');
+}
+
+function pushTermEvent(termId, ev) {
+  if (!termId) return;
+  let buf = termEvents.get(termId);
+  if (!buf) { buf = []; termEvents.set(termId, buf); }
+  const event = {
+    id: 'tev-' + (++termEventSeq),
+    timestamp: Date.now(),
+    ...ev
+  };
+  buf.push(event);
+  if (buf.length > TERM_EVENT_RING_MAX) {
+    buf.splice(0, buf.length - TERM_EVENT_RING_MAX);
+  }
+}
+
+function detectAgentFromProcRing(proc) {
+  const p = String(proc || '').toLowerCase();
+  if (!p) return 'unknown';
+  if (/claude/.test(p)) return 'claude';
+  if (/codex/.test(p)) return 'codex';
+  if (/qoder/.test(p)) return 'qoder';
+  if (/opencode|open-code/.test(p)) return 'opencode';
+  return 'unknown';
+}
+
+function isBareShell(proc) {
+  return /^-?(zsh|bash|sh|fish|login|powershell|cmd)(\.exe)?$/i.test(String(proc || ''));
+}
+
+// Phase B2A+B2B: inject read-only desktop terminal provider into mobile backend.
 // mobile.js never touches node-pty directly; it only calls this provider for safe projection.
 mobile.setDesktopTerminalProvider(async function desktopTerminalListProvider() {
   const arr = [];
@@ -56,18 +103,75 @@ mobile.setDesktopTerminalProvider(async function desktopTerminalListProvider() {
     const proc = (p && p.process) || '';
     let cwd = '';
     try { cwd = await termCwdByPid(p && p.pid); } catch { cwd = ''; }
-    const busy = !!proc && !/^-?(zsh|bash|sh|fish|login)$/i.test(proc);
+    const busy = !!proc && !isBareShell(proc);
     const meta = termMeta.get(id) || {};
+    const events = (termEvents.get(id) || []).slice(); // shallow copy, mobile will re-scrub
     arr.push({
       id,
       cwd: cwd || '',
       proc,
       busy,
       tail: termTails.get(id) || '',
-      lastActiveAt: meta.lastActiveAt || Date.now()
+      lastActiveAt: meta.lastActiveAt || Date.now(),
+      events
     });
   }
   return arr;
+});
+
+// Phase B2C: inject safe write provider. Mobile can send plain-text follow-up input
+// to an already-running desktop agent. Never exposes raw terminal ids/pids to mobile.js.
+function safeTermHashForWrite(termId) {
+  const h = crypto.createHash('sha256').update(String(termId || '') + ':fanbox-term-v1').digest('hex');
+  return 'term-' + h.slice(0, 12);
+}
+mobile.setDesktopTerminalWriteProvider({
+  async sendInput(desktopAgentId, text, options) {
+    const opts = options || {};
+    if (typeof desktopAgentId !== 'string' || !desktopAgentId) {
+      return { ok: false, error: 'invalid_agent_id' };
+    }
+    if (typeof text !== 'string') {
+      return { ok: false, error: 'invalid_text' };
+    }
+    // Find matching terminal by safe hash; never expose raw id to mobile.js
+    let targetId = null;
+    let targetPty = null;
+    for (const [id, p] of terminals) {
+      if (safeTermHashForWrite(id) === desktopAgentId) {
+        targetId = id;
+        targetPty = p;
+        break;
+      }
+    }
+    if (!targetId || !targetPty) {
+      return { ok: false, error: 'desktop_agent_not_found' };
+    }
+    // Defense in depth: text has already been validated/scrubbed by mobile.js,
+    // but apply final control-char stripping belt-and-suspenders here.
+    let cleanText = text;
+    if (/\x1b/.test(cleanText) || /\x00/.test(cleanText)) {
+      return { ok: false, error: 'input_rejected_control_chars' };
+    }
+    try {
+      const payload = opts.appendNewline !== false ? (cleanText + '\n') : cleanText;
+      targetPty.write(payload);
+      const meta = termMeta.get(targetId);
+      if (meta) { meta.lastActiveAt = Date.now(); }
+      // Push a safe input_sent event to ring buffer. NO RAW TEXT — fixed string only.
+      pushTermEvent(targetId, {
+        type: 'input_sent',
+        title: 'Mobile follow-up',
+        text: 'Mobile follow-up sent',
+        status: 'running',
+        agentId: detectAgentFromProcRing((targetPty && targetPty.process) || ''),
+        meta: { inputLength: cleanText.length }
+      });
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: 'terminal_write_failed' };
+    }
+  }
 });
 
 // ---------- 窗口尺寸/位置记忆 ----------
@@ -537,21 +641,84 @@ ipcMain.handle('pty:spawn', (e, { id, cwd, cols, rows, theme }) => {
     });
   } catch (err) { return { ok: false, error: err.message }; }
   terminals.set(id, p);
-  termMeta.set(id, { createdAt: Date.now(), lastActiveAt: Date.now() });
+  const now = Date.now();
+  termMeta.set(id, { createdAt: now, lastActiveAt: now, lastStatus: 'running', lastOutputEventAt: 0, lastBusyState: false });
+  termEvents.set(id, []); // initialize empty ring buffer
+  pushTermEvent(id, {
+    type: 'status_change',
+    status: 'running',
+    agentId: detectAgentFromProcRing(p.process),
+    title: 'Terminal started',
+    text: ''
+  });
   refreshLidGuard(); // 开关开着时，第一个终端起来即生效
   recStart(id, { cols, rows, cwd: startCwd, theme });
+  // Throttled output accumulator for B2B: buffer between output_tail events
+  let outputBuf = '';
+  let outputFlushTimer = null;
+  function flushOutputEvent() {
+    outputFlushTimer = null;
+    if (!outputBuf) return;
+    const stripped = stripAnsiForRing(outputBuf).slice(-TERM_TAIL_EVENT_MAX);
+    if (stripped) {
+      pushTermEvent(id, {
+        type: 'output_tail',
+        status: 'running',
+        agentId: detectAgentFromProcRing(p.process),
+        text: stripped
+      });
+      const meta = termMeta.get(id);
+      if (meta) meta.lastOutputEventAt = Date.now();
+    }
+    outputBuf = '';
+  }
   p.onData((data) => {
     if (win && !win.isDestroyed()) win.webContents.send('pty:data', { id, data });
     recEvent(id, 'o', data);
     const tail = ((termTails.get(id) || '') + data.replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][AB0]|\r/g, '')).slice(-4000);
     termTails.set(id, tail); // 留最后 ~4KB，给微信 agent 看「最近输出」
     const meta = termMeta.get(id);
-    if (meta) { meta.lastActiveAt = Date.now(); }
+    const tnow = Date.now();
+    if (meta) { meta.lastActiveAt = tnow; }
+    // B2B: accumulate output for throttled event generation
+    outputBuf += data;
+    const lastOut = meta ? meta.lastOutputEventAt : 0;
+    if (!outputFlushTimer && (tnow - lastOut) >= TERM_OUTPUT_THROTTLE_MS) {
+      // Schedule flush after a short debounce so we batch rapid output
+      outputFlushTimer = setTimeout(flushOutputEvent, 400);
+    }
+    // Detect proc name change / busy-idle transitions
+    const curProc = (p && p.process) || '';
+    const nowBusy = !!curProc && !isBareShell(curProc);
+    if (meta && meta.lastBusyState !== nowBusy) {
+      meta.lastBusyState = nowBusy;
+      const newStatus = nowBusy ? 'running' : 'idle';
+      if (meta.lastStatus !== newStatus) {
+        meta.lastStatus = newStatus;
+        pushTermEvent(id, {
+          type: 'status_change',
+          status: newStatus,
+          agentId: detectAgentFromProcRing(curProc),
+          title: nowBusy ? 'Process started' : 'Process exited',
+          text: nowBusy ? (curProc || '') : 'Shell idle'
+        });
+      }
+    }
   });
   p.onExit(({ exitCode }) => {
+    if (outputFlushTimer) { clearTimeout(outputFlushTimer); outputFlushTimer = null; flushOutputEvent(); }
+    pushTermEvent(id, {
+      type: 'process_exit',
+      status: 'exited',
+      agentId: detectAgentFromProcRing(p.process),
+      title: 'Process exited',
+      text: 'exit code ' + exitCode,
+      meta: { exitCode: Number(exitCode) || 0 }
+    });
     terminals.delete(id);
     termTails.delete(id);
     termMeta.delete(id);
+    termEvents.delete(id);
     refreshLidGuard(); // 最后一个终端退出即恢复休眠
     recStop(id);
     if (win && !win.isDestroyed()) win.webContents.send('pty:exit', { id, exitCode });
@@ -806,10 +973,19 @@ ipcMain.on('pty:input', (e, { id, data }) => {
 ipcMain.on('pty:resize', (e, { id, cols, rows }) => { const p = terminals.get(id); if (p) { try { p.resize(cols, rows); } catch { /* */ } recEvent(id, 'r', `${cols}x${rows}`); } });
 ipcMain.on('pty:kill', (e, { id }) => {
   const p = terminals.get(id);
+  pushTermEvent(id, {
+    type: 'process_exit',
+    status: 'exited',
+    agentId: detectAgentFromProcRing(p && p.process),
+    title: 'Terminal killed',
+    text: 'killed by user',
+    meta: { exitCode: -1 }
+  });
   if (p) { try { p.kill(); } catch { /* */ } }
   terminals.delete(id);
   termTails.delete(id);
   termMeta.delete(id);
+  termEvents.delete(id);
   refreshLidGuard();
   recStop(id);
 });
@@ -1004,7 +1180,7 @@ function ensureWechat() {
       for (const [id, p] of terminals) {
         const proc = (p && p.process) || '';
         const cwd = await termCwdByPid(p && p.pid);
-        const busy = !!proc && !/^-?(zsh|bash|sh|fish|login)$/i.test(proc); // 前台不是裸 shell = 正跑着东西
+        const busy = !!proc && !isBareShell(proc); // 前台不是裸 shell = 正跑着东西
         const meta = termMeta.get(id) || {};
         arr.push({
           id,

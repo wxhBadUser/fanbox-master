@@ -56,6 +56,17 @@ const DESKTOP_AGENT_MAX_RECENT_FILES = 5;        // recentFiles 上限
 const DESKTOP_AGENT_IDLE_CUTOFF_MS = 30 * 60 * 1000; // 30 分钟无输出视为 idle
 const DESKTOP_AGENT_MAX = 20;                    // 最多投影 N 个 desktop agent
 
+// Phase B2B：Timeline Event Buffer 常量
+const DESKTOP_EVENT_RING_MAX = 100;              // 每个 terminal ring buffer 最多事件数
+const DESKTOP_OUTPUT_THROTTLE_MS = 1800;         // output_tail 事件最小间隔
+const DESKTOP_TIMELINE_LIMIT_DEFAULT = 50;       // timeline endpoint 默认 limit
+const DESKTOP_TIMELINE_LIMIT_MAX = 100;          // timeline endpoint 最大 limit
+
+// Phase B2C：Safe follow-up input 常量
+const DESKTOP_INPUT_MAX_LEN = 4096;              // 单条输入最大字符数
+const DESKTOP_INPUT_RATE_LIMIT_MS = 1000;        // 每个 device+agent 最小输入间隔
+const MOBILE_INPUT_BODY_MAX = 8 * 1024;          // 请求 body 上限 8KB
+
 // Phase 1：Mobile Web UI 静态资源（公开访问，文件落盘，不进 token 校验）
 const MOBILE_PUBLIC_DIR = path.join(__dirname, '..', 'public', 'mobile');
 const MOBILE_STATIC_MIME = {
@@ -1823,6 +1834,375 @@ async function buildDesktopContinuableAgents() {
   return agents;
 }
 
+// ============================================================
+// Phase B2B：Safe timeline event projection
+// Projects raw events from the desktop provider into safe DesktopAgentTimelineEvent[]
+// ============================================================
+
+const ALLOWED_TIMELINE_EVENT_TYPES = new Set([
+  'status_snapshot',
+  'status_change',
+  'output_tail',
+  'waiting_input',
+  'process_exit',
+  'recent_files',
+  'input_sent',
+  'error'
+]);
+
+function safeEventId(desktopAgentId, seq) {
+  return 'ev-' + desktopAgentId + '-' + String(seq).padStart(4, '0');
+}
+
+function projectRawTimelineEvent(rawEv, desktopAgentId, agentId, seq) {
+  if (!rawEv || typeof rawEv !== 'object') return null;
+  const rawType = String(rawEv.type || '');
+  if (!ALLOWED_TIMELINE_EVENT_TYPES.has(rawType)) return null;
+  const timestamp = (typeof rawEv.timestamp === 'number' && rawEv.timestamp > 0)
+    ? rawEv.timestamp
+    : Date.now();
+  const evAgentId = detectAgentFromProc(String(rawEv.agentId || agentId || ''));
+  let text = '';
+  let redacted = false;
+  if (rawType === 'output_tail' || rawType === 'error' || rawType === 'status_change') {
+    const rawText = typeof rawEv.text === 'string' ? rawEv.text : (typeof rawEv.rawText === 'string' ? rawEv.rawText : '');
+    if (rawText) {
+      const stripped = stripAnsi(rawText);
+      const scrub = scrubSecrets(stripped);
+      text = scrub.text.slice(-DESKTOP_AGENT_TAIL_MAX);
+      redacted = scrub.redacted;
+    }
+  } else if (rawType === 'input_sent') {
+    // input_sent 事件永远使用固定文本，绝不回显用户输入
+    text = 'Mobile follow-up sent';
+  }
+  const title = typeof rawEv.title === 'string' ? rawEv.title.slice(0, 120) : '';
+  const status = (typeof rawEv.status === 'string' && ['running','idle','waiting_input','exited','unknown'].includes(rawEv.status))
+    ? rawEv.status
+    : undefined;
+  const meta = {};
+  if (rawEv.meta && typeof rawEv.meta === 'object') {
+    if (typeof rawEv.meta.exitCode === 'number') meta.exitCode = rawEv.meta.exitCode;
+    if (typeof rawEv.meta.projectName === 'string') meta.projectName = rawEv.meta.projectName.slice(0, 100);
+    if (typeof rawEv.meta.fileCount === 'number') meta.fileCount = rawEv.meta.fileCount;
+    if (typeof rawEv.meta.outputLength === 'number') meta.outputLength = Math.min(rawEv.meta.outputLength, DESKTOP_AGENT_TAIL_MAX);
+    if (rawType === 'input_sent' && typeof rawEv.meta.inputLength === 'number') {
+      meta.inputLength = Math.min(rawEv.meta.inputLength, DESKTOP_INPUT_MAX_LEN);
+    }
+    // 严禁 deviceId 进入 timeline meta（防泄露）
+  }
+  const safe = {
+    id: safeEventId(desktopAgentId, seq),
+    type: rawType,
+    timestamp,
+    agentId: evAgentId,
+    desktopAgentId,
+    source: 'desktop-terminal'
+  };
+  if (title) safe.title = title;
+  if (text) safe.text = text;
+  if (status) safe.status = status;
+  if (redacted) safe.redacted = true;
+  if (Object.keys(meta).length > 0) safe.meta = meta;
+  return safe;
+}
+
+function buildStatusSnapshotEvent(agent, seq) {
+  return {
+    id: safeEventId(agent.id, seq),
+    type: 'status_snapshot',
+    timestamp: agent.lastActiveAt || Date.now(),
+    agentId: agent.agentId,
+    desktopAgentId: agent.id,
+    source: 'desktop-terminal',
+    title: agent.label,
+    text: agent.outputTail || '',
+    status: agent.status,
+    redacted: agent.outputTailRedacted || false,
+    meta: {
+      projectName: agent.projectName || '',
+      outputLength: (agent.outputTail || '').length
+    }
+  };
+}
+
+async function getDesktopAgentTimeline(safeAgentId, opts) {
+  const options = opts || {};
+  const limit = Math.max(1, Math.min(
+    DESKTOP_TIMELINE_LIMIT_MAX,
+    (typeof options.limit === 'number' ? options.limit : DESKTOP_TIMELINE_LIMIT_DEFAULT)
+  ));
+  const since = (typeof options.since === 'number' && options.since > 0) ? options.since : 0;
+
+  // Fetch all agents from provider
+  const allAgents = await buildDesktopContinuableAgents().catch(() => []);
+  const agent = allAgents.find((a) => a.id === safeAgentId);
+  if (!agent) {
+    return { found: false };
+  }
+
+  // Fetch raw list (with events) from provider directly, since buildDesktopContinuableAgents strips events
+  let rawList = [];
+  if (_desktopTerminalProvider && typeof _desktopTerminalProvider === 'function') {
+    try { rawList = await _desktopTerminalProvider(); } catch { rawList = []; }
+  }
+
+  // Find the raw terminal that maps to this safe agent id
+  let rawEvents = [];
+  for (const t of (rawList || [])) {
+    if (!t || typeof t !== 'object' || !t.id) continue;
+    const rawSafeId = safeTermIdHash(String(t.id));
+    if (rawSafeId === safeAgentId) {
+      rawEvents = Array.isArray(t.events) ? t.events : [];
+      break;
+    }
+  }
+
+  // Project raw events safely
+  const projected = [];
+  let seq = 1;
+  for (const rawEv of rawEvents) {
+    const ev = projectRawTimelineEvent(rawEv, agent.id, agent.agentId, seq++);
+    if (ev) projected.push(ev);
+  }
+
+  // Always append a status_snapshot as the most recent event (after sorting)
+  const snapshot = buildStatusSnapshotEvent(agent, seq++);
+
+  // Add recent_files event if agent has recent files
+  if (agent.recentFiles && agent.recentFiles.length > 0) {
+    projected.push({
+      id: safeEventId(agent.id, seq++),
+      type: 'recent_files',
+      timestamp: agent.lastActiveAt || Date.now(),
+      agentId: agent.agentId,
+      desktopAgentId: agent.id,
+      source: 'desktop-terminal',
+      title: 'Recent files',
+      meta: {
+        projectName: agent.projectName || '',
+        fileCount: agent.recentFiles.length,
+        files: agent.recentFiles.map((f) => ({ name: f.name, path: f.path, type: f.type, mtime: f.mtime }))
+      }
+    });
+  }
+
+  projected.push(snapshot);
+
+  // Sort ascending by timestamp
+  projected.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+  // Apply since filter
+  let filtered = since > 0 ? projected.filter((e) => e.timestamp >= since) : projected;
+
+  // Apply limit (take most recent N after filter)
+  const hasMore = filtered.length > limit;
+  if (hasMore) {
+    filtered = filtered.slice(filtered.length - limit);
+  }
+
+  return {
+    found: true,
+    agent,
+    events: filtered,
+    eventCount: filtered.length,
+    meta: {
+      limit,
+      since: since > 0 ? since : null,
+      hasMore,
+      timelineSource: 'desktop-terminal-ring-buffer'
+    }
+  };
+}
+
+// ============================================================
+// Phase B2C：Safe follow-up input
+// 最小安全写入能力：仅向已有 desktop agent 发送文本输入，不开放任意 shell。
+// 读写 provider 分离；mobile.js 永远不直接访问 PTY。
+// ============================================================
+
+let _desktopTerminalWriteProvider = null;
+const _inputRateLimit = new Map(); // key: `${deviceId}:${desktopAgentId}` -> lastAcceptedAt (ms)
+
+function setDesktopTerminalWriteProvider(provider) {
+  if (provider === null || (provider && typeof provider.sendInput === 'function')) {
+    _desktopTerminalWriteProvider = provider;
+  }
+}
+
+function deviceHasDesktopControlScope(device) {
+  if (!device || !Array.isArray(device.scopes)) return false;
+  return device.scopes.includes('desktop_control');
+}
+
+function validateInputText(text) {
+  if (typeof text !== 'string') {
+    return { ok: false, errorCode: 'input_empty', message: 'text must be a string.' };
+  }
+  if (text.trim().length === 0) {
+    return { ok: false, errorCode: 'input_empty', message: 'text must not be empty.' };
+  }
+  if (text.length > DESKTOP_INPUT_MAX_LEN) {
+    return { ok: false, errorCode: 'input_too_long', message: 'text exceeds maximum length of ' + DESKTOP_INPUT_MAX_LEN + '.' };
+  }
+  // ANSI escape
+  if (/\x1b/.test(text)) {
+    return { ok: false, errorCode: 'input_rejected_control_chars', message: 'ANSI escape sequences are not allowed.' };
+  }
+  // NUL
+  if (/\x00/.test(text)) {
+    return { ok: false, errorCode: 'input_rejected_control_chars', message: 'NUL bytes are not allowed.' };
+  }
+  // Control character ratio (allow \n and \t; count all other C0 controls 0x00-0x1F and 0x7F)
+  const allowedControls = /[\n\t]/g;
+  const stripped = text.replace(allowedControls, '');
+  let controlCount = 0;
+  for (let i = 0; i < stripped.length; i++) {
+    const c = stripped.charCodeAt(i);
+    if (c < 0x20 || c === 0x7F) controlCount++;
+  }
+  if (controlCount > 20 || (stripped.length > 0 && controlCount / stripped.length > 0.10)) {
+    return { ok: false, errorCode: 'input_rejected_control_chars', message: 'Too many control characters.' };
+  }
+  return { ok: true, cleanText: text };
+}
+
+function checkInputRateLimit(deviceId, desktopAgentId) {
+  const key = deviceId + '::' + desktopAgentId;
+  const now = Date.now();
+  const last = _inputRateLimit.get(key) || 0;
+  if (now - last < DESKTOP_INPUT_RATE_LIMIT_MS) {
+    return { ok: false, retryAfterMs: DESKTOP_INPUT_RATE_LIMIT_MS - (now - last) };
+  }
+  _inputRateLimit.set(key, now);
+  return { ok: true };
+}
+
+function applyCanSendFollowup(agent, device) {
+  if (!agent) return agent;
+  const writable = !!(agent.canOpen && _desktopTerminalWriteProvider && deviceHasDesktopControlScope(device) && agent.status !== 'exited');
+  return { ...agent, canSendFollowup: writable };
+}
+
+async function sendDesktopAgentInput(t, desktopAgentId, body) {
+  // Auth check
+  if (!t || !t.device) {
+    return { status: 401, body: { ok: false, error: { code: 'unauthorized', message: 'Authentication required.' } } };
+  }
+  // Scope check
+  if (!deviceHasDesktopControlScope(t.device)) {
+    return { status: 403, body: { ok: false, error: { code: 'desktop_control_scope_required', message: 'This device is not allowed to control desktop terminals.' } } };
+  }
+  // Provider check
+  if (!_desktopTerminalWriteProvider || typeof _desktopTerminalWriteProvider.sendInput !== 'function') {
+    return { status: 503, body: { ok: false, error: { code: 'write_provider_unavailable', message: 'Desktop write provider is not available.' } } };
+  }
+  // Body validation
+  if (!body || typeof body !== 'object') {
+    return { status: 400, body: { ok: false, error: { code: 'input_empty', message: 'Request body must be a JSON object.' } } };
+  }
+  const v = validateInputText(body.text);
+  if (!v.ok) {
+    try {
+      await mobileSessions.appendAudit({
+        action: 'desktop_agent.input.rejected',
+        ts: Date.now(),
+        deviceId: t.device.id,
+        desktopAgentId: String(desktopAgentId || ''),
+        reason: v.errorCode,
+        result: 'rejected',
+      });
+    } catch (_) { /* audit fail must not break request */ }
+    return { status: 400, body: { ok: false, error: { code: v.errorCode, message: v.message } } };
+  }
+  // Agent existence/canOpen check
+  const allAgents = await buildDesktopContinuableAgents().catch(() => []);
+  const agent = allAgents.find((a) => a.id === desktopAgentId);
+  if (!agent || !agent.canOpen) {
+    try {
+      await mobileSessions.appendAudit({
+        action: 'desktop_agent.input.rejected',
+        ts: Date.now(),
+        deviceId: t.device.id,
+        desktopAgentId: String(desktopAgentId || ''),
+        reason: 'desktop_agent_not_found',
+        result: 'rejected',
+      });
+    } catch (_) {}
+    return { status: 404, body: { ok: false, error: { code: 'desktop_agent_not_found', message: 'Desktop agent not found or not accessible.' } } };
+  }
+  // Rate limit
+  const rl = checkInputRateLimit(t.device.id, desktopAgentId);
+  if (!rl.ok) {
+    try {
+      await mobileSessions.appendAudit({
+        action: 'desktop_agent.input.rate_limited',
+        ts: Date.now(),
+        deviceId: t.device.id,
+        desktopAgentId: String(desktopAgentId || ''),
+        agentId: agent.agentId,
+        inputLength: v.cleanText.length,
+        result: 'rate_limited',
+      });
+    } catch (_) {}
+    return { status: 429, body: { ok: false, error: { code: 'rate_limited', message: 'Too many inputs. Please wait before sending another.' } } };
+  }
+  const appendNewline = body.appendNewline !== false;
+  // Call provider
+  let providerResult;
+  try {
+    providerResult = await _desktopTerminalWriteProvider.sendInput(desktopAgentId, v.cleanText, { appendNewline });
+  } catch (e) {
+    providerResult = { ok: false, error: 'provider_error' };
+  }
+  if (!providerResult || providerResult.ok === false) {
+    const errMsg = (providerResult && providerResult.error) ? String(providerResult.error) : 'write_failed';
+    // Rate-limit rollback on failure
+    _inputRateLimit.delete(t.device.id + '::' + desktopAgentId);
+    try {
+      await mobileSessions.appendAudit({
+        action: 'desktop_agent.input.rejected',
+        ts: Date.now(),
+        deviceId: t.device.id,
+        desktopAgentId: String(desktopAgentId || ''),
+        agentId: agent.agentId,
+        inputLength: v.cleanText.length,
+        reason: errMsg,
+        result: 'rejected',
+      });
+    } catch (_) {}
+    return { status: 502, body: { ok: false, error: { code: 'write_failed', message: 'Failed to deliver input to desktop terminal.' } } };
+  }
+  // Audit (no raw text!)
+  let auditWritten = false;
+  try {
+    await mobileSessions.appendAudit({
+      action: 'desktop_agent.input.accepted',
+      ts: Date.now(),
+      deviceId: t.device.id,
+      desktopAgentId: String(desktopAgentId || ''),
+      agentId: agent.agentId,
+      inputLength: v.cleanText.length,
+      result: 'accepted',
+    });
+    auditWritten = true;
+  } catch (_) {}
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      id: desktopAgentId,
+      accepted: true,
+      canSendFollowup: true,
+      meta: {
+        inputLength: v.cleanText.length,
+        appendNewline: !!appendNewline,
+        auditWritten,
+      }
+    }
+  };
+}
+
 async function readMobileAppState(t) {
   const [cfg, status, context, sessionsResult, approvals, devices, recent, desktopAgents] = await Promise.all([
     getConfig(),
@@ -1910,7 +2290,7 @@ async function readMobileDashboard(t) {
     ok: true,
     activeSessions,
     runningAgents,
-    desktopContinuableAgents: desktopAgents,
+    desktopContinuableAgents: desktopAgents.map((a) => applyCanSendFollowup(a, t.device)),
     pendingApprovals: Array.isArray(approvals) ? approvals : [],
     recentFiles: Array.isArray(recentFiles.items) ? recentFiles.items : [],
     usageSummary: usage.summary || {},
@@ -2512,53 +2892,44 @@ async function handleMobileApiV2A(req, res, url) {
   }
 
   // -------- GET /api/mobile/desktop-agents/:id/timeline --------
-  // Phase B2A 预留：桌面终端 agent 的只读 timeline。
-  // 不返回 raw log / raw PTY / internal session token；数据不足时返回空 events。
+  // Phase B2B：桌面终端 agent 的只读 timeline event buffer。
+  // 不返回 raw log / raw PTY / internal session token；所有事件经过 scrub/strip/limit。
   if (req.method === 'GET' && /^\/api\/mobile\/desktop-agents\/[A-Za-z0-9._\-+]{1,64}\/timeline$/.test(pathOnly)) {
     const t = await requireMobileAuth(req, res); if (!t) return true;
     const m = pathOnly.match(/^\/api\/mobile\/desktop-agents\/([A-Za-z0-9._\-+]{1,64})\/timeline$/);
-    const agentId = m ? m[1] : '';
+    const agentIdParam = m ? m[1] : '';
     const u = new URL(url, 'http://x');
-    const limit = Math.max(1, Math.min(50, parseInt(u.searchParams.get('limit') || '20', 10) || 20));
-    // B2A：只读投影当前状态为一条 snapshot event；不伪造历史。
-    const allAgents = await buildDesktopContinuableAgents().catch(() => []);
-    const agent = allAgents.find((a) => a.id === agentId);
-    if (!agent) {
+    const reqLimit = parseInt(u.searchParams.get('limit') || String(DESKTOP_TIMELINE_LIMIT_DEFAULT), 10);
+    const reqSince = parseInt(u.searchParams.get('since') || '0', 10);
+    const result = await getDesktopAgentTimeline(agentIdParam, { limit: reqLimit, since: reqSince });
+    if (!result.found) {
       return sendJson(res, 404, { ok: false, error: 'desktop_agent_not_found' }), true;
     }
-    const events = [];
-    events.push({
-      id: 'snap-' + agent.id,
-      type: 'status_snapshot',
-      ts: agent.lastActiveAt,
-      status: agent.status,
-      busy: agent.busy,
-      cwd: agent.cwd,
-      projectName: agent.projectName,
-      outputTail: agent.outputTail,
-      outputTailRedacted: agent.outputTailRedacted,
-      canSendFollowup: false
-    });
-    if (agent.recentFiles && agent.recentFiles.length) {
-      events.push({
-        id: 'files-' + agent.id,
-        type: 'recent_files',
-        ts: agent.lastActiveAt,
-        files: agent.recentFiles.map((f) => ({ name: f.name, path: f.path, type: f.type, mtime: f.mtime }))
-      });
-    }
+    const safeAgent = applyCanSendFollowup(result.agent, t.device);
     return sendJson(res, 200, {
       ok: true,
-      id: agent.id,
-      source: agent.source,
-      agentId: agent.agentId,
-      label: agent.label,
-      status: agent.status,
-      canSendFollowup: false,
-      events: events.slice(0, limit),
-      eventCount: events.length,
-      note: 'B2A: read-only snapshot; full history in B2B'
+      id: result.agent.id,
+      source: result.agent.source,
+      agentId: result.agent.agentId,
+      label: result.agent.label,
+      status: result.agent.status,
+      canSendFollowup: safeAgent.canSendFollowup,
+      events: result.events,
+      eventCount: result.eventCount,
+      meta: result.meta
     }), true;
+  }
+
+  // -------- POST /api/mobile/desktop-agents/:id/input --------
+  // Phase B2C：Safe follow-up input。最小安全写入，不开放任意 shell。
+  if (req.method === 'POST' && /^\/api\/mobile\/desktop-agents\/[A-Za-z0-9._\-+]{1,64}\/input$/.test(pathOnly)) {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    const m = pathOnly.match(/^\/api\/mobile\/desktop-agents\/([A-Za-z0-9._\-+]{1,64})\/input$/);
+    const agentIdParam = m ? m[1] : '';
+    let body;
+    try { body = await readJsonBody(req, MOBILE_INPUT_BODY_MAX); } catch { return badReq(res, 400, 'bad_body'), true; }
+    const result = await sendDesktopAgentInput(t, agentIdParam, body || {});
+    return sendJson(res, result.status, result.body), true;
   }
 
   // -------- GET /api/mobile/sessions/:id/events --------
@@ -3368,8 +3739,22 @@ module.exports = {
   // Phase B2A
   DESKTOP_AGENT_TAIL_MAX,
   DESKTOP_AGENT_MAX_RECENT_FILES,
+  // Phase B2B
+  DESKTOP_EVENT_RING_MAX,
+  DESKTOP_OUTPUT_THROTTLE_MS,
+  DESKTOP_TIMELINE_LIMIT_DEFAULT,
+  DESKTOP_TIMELINE_LIMIT_MAX,
+  // Phase B2C
+  DESKTOP_INPUT_MAX_LEN,
+  DESKTOP_INPUT_RATE_LIMIT_MS,
+  setDesktopTerminalWriteProvider,
+  sendDesktopAgentInput,
+  validateInputText,
+  deviceHasDesktopControlScope,
   setDesktopTerminalProvider,
   buildDesktopContinuableAgents,
+  getDesktopAgentTimeline,
+  projectRawTimelineEvent,
   stripAnsi,
   scrubSecrets,
   detectAgentFromProc,
@@ -3401,6 +3786,7 @@ module.exports = {
   genDeviceId,
   genServerId,
   sha256,
+  addTokenRecord,
   // 工具方法（内部使用，但导出以便测试）
   listDirSafe,
   pathInAllowed,

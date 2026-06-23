@@ -275,6 +275,39 @@ function containsSensitiveAuditData(value) {
   fs.writeFileSync(path.join(TMP_HOME, '.env'), 'SECRET_KEY=should_not_leak', 'utf8'); // forbidden
 
   let mockCallCount = 0;
+  const mockNow = Date.now();
+  // Generate mock events with known timestamps for B2B timeline testing
+  // Include raw secrets and ANSI to verify scrubbing
+  const mockRawEvents = [
+    {
+      id: 'raw-ev-1',
+      type: 'status_change',
+      timestamp: mockNow - 5000,
+      rawType: 'status_change',
+      rawText: '',
+      status: 'running',
+      agentId: 'claude'
+    },
+    {
+      id: 'raw-ev-2',
+      type: 'output_tail',
+      timestamp: mockNow - 3000,
+      rawType: 'output_tail',
+      rawText: '\x1b[32mProcessing...\x1b[0m sk-abc123def456ghiklmnopqrstuvwxyz Bearer tok1234567890abcdefghij working on files',
+      status: 'running',
+      agentId: 'claude'
+    },
+    {
+      id: 'raw-ev-3',
+      type: 'output_tail',
+      timestamp: mockNow - 1000,
+      rawType: 'output_tail',
+      rawText: 'Analyzing project structure token=mysecrettoken12345 password=hunter2done',
+      status: 'running',
+      agentId: 'claude'
+    }
+  ];
+
   mobile.setDesktopTerminalProvider(async function mockProvider() {
     mockCallCount++;
     return [
@@ -284,7 +317,8 @@ function containsSensitiveAuditData(value) {
         proc: 'claude',
         busy: true,
         tail: mockAnsi + mockSecrets + '\nworking...',
-        lastActiveAt: Date.now()
+        lastActiveAt: mockNow,
+        events: mockRawEvents
       },
       {
         id: 'mock-term-2',
@@ -292,7 +326,10 @@ function containsSensitiveAuditData(value) {
         proc: 'bash',
         busy: false,
         tail: '',
-        lastActiveAt: Date.now() - 60 * 60 * 1000 // 1 hour ago
+        lastActiveAt: mockNow - 60 * 60 * 1000, // 1 hour ago
+        events: [
+          { id: 'raw-ev-idle-1', type: 'status_change', timestamp: mockNow - 3600000, status: 'idle', agentId: 'unknown' }
+        ]
       },
       {
         id: 'mock-term-forbidden',
@@ -300,7 +337,8 @@ function containsSensitiveAuditData(value) {
         proc: 'codex',
         busy: true,
         tail: 'ls -la',
-        lastActiveAt: Date.now()
+        lastActiveAt: mockNow,
+        events: []
       }
     ];
   });
@@ -413,6 +451,139 @@ function containsSensitiveAuditData(value) {
       !/sk-|Bearer|mysecrettoken|resumeToken|sessionToken/i.test(JSON.stringify(agentTimeline))
         && !/(?:^|[^a-z])pty(?:$|[^a-z])/i.test(JSON.stringify(agentTimeline)),
       'secrets in timeline: ' + JSON.stringify(agentTimeline).substring(0, 1000));
+
+    // B2B: ring-buffered timeline event tests
+    section('5b) B2B: Desktop agent timeline event buffer');
+    ok('timeline meta exists with correct shape',
+      agentTimeline.meta && typeof agentTimeline.meta === 'object',
+      'meta missing: ' + JSON.stringify(agentTimeline.meta));
+    ok('timeline meta.timelineSource is desktop-terminal-ring-buffer',
+      agentTimeline.meta && agentTimeline.meta.timelineSource === 'desktop-terminal-ring-buffer',
+      'source=' + (agentTimeline.meta && agentTimeline.meta.timelineSource));
+    ok('timeline meta.limit is number',
+      typeof (agentTimeline.meta && agentTimeline.meta.limit) === 'number');
+    ok('timeline meta.hasMore is boolean',
+      typeof (agentTimeline.meta && agentTimeline.meta.hasMore) === 'boolean');
+    ok('eventCount matches events length',
+      agentTimeline.eventCount === agentTimeline.events.length,
+      'eventCount=' + agentTimeline.eventCount + ' vs events.length=' + agentTimeline.events.length);
+
+    // Events are sorted ascending by timestamp
+    const timestamps = agentTimeline.events.map((e) => e.timestamp);
+    let ascending = true;
+    for (let i = 1; i < timestamps.length; i++) {
+      if (timestamps[i] < timestamps[i-1]) { ascending = false; break; }
+    }
+    ok('events sorted ascending by timestamp', ascending, 'timestamps=' + JSON.stringify(timestamps));
+
+    // Each event has required fields
+    let allEventsValid = true;
+    let eventFieldErrors = [];
+    for (const ev of agentTimeline.events) {
+      const required = ['id', 'type', 'timestamp', 'agentId', 'desktopAgentId', 'source'];
+      for (const f of required) {
+        if (!(f in ev) || ev[f] === undefined || ev[f] === null) {
+          allEventsValid = false;
+          eventFieldErrors.push('missing ' + f + ' in event type=' + ev.type);
+        }
+      }
+      if (ev.source !== 'desktop-terminal') {
+        allEventsValid = false;
+        eventFieldErrors.push('source not desktop-terminal: ' + ev.source);
+      }
+    }
+    ok('all events have required fields (id,type,timestamp,agentId,desktopAgentId,source)',
+      allEventsValid, eventFieldErrors.join('; '));
+
+    // output_tail events: no ANSI, no secrets, text <= 500
+    const outputEvents = agentTimeline.events.filter((e) => e.type === 'output_tail');
+    ok('output_tail events exist in timeline', outputEvents.length >= 1,
+      'output_tail count=' + outputEvents.length);
+    for (const ev of outputEvents) {
+      ok('output_tail event text has no ANSI escape',
+        !/\x1b/.test(ev.text || ''), 'ANSI in output_tail text');
+      ok('output_tail event text has no CR',
+        !(ev.text || '').includes('\r'), 'CR in output_tail text');
+      ok('output_tail event text no sk- secret',
+        !(ev.text || '').includes('sk-abc123def'), 'sk- leaked in event');
+      ok('output_tail event text no Bearer secret',
+        !(ev.text || '').includes('tok1234567890abcdefghij'), 'Bearer leaked in event');
+      ok('output_tail event text no token= secret',
+        !(ev.text || '').includes('mysecrettoken12345'), 'token= leaked in event');
+      ok('output_tail event text no password= secret',
+        !(ev.text || '').includes('hunter2'), 'password= leaked in event');
+      ok('output_tail event text length <= 500',
+        (ev.text || '').length <= 500, 'text length=' + (ev.text || '').length);
+      ok('output_tail event desktopAgentId matches agent id',
+        ev.desktopAgentId === timelineTestAgent.id, 'desktopAgentId mismatch');
+    }
+
+    // Events do not contain forbidden fields
+    const timelineJson = JSON.stringify(agentTimeline);
+    const forbiddenFields = ['rawPty', 'rawStdout', 'resumeToken', 'tokenHash', 'raw_input', 'raw_pty', 'raw_env', 'raw_resume_token', 'pid', 'rawId'];
+    for (const ff of forbiddenFields) {
+      ok('timeline does not contain forbidden field: ' + ff,
+        !new RegExp('"' + ff + '"').test(timelineJson),
+        'forbidden field ' + ff + ' found');
+    }
+
+    // status_snapshot event is always present (most recent)
+    const snapshotEvents = agentTimeline.events.filter((e) => e.type === 'status_snapshot');
+    ok('status_snapshot event present', snapshotEvents.length >= 1, 'snapshot count=' + snapshotEvents.length);
+
+    // status_change event present
+    const statusChangeEvents = agentTimeline.events.filter((e) => e.type === 'status_change');
+    ok('status_change event present', statusChangeEvents.length >= 1, 'status_change count=' + statusChangeEvents.length);
+  }
+
+  // Test limit parameter
+  if (timelineTestAgent) {
+    const tlLimit3 = asJson(await request({
+      path: '/api/mobile/desktop-agents/' + encodeURIComponent(timelineTestAgent.id) + '/timeline?limit=3',
+      method: 'GET',
+      headers: auth
+    }));
+    ok('timeline limit=3 respects limit',
+      tlLimit3.ok && Array.isArray(tlLimit3.events) && tlLimit3.events.length <= 3,
+      'events.length=' + (tlLimit3.events && tlLimit3.events.length));
+
+    const tlLimitHuge = asJson(await request({
+      path: '/api/mobile/desktop-agents/' + encodeURIComponent(timelineTestAgent.id) + '/timeline?limit=99999',
+      method: 'GET',
+      headers: auth
+    }));
+    ok('timeline limit capped at 100',
+      tlLimitHuge.ok && Array.isArray(tlLimitHuge.events) && tlLimitHuge.events.length <= 100,
+      'events.length=' + (tlLimitHuge.events && tlLimitHuge.events.length));
+    ok('timeline meta.limit capped at 100',
+      tlLimitHuge.meta && tlLimitHuge.meta.limit <= 100,
+      'meta.limit=' + (tlLimitHuge.meta && tlLimitHuge.meta.limit));
+  }
+
+  // Test since parameter
+  if (timelineTestAgent) {
+    // Get all events first
+    const tlAll = asJson(await request({
+      path: '/api/mobile/desktop-agents/' + encodeURIComponent(timelineTestAgent.id) + '/timeline?limit=100',
+      method: 'GET',
+      headers: auth
+    }));
+    if (tlAll.ok && Array.isArray(tlAll.events) && tlAll.events.length >= 2) {
+      const midTs = tlAll.events[Math.floor(tlAll.events.length / 2)].timestamp;
+      const tlSince = asJson(await request({
+        path: '/api/mobile/desktop-agents/' + encodeURIComponent(timelineTestAgent.id) + '/timeline?since=' + midTs + '&limit=100',
+        method: 'GET',
+        headers: auth
+      }));
+      ok('timeline since parameter works',
+        tlSince.ok && Array.isArray(tlSince.events),
+        JSON.stringify(tlSince).substring(0, 200));
+      if (tlSince.ok && Array.isArray(tlSince.events)) {
+        const allNewer = tlSince.events.every((e) => e.timestamp >= midTs);
+        ok('timeline since returns only newer events', allNewer,
+          'old event found: ' + JSON.stringify(tlSince.events.find((e) => e.timestamp < midTs)));
+      }
+    }
   }
 
   // Test 404 for non-existent desktop agent
@@ -440,7 +611,241 @@ function containsSensitiveAuditData(value) {
     noAuthDash.ok === false && isStableError(noAuthDash, 'unauthorized'),
     JSON.stringify(noAuthDash));
 
-  // Reset provider to null
+  // ===== B2C: Safe follow-up input =====
+  section('5c) B2C: Safe mobile follow-up input for desktop agents');
+
+  // Install a mock write provider that records calls and pushes input_sent events to ring buffer
+  let writeCalls = [];
+  let writeProviderAvailable = true;
+  const mockWriteProvider = {
+    async sendInput(desktopAgentId, text, opts) {
+      const call = { desktopAgentId, text, opts: opts || {}, at: Date.now() };
+      writeCalls.push(call);
+      // Push input_sent into the read-side events so timeline projection picks it up
+      mockRawEvents.push({
+        id: 'raw-ev-input-' + mockRawEvents.length,
+        type: 'input_sent',
+        timestamp: Date.now(),
+        title: 'Mobile follow-up',
+        text: 'Mobile follow-up sent',
+        status: 'running',
+        agentId: 'claude',
+        meta: { inputLength: text.length }
+      });
+      return { ok: true };
+    }
+  };
+  ok('setDesktopTerminalWriteProvider exists', typeof mobile.setDesktopTerminalWriteProvider === 'function');
+  mobile.setDesktopTerminalWriteProvider(mockWriteProvider);
+
+  // Provision a second device with desktop_control scope by adding a token record directly
+  const crypto = require('crypto');
+  function sha256Hex(s) { return crypto.createHash('sha256').update(s).digest('hex'); }
+  const writeToken = mobile.genToken();
+  const writeDeviceId = mobile.genDeviceId();
+  await mobile.addTokenRecord({
+    id: writeDeviceId,
+    tokenHash: sha256Hex(writeToken),
+    deviceName: 'Write Phone',
+    pairedAt: Date.now(),
+    lastSeenAt: Date.now(),
+    scopes: ['read:status', 'read:files', 'desktop_control'],
+    revoked: false,
+  });
+  const writeAuth = { Authorization: 'Bearer ' + writeToken, 'Content-Type': 'application/json' };
+
+  function postInput(agentId, body, hdrs) {
+    return request({
+      path: '/api/mobile/desktop-agents/' + encodeURIComponent(agentId) + '/input',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(hdrs || {}) },
+    }, JSON.stringify(body || {}));
+  }
+
+  const writeAgentId = claudeAgent ? claudeAgent.id : (agents[0] && agents[0].id);
+  ok('write target agent resolved', typeof writeAgentId === 'string' && writeAgentId.length > 0, 'writeAgentId=' + writeAgentId);
+
+  // 1. No token → 401 unauthorized
+  const noAuthInput = asJson(await postInput(writeAgentId, { text: 'hello' }, {}));
+  ok('POST input without auth returns 401 unauthorized',
+    isStableError(noAuthInput, 'unauthorized'), JSON.stringify(noAuthInput));
+
+  // 2. Read-only token → desktop_control_scope_required
+  const noScopeInput = asJson(await postInput(writeAgentId, { text: 'hello' }, auth));
+  ok('POST input without desktop_control scope returns desktop_control_scope_required',
+    isStableError(noScopeInput, 'desktop_control_scope_required'), JSON.stringify(noScopeInput));
+
+  // 3. Provider null → write_provider_unavailable
+  mobile.setDesktopTerminalWriteProvider(null);
+  const noProviderInput = asJson(await postInput(writeAgentId, { text: 'hello' }, writeAuth));
+  ok('POST input without write provider returns write_provider_unavailable',
+    isStableError(noProviderInput, 'write_provider_unavailable'), JSON.stringify(noProviderInput));
+  // restore
+  mobile.setDesktopTerminalWriteProvider(mockWriteProvider);
+
+  // 4. Unknown agent id → desktop_agent_not_found
+  const badAgentInput = asJson(await postInput('term-nonexistent-xxxxxxxxxxxx', { text: 'hello' }, writeAuth));
+  ok('POST input for unknown agent returns desktop_agent_not_found',
+    isStableError(badAgentInput, 'desktop_agent_not_found'), JSON.stringify(badAgentInput));
+
+  // 5. Empty text → input_empty
+  const emptyInput1 = asJson(await postInput(writeAgentId, { text: '' }, writeAuth));
+  ok('POST input with empty text returns input_empty',
+    isStableError(emptyInput1, 'input_empty'), JSON.stringify(emptyInput1));
+  const emptyInput2 = asJson(await postInput(writeAgentId, { text: '   ' }, writeAuth));
+  ok('POST input with whitespace-only text returns input_empty',
+    isStableError(emptyInput2, 'input_empty'), JSON.stringify(emptyInput2));
+  const emptyInput3 = asJson(await postInput(writeAgentId, {}, writeAuth));
+  ok('POST input with missing text returns input_empty',
+    isStableError(emptyInput3, 'input_empty'), JSON.stringify(emptyInput3));
+
+  // 6. Too long → input_too_long
+  const longText = 'a'.repeat(4097);
+  const longInput = asJson(await postInput(writeAgentId, { text: longText }, writeAuth));
+  ok('POST input with text.length > 4096 returns input_too_long',
+    isStableError(longInput, 'input_too_long'), JSON.stringify(longInput));
+
+  // 7. ANSI escape → input_rejected_control_chars
+  const ansiInput = asJson(await postInput(writeAgentId, { text: '\x1b[32mhello\x1b[0m' }, writeAuth));
+  ok('POST input with ANSI escape returns input_rejected_control_chars',
+    isStableError(ansiInput, 'input_rejected_control_chars'), JSON.stringify(ansiInput));
+
+  // 7b. NUL → input_rejected_control_chars
+  const nulInput = asJson(await postInput(writeAgentId, { text: 'abc\x00def' }, writeAuth));
+  ok('POST input with NUL returns input_rejected_control_chars',
+    isStableError(nulInput, 'input_rejected_control_chars'), JSON.stringify(nulInput));
+
+  // Reset write calls before valid test
+  writeCalls = [];
+  const secretPayload = 'continue with refactoring the auth module';
+
+  // 8. Valid input accepted
+  const okInput = asJson(await postInput(writeAgentId, { text: secretPayload, appendNewline: true }, writeAuth));
+  ok('POST valid input returns ok:true', okInput.ok === true, JSON.stringify(okInput));
+  ok('POST valid input has accepted:true', okInput.accepted === true, JSON.stringify(okInput));
+  ok('POST valid input echoes desktopAgentId in id field', okInput.id === writeAgentId, 'id=' + okInput.id);
+  ok('POST valid input meta.inputLength is character count',
+    okInput.meta && typeof okInput.meta.inputLength === 'number' && okInput.meta.inputLength === secretPayload.length,
+    'meta=' + JSON.stringify(okInput.meta));
+  ok('POST valid input meta.appendNewline is true',
+    okInput.meta && okInput.meta.appendNewline === true);
+  ok('POST valid input meta.auditWritten is true',
+    okInput.meta && okInput.meta.auditWritten === true);
+  ok('POST valid input write provider was called once', writeCalls.length === 1, 'calls=' + writeCalls.length);
+  if (writeCalls.length >= 1) {
+    ok('write provider received correct desktopAgentId', writeCalls[0].desktopAgentId === writeAgentId);
+    ok('write provider received correct text', writeCalls[0].text === secretPayload, 'got=' + JSON.stringify(writeCalls[0].text));
+    ok('write provider received appendNewline=true', writeCalls[0].opts && writeCalls[0].opts.appendNewline === true);
+  }
+
+  // 9. Response does NOT contain input text
+  const okInputJson = JSON.stringify(okInput);
+  ok('success response does not echo input text',
+    !okInputJson.includes(secretPayload), 'response leaked: ' + okInputJson.substring(0, 400));
+
+  // 10. Leak checks: no raw id / pid / tokenHash / resumeToken
+  ok('success response does not contain raw terminal id mock-term-1',
+    !okInputJson.includes('mock-term-1'));
+  ok('success response does not contain pid field', !/"pid"\s*:/.test(okInputJson));
+  ok('success response does not contain tokenHash', !/tokenHash/i.test(okInputJson));
+  ok('success response does not contain resumeToken', !/resumeToken/i.test(okInputJson));
+
+  // 11. Audit does not contain input text
+  const auditRes = asJson(await request({ path: '/api/mobile/audit', method: 'GET', headers: writeAuth }));
+  const auditJson = JSON.stringify(auditRes);
+  ok('audit response does not contain raw input text',
+    !auditJson.includes(secretPayload), 'audit leaked input: ' + auditJson.substring(0, 600));
+  ok('audit contains desktop_agent.input.accepted entry',
+    /desktop_agent\.input\.accepted/.test(auditJson));
+
+  // 12. Timeline includes input_sent event with fixed text
+  const timelineAfter = asJson(await request({
+    path: '/api/mobile/desktop-agents/' + encodeURIComponent(writeAgentId) + '/timeline?limit=50',
+    method: 'GET',
+    headers: writeAuth,
+  }));
+  ok('timeline after input has events array', Array.isArray(timelineAfter.events), JSON.stringify(timelineAfter).substring(0, 300));
+  const inputSentEvents = (timelineAfter.events || []).filter((e) => e && e.type === 'input_sent');
+  ok('timeline contains at least one input_sent event', inputSentEvents.length >= 1, 'events=' + (timelineAfter.events || []).map((e) => e && e.type).join(','));
+  if (inputSentEvents.length >= 1) {
+    const ev = inputSentEvents[0];
+    ok('input_sent event text is fixed literal (no echo)',
+      ev.text === 'Mobile follow-up sent',
+      'text=' + JSON.stringify(ev.text));
+    ok('input_sent event has meta.inputLength',
+      ev.meta && typeof ev.meta.inputLength === 'number' && ev.meta.inputLength === secretPayload.length,
+      'meta=' + JSON.stringify(ev.meta));
+    ok('input_sent event does NOT include deviceId in meta',
+      !ev.meta || !ev.meta.deviceId,
+      'meta=' + JSON.stringify(ev.meta));
+    const evJson = JSON.stringify(ev);
+    ok('input_sent event does not echo raw input text',
+      !evJson.includes(secretPayload), 'event leaked: ' + evJson);
+  }
+
+  // 13. canSendFollowup is true for scoped device when provider is available
+  const dashWrite = asJson(await request({ path: '/api/mobile/dashboard', method: 'GET', headers: writeAuth }));
+  ok('dashboard with write scope has desktopContinuableAgents', Array.isArray(dashWrite.desktopContinuableAgents));
+  const writeScopedAgent = (dashWrite.desktopContinuableAgents || []).find((a) => a.id === writeAgentId);
+  ok('agent with canOpen shows canSendFollowup=true for write-scoped device',
+    writeScopedAgent && writeScopedAgent.canSendFollowup === true,
+    'agent=' + JSON.stringify(writeScopedAgent && writeScopedAgent.canSendFollowup));
+
+  // Read-only device must see canSendFollowup=false regardless of provider
+  const dashRead = asJson(await request({ path: '/api/mobile/dashboard', method: 'GET', headers: auth }));
+  const readScopedAgent = (dashRead.desktopContinuableAgents || []).find((a) => a.id === writeAgentId);
+  ok('agent shows canSendFollowup=false for read-only device',
+    readScopedAgent && readScopedAgent.canSendFollowup === false,
+    'agent=' + JSON.stringify(readScopedAgent && readScopedAgent.canSendFollowup));
+
+  // Provider null → canSendFollowup=false even for write-scoped device
+  mobile.setDesktopTerminalWriteProvider(null);
+  const dashNoProv = asJson(await request({ path: '/api/mobile/dashboard', method: 'GET', headers: writeAuth }));
+  const noProvAgent = (dashNoProv.desktopContinuableAgents || []).find((a) => a.id === writeAgentId);
+  ok('agent shows canSendFollowup=false when write provider is null',
+    noProvAgent && noProvAgent.canSendFollowup === false,
+    'agent=' + JSON.stringify(noProvAgent && noProvAgent.canSendFollowup));
+  mobile.setDesktopTerminalWriteProvider(mockWriteProvider);
+
+  // 14. Rate limit: second immediate call returns rate_limited
+  // Wait for previous rate-limit window to clear
+  await new Promise((r) => setTimeout(r, 1100));
+  writeCalls = [];
+  const rateOk = asJson(await postInput(writeAgentId, { text: 'first message' }, writeAuth));
+  ok('first post-rate-limit input accepted', rateOk.ok === true, JSON.stringify(rateOk));
+  const rateLimited = asJson(await postInput(writeAgentId, { text: 'second too fast' }, writeAuth));
+  ok('second input within 1s returns rate_limited',
+    isStableError(rateLimited, 'rate_limited'), JSON.stringify(rateLimited));
+  ok('rate_limited did NOT call write provider', writeCalls.length === 1, 'calls=' + writeCalls.length);
+
+  // audit contains rate_limited entry
+  const auditAfter = asJson(await request({ path: '/api/mobile/audit', method: 'GET', headers: writeAuth }));
+  const auditAfterJson = JSON.stringify(auditAfter);
+  ok('audit contains desktop_agent.input.rate_limited entry',
+    /desktop_agent\.input\.rate_limited/.test(auditAfterJson));
+  ok('audit does not contain rate-limited input text "second too fast"',
+    !auditAfterJson.includes('second too fast'));
+
+  // Wait for rate limit to clear, test with appendNewline=false
+  await new Promise((r) => setTimeout(r, 1100));
+  writeCalls = [];
+  const noNewline = asJson(await postInput(writeAgentId, { text: 'no newline', appendNewline: false }, writeAuth));
+  ok('input with appendNewline:false accepted', noNewline.ok === true, JSON.stringify(noNewline));
+  if (writeCalls.length >= 1) {
+    ok('write provider received appendNewline=false', writeCalls[0].opts && writeCalls[0].opts.appendNewline === false);
+  }
+
+  // 15. Devices endpoint does not expose token / tokenHash
+  const devicesRes = asJson(await request({ path: '/api/mobile/devices', method: 'GET', headers: writeAuth }));
+  const devicesResJson = JSON.stringify(devicesRes);
+  ok('devices response does not expose token or tokenHash',
+    !/tokenHash|"token"\s*:/.test(devicesResJson), 'devices=' + devicesResJson.substring(0, 500));
+  ok('devices lists scopes array per device',
+    Array.isArray(devicesRes.items) && devicesRes.items.every((d) => Array.isArray(d.scopes)),
+    'devices[0].scopes=' + JSON.stringify(devicesRes.items && devicesRes.items[0] && devicesRes.items[0].scopes));
+
+  // Reset BOTH providers to null
+  mobile.setDesktopTerminalWriteProvider(null);
   mobile.setDesktopTerminalProvider(null);
   const dash3 = asJson(await request({ path: '/api/mobile/dashboard', method: 'GET', headers: auth }));
   ok('dashboard with null provider has empty array',
