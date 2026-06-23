@@ -3762,7 +3762,7 @@ const term = {
       } catch { /* 回退默认 DOM renderer */ }
     }
     if (fit) try { fit.fit(); } catch { /* */ }
-    const sess = { id, xterm, fit, host, dead: false, status: 'idle', unread: false, startDir, title: baseOf(startDir || '') || 'shell', agent: '', inputBuffer: '', firstUserMessage: '', chatTitle: '' };
+    const sess = { id, xterm, fit, host, dead: false, status: 'idle', unread: false, startDir, title: baseOf(startDir || '') || 'shell', agent: '', inputBuffer: '', outputBuffer: '', firstUserMessage: '', chatTitle: '' };
     this.sessions.push(sess);
     this.activate(id);
     updateWatches(); // 新终端的项目目录也纳入监听
@@ -4109,6 +4109,42 @@ const term = {
         s.inputBuffer = s.inputBuffer.slice(0, -1);
       } else if (code >= 32 && code !== 127) {
         s.inputBuffer += ch;
+      }
+    }
+  },
+  // 从终端输出回显中提取用户第一句提问（Claude Code/Codex 的 TUI 会回显用户输入）
+  captureOutputForTitle(s, data) {
+    if (!s || s.firstUserMessage) return;
+    if (!s.outputBuffer) s.outputBuffer = '';
+    s.outputBuffer += data;
+    // 只保留最近 2048 字符，避免内存泄漏
+    if (s.outputBuffer.length > 2048) s.outputBuffer = s.outputBuffer.slice(-1024);
+    // 去掉 ANSI escape 序列
+    const plain = s.outputBuffer.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').replace(/\x1b\].*?\x07/g, '').replace(/\x1b\[[\?]?[0-9;]*[hl]/g, '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+    // Claude Code 回显用户输入的模式：> 用户输入文本 或 ╭─ ... 后面跟用户输入
+    // Codex 回显模式：> 用户输入文本
+    // 通用模式：以 > 开头的行，后面跟着非空文本（至少 4 个字符，排除短命令）
+    const lines = plain.split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // 跳过空行、太短的行、纯符号行
+      if (!trimmed || trimmed.length < 4) continue;
+      // 匹配 Claude Code / Codex 的用户输入回显：> 后面跟文本
+      const promptMatch = trimmed.match(/^>\s+(.+)$/);
+      if (promptMatch) {
+        const userText = promptMatch[1].trim();
+        if (userText.length < 2) continue;
+        // 忽略 agent 启动命令
+        const low = userText.toLowerCase();
+        if (/^\s*(?:(?:headroom|npx|npm|pnpm|yarn)\s+(?:wrap|exec|run)\s+)?(claude|codex|qoder|opencode)(?:\.exe)?(?:\s+.*)?$/i.test(low)) continue;
+        // 忽略纯命令（cd, ls, pwd 等）
+        if (/^(cd|ls|pwd|dir|cat|echo|clear|exit|help|quit)\b/i.test(low)) continue;
+        s.firstUserMessage = userText;
+        s.chatTitle = titleFromFirstUserMessage(userText);
+        this.updateSessionSwitcher();
+        const menu = $('#terminal-session-menu');
+        if (menu && !menu.classList.contains('hidden')) this.renderSessionMenu();
+        return;
       }
     }
   },
@@ -5727,7 +5763,7 @@ function igniteCard(top, count) {
 
 // pty 数据回流（全局一次）
 if (window.fanboxPty) {
-  window.fanboxPty.onData(({ id, data }) => { const s = term.sessions.find((x) => x.id === id); if (s) { s.xterm.write(data); term.markBusy(s); } });
+  window.fanboxPty.onData(({ id, data }) => { const s = term.sessions.find((x) => x.id === id); if (s) { s.xterm.write(data); term.markBusy(s); term.captureOutputForTitle(s, data); } });
   window.fanboxPty.onExit(({ id }) => {
     const s = term.sessions.find((x) => x.id === id);
     if (s) {
