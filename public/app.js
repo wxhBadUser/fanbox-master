@@ -6,7 +6,7 @@ const api = (p) => fetch(p).then((r) => r.json());
 const apiPost = (p, body) => fetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
 
 const TERMINAL_TYPOGRAPHY = Object.freeze({
-  fontFamily: '"JetBrains Mono", "Cascadia Mono", "Cascadia Code", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace',
+  fontFamily: '"JetBrains Mono", "Cascadia Mono", "Cascadia Code", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", "Sarasa Mono SC", "Maple Mono NF CN", "Noto Sans Mono CJK SC", "Source Han Mono SC", "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", monospace',
   fontSize: 13,
   lineHeight: 1.32,
   letterSpacing: 0,
