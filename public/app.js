@@ -3258,9 +3258,9 @@ const term = {
       brightBlack: '#57534a', brightRed: '#e8302a', brightGreen: '#00a33e', brightYellow: '#a67c00', brightBlue: '#2222dd', brightMagenta: '#b03aa0', brightCyan: '#008a9a', brightWhite: '#0a0a0a',
     },
     soft: {
-      background: '#0d0f0c', foreground: '#e7e3dc', cursor: '#c67a4c', cursorAccent: '#0d0f0c', selectionBackground: '#c67a4c36',
-      black: '#1b1d18', red: '#e07a5f', green: '#7fc29a', yellow: '#d8b65b', blue: '#8fb8d8', magenta: '#d69ac5', cyan: '#86c9bd', white: '#e7e3dc',
-      brightBlack: '#686963', brightRed: '#ef9278', brightGreen: '#9ad8af', brightYellow: '#eccd78', brightBlue: '#a9cce6', brightMagenta: '#e7b0d5', brightCyan: '#a1ded2', brightWhite: '#fbfaf8',
+      background: '#fbf4ea', foreground: '#33251f', cursor: '#c86f43', cursorAccent: '#fffaf4', selectionBackground: '#dc845238',
+      black: '#33251f', red: '#b95043', green: '#43895a', yellow: '#b7791f', blue: '#4f6f9f', magenta: '#8a5a96', cyan: '#4f8a8b', white: '#f7efe4',
+      brightBlack: '#8b766b', brightRed: '#c75c4f', brightGreen: '#4f9d69', brightYellow: '#c88a2a', brightBlue: '#607fb2', brightMagenta: '#9b6aaa', brightCyan: '#5aa0a2', brightWhite: '#fffaf4',
     },
   },
   theme() { return this.themes[state.theme] || this.themes.terminal; },
