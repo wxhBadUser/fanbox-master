@@ -5,6 +5,25 @@ const $ = (s) => document.querySelector(s);
 const api = (p) => fetch(p).then((r) => r.json());
 const apiPost = (p, body) => fetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
 
+const TERMINAL_TYPOGRAPHY = Object.freeze({
+  fontFamily: '"JetBrains Mono", "Cascadia Mono", "Cascadia Code", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace',
+  fontSize: 13,
+  lineHeight: 1.32,
+  letterSpacing: 0,
+  fontWeight: 400,
+  fontWeightBold: 600,
+});
+
+function applyTerminalTypography(xterm) {
+  if (!xterm) return;
+  Object.entries(TERMINAL_TYPOGRAPHY).forEach(([key, value]) => {
+    try {
+      if (typeof xterm.setOption === 'function') xterm.setOption(key, value);
+      else xterm.options[key] = value;
+    } catch { /* xterm disposed or option unavailable */ }
+  });
+}
+
 // ---------- SVG 图标系统（替代 emoji，统一矢量审美） ----------
 const SVG = {
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
@@ -3122,8 +3141,8 @@ const player = {
   buildTerm(cols, rows) {
     this.teardownTerm();
     const x = new window.Terminal({
-      fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--font-term').trim() || 'monospace',
-      fontSize: 14, lineHeight: 1.2, cursorBlink: false, theme: (term.themes[this.recTheme] || term.theme()), scrollback: 0,
+      ...TERMINAL_TYPOGRAPHY,
+      cursorBlink: false, theme: (term.themes[this.recTheme] || term.theme()), scrollback: 0,
       allowProposedApi: true, minimumContrastRatio: 4.5, cols, rows,
     });
     if (!window.__noUnicode11 && window.Unicode11Addon) {
@@ -3747,8 +3766,8 @@ const term = {
     host.classList.add('show'); // 先可见再 open/fit：display:none 下 fit 量不出尺寸，PTY 会以 80 列出生
     const FitCtor = window.FitAddon ? (window.FitAddon.FitAddon || window.FitAddon) : null;
     const xterm = new window.Terminal({
-      fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--font-term').trim() || 'monospace',
-      fontSize: 13, lineHeight: 1.2, cursorBlink: true, theme: this.theme(), scrollback: 5000,
+      ...TERMINAL_TYPOGRAPHY,
+      cursorBlink: true, theme: this.theme(), scrollback: 5000,
       allowProposedApi: true, // unicode11 宽度 API 需要
       // claude/codex 等 TUI 会开启鼠标上报，鼠标拖拽被程序吃掉 → 默认无法选中文字。
       // 开这个开关后按住 Option 拖拽即可强制选中复制（iTerm/VS Code 终端同款约定）
@@ -4486,7 +4505,14 @@ const term = {
     const menu = $('#terminal-session-menu');
     if (menu && !menu.classList.contains('hidden')) this.renderSessionMenu();
   },
-  retheme() { const th = this.theme(); this.sessions.forEach((s) => { s.xterm.options.theme = th; }); },
+  retheme() {
+    const th = this.theme();
+    this.sessions.forEach((s) => {
+      s.xterm.options.theme = th;
+      applyTerminalTypography(s.xterm);
+      if (s.fit) requestAnimationFrame(() => { try { s.fit.fit(); } catch { /* */ } });
+    });
+  },
 };
 
 // ---------- Agent 用量面板（侧栏常驻，可开合）----------
