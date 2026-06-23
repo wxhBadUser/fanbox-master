@@ -363,19 +363,46 @@ function titleFromFirstUserMessage(text) {
   const fileMatch = t.match(/([A-Za-z0-9_\-\.\/]+\.(?:md|markdown|js|ts|jsx|tsx|vue|html|css|scss|json|py|java|go|rs|rb|php|cs|cpp|c|h|sh|ps1|txt|yml|yaml|xml|sql))/i);
   const fileName = fileMatch ? fileMatch[1] : '';
 
+  const cnStopWords = /^(我|你|他|她|它|这|那|的|了|吗|呢|吧|啊|哦|嗯|是|在|有|和|与|及|或|但|而|都|就|也|要|会|能|可|请|把|被|让|给|对|从|到|向|为|因|于|即|若|虽|仍|亦|又|还|只|才|刚|正|已|曾|将)$/u;
+  const enStopWords = new Set(['i','we','you','he','she','it','they','me','us','him','her','them','my','your','his','her','its','our','their','a','an','the','this','that','these','those','is','am','are','was','were','be','been','being','have','has','had','do','does','did','will','would','could','should','may','might','must','can','shall','to','of','in','on','at','by','for','with','about','from','up','down','out','off','over','under','again','further','then','once','here','there','when','where','why','how','all','any','both','each','few','more','most','other','some','such','no','nor','not','only','own','same','so','than','too','very','just','and','but','if','or','because','as','until','while','yet']);
+
+  function isValidTitle(title) {
+    if (!title || !title.trim()) return false;
+    if (isChinese) {
+      if (title.length <= 1) return false;
+      return !cnStopWords.test(title);
+    }
+    const words = title.split(/\s+/).filter(Boolean);
+    if (!words.length) return false;
+    if (title.length <= 2) return false;
+    if (words.length === 1 && enStopWords.has(words[0].toLowerCase())) return false;
+    return true;
+  }
+
+  function fallbackRaw() {
+    if (isChinese) {
+      return raw.length > 18 ? raw.slice(0, 18).replace(/\s+$/, '') + '…' : raw;
+    }
+    const words = raw.split(/\s+/).filter(Boolean);
+    if (words.length <= 6) return raw;
+    return words.slice(0, 6).join(' ') + '…';
+  }
+
   if (isChinese) {
     // 高优先级的具体组合
     const hasClaudeMd = /CLAUDE\.md/i.test(t);
-    if (hasClaudeMd && /(初始化|创建|生成|写|新建)/.test(t)) return '初始化 CLAUDE.md';
-    if (/(分析|了解|理解|查看|梳理|探索|调查)/.test(t) && /(项目|代码库|架构|结构)/.test(t)) return '项目结构分析';
-    if (/(优化|改进|提升|性能|加速)/.test(t)) {
-      if (fileName) {
-        const title = '优化 ' + fileName;
-        return title.length > 18 ? title.slice(0, 18).replace(/\s+$/, '') + '…' : title;
-      }
-      return '优化代码';
+    if (hasClaudeMd && /(初始化|创建|生成|写|新建)/.test(t)) {
+      const title = '初始化 CLAUDE.md';
+      if (isValidTitle(title)) return title;
     }
-    if (/(Git|分支|提交|commit|review)/i.test(t)) return 'Git 工作流优化';
+    if (/(分析|了解|理解|查看|梳理|探索|调查)/.test(t) && /(项目|代码库|架构|结构)/.test(t)) {
+      const title = '项目结构分析';
+      if (isValidTitle(title)) return title;
+    }
+    if (/(Git|分支|提交|commit|review)/i.test(t)) {
+      const title = 'Git 工作流优化';
+      if (isValidTitle(title)) return title;
+    }
 
     const actionMapCN = [
       { re: /^(根据当前项目)?(初始化|创建|生成|写一个标准的最佳|新建)/, out: '初始化' },
@@ -397,28 +424,31 @@ function titleFromFirstUserMessage(text) {
     else if (objectCN) title = (title ? title + ' ' : '') + objectCN;
     else if (!title) title = t.slice(0, 18);
     if (title.length > 18) title = title.slice(0, 18).replace(/\s+$/, '') + '…';
-    return title || raw.slice(0, 18);
+    if (isValidTitle(title)) return title;
+    return fallbackRaw();
   }
 
   // 英文：高优先级的具体组合
   const hasClaudeMd = /CLAUDE\.md/i.test(t);
-  if (hasClaudeMd && /(create|initialize|init|generate|write|build|setup|set up)/i.test(t)) return 'Create CLAUDE.md';
-  if (/(analyze|analyse|understand|explore|investigate|examine|study)/i.test(t) && /(codebase|project|structure|architecture)/i.test(t)) return 'Analyze codebase';
-  if (/(fix|resolve|solve|repair|debug|handle|address)/i.test(t)) {
-    if (/(diff|path|error)/i.test(t)) return 'Fix diff path';
-    if (fileName) {
-      const title = 'Fix ' + fileName;
-      return title.length > 48 ? title.slice(0, 48).replace(/\s+$/, '') + '…' : title;
-    }
-    return 'Fix issue';
+  if (hasClaudeMd && /(create|initialize|init|generate|write|build|setup|set up)/i.test(t)) {
+    const title = 'Create CLAUDE.md';
+    if (isValidTitle(title)) return title;
   }
-  if (/(add|implement|introduce|integrate|support)/i.test(t) && /(git|review)/i.test(t)) return 'Add Git review';
+  if (/(analyze|analyse|understand|explore|investigate|examine|study)/i.test(t) && /(codebase|project|structure|architecture)/i.test(t)) {
+    const title = 'Analyze codebase';
+    if (isValidTitle(title)) return title;
+  }
+  if (/(fix|resolve|solve|repair|debug|handle|address)/i.test(t)) {
+    const title = fileName ? 'Fix ' + fileName : (/(diff|path|error)/i.test(t) ? 'Fix diff path' : 'Fix issue');
+    if (isValidTitle(title)) return title.length > 48 ? title.slice(0, 48).replace(/\s+$/, '') + '…' : title;
+  }
+  if (/(add|implement|introduce|integrate|support)/i.test(t) && /(git|review)/i.test(t)) {
+    const title = 'Add Git review';
+    if (isValidTitle(title)) return title;
+  }
   if (/(optimize|improve|enhance|boost|performance)/i.test(t)) {
-    if (fileName) {
-      const title = 'Optimize ' + fileName;
-      return title.length > 48 ? title.slice(0, 48).replace(/\s+$/, '') + '…' : title;
-    }
-    return 'Optimize performance';
+    const title = fileName ? 'Optimize ' + fileName : 'Optimize performance';
+    if (isValidTitle(title)) return title.length > 48 ? title.slice(0, 48).replace(/\s+$/, '') + '…' : title;
   }
 
   // 英文 fallback：动词 + 宾语
@@ -436,26 +466,23 @@ function titleFromFirstUserMessage(text) {
     const match = t.match(m.re);
     if (match) { actionEN = m.out; restEN = t.slice(match.index + match[0].length).trim(); break; }
   }
-  if (!actionEN) {
-    const firstWord = t.match(/^([A-Za-z]+)/);
-    actionEN = firstWord ? (firstWord[1][0].toUpperCase() + firstWord[1].slice(1).toLowerCase()) : '';
-    restEN = t.slice(firstWord ? firstWord[0].length : 0).trim();
+  if (actionEN) {
+    let objectEN = '';
+    if (fileName) objectEN = fileName;
+    else {
+      const words = restEN.replace(/[^A-Za-z0-9\-_\s]/g, ' ').split(/\s+/).filter(Boolean);
+      const skip = new Set(['a', 'an', 'the', 'this', 'that', 'these', 'those', 'is', 'are', 'was', 'were', 'to', 'for', 'of', 'in', 'on', 'with', 'and', 'or', 'from', 'by', 'my', 'our', 'me', 'us', 'it', 'its']);
+      const meaningful = words.filter((w) => !skip.has(w.toLowerCase()));
+      objectEN = meaningful.slice(0, 4).join(' ');
+    }
+    let titleEN = actionEN + (objectEN ? ' ' + objectEN : '');
+    const wordsEN = titleEN.split(/\s+/).filter(Boolean);
+    if (wordsEN.length > 6) titleEN = wordsEN.slice(0, 6).join(' ') + '…';
+    if (titleEN.length > 48) titleEN = titleEN.slice(0, 48).replace(/\s+$/, '') + '…';
+    if (isValidTitle(titleEN)) return titleEN;
   }
 
-  let objectEN = '';
-  if (fileName) objectEN = fileName;
-  else {
-    const words = restEN.replace(/[^A-Za-z0-9\-_\s]/g, ' ').split(/\s+/).filter(Boolean);
-    const skip = new Set(['a', 'an', 'the', 'this', 'that', 'these', 'those', 'is', 'are', 'was', 'were', 'to', 'for', 'of', 'in', 'on', 'with', 'and', 'or', 'from', 'by', 'my', 'our', 'me', 'us', 'it', 'its']);
-    const meaningful = words.filter((w) => !skip.has(w.toLowerCase()));
-    objectEN = meaningful.slice(0, 4).join(' ');
-  }
-
-  let titleEN = actionEN + (objectEN ? ' ' + objectEN : '');
-  const wordsEN = titleEN.split(/\s+/).filter(Boolean);
-  if (wordsEN.length > 6) titleEN = wordsEN.slice(0, 6).join(' ') + '…';
-  if (titleEN.length > 48) titleEN = titleEN.slice(0, 48).replace(/\s+$/, '') + '…';
-  return titleEN || raw.slice(0, 30);
+  return fallbackRaw();
 }
 
 // ---------- 未保存守卫 ----------
