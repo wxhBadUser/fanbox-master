@@ -50,6 +50,12 @@ const SKILL_DESC_CUT_MOBILE = 300;               // 手机端 description 截断
 const SEARCH_WALK_TIMEOUT_MS = 3000;             // 单次搜索总时间预算
 const SEARCH_WALK_FILE_LIMIT = 5000;             // 单次搜索文件数上限
 
+// Phase B2A：Desktop Continuation Read Model 常量
+const DESKTOP_AGENT_TAIL_MAX = 500;              // outputTail 最大字符数
+const DESKTOP_AGENT_MAX_RECENT_FILES = 5;        // recentFiles 上限
+const DESKTOP_AGENT_IDLE_CUTOFF_MS = 30 * 60 * 1000; // 30 分钟无输出视为 idle
+const DESKTOP_AGENT_MAX = 20;                    // 最多投影 N 个 desktop agent
+
 // Phase 1：Mobile Web UI 静态资源（公开访问，文件落盘，不进 token 校验）
 const MOBILE_PUBLIC_DIR = path.join(__dirname, '..', 'public', 'mobile');
 const MOBILE_STATIC_MIME = {
@@ -407,6 +413,26 @@ function sendJson(res, code, obj) {
   try { res.end(body); } catch {}
 }
 
+function mobileError(code, message) {
+  const c = String(code || 'error');
+  const fallback = c.replace(/_/g, ' ');
+  return { code: c, message: String(message || fallback) };
+}
+
+function sendMobileError(res, httpCode, code, message, meta) {
+  const body = { ok: false, error: mobileError(code, message) };
+  if (meta && typeof meta === 'object') body.meta = meta;
+  return sendJson(res, httpCode, body);
+}
+
+function mobileContractMeta(source, extra) {
+  return Object.assign({
+    contract: 'mobile-b1',
+    source: source || 'fanbox-mobile-backend',
+    timestamp: Date.now()
+  }, extra || {});
+}
+
 function sendText(res, code, text, type = 'text/plain; charset=utf-8') {
   try {
     res.writeHead(code, {
@@ -529,6 +555,37 @@ function allowedRoots() {
   return out;
 }
 
+function windowsDriveRoots() {
+  if (process.platform !== 'win32') return [];
+  const out = [];
+  for (const ch of 'CDEFGHIJKLMNOPQRSTUVWXYZ') {
+    const drive = `${ch}:\\`;
+    try {
+      const s = fs.statSync(drive);
+      if (s.isDirectory()) out.push(drive);
+    } catch { /* drive unavailable */ }
+  }
+  return out;
+}
+
+function mobileFileRoots() {
+  const out = [];
+  const seen = new Set();
+  for (const r of [...allowedRoots(), ...windowsDriveRoots()]) {
+    if (!r) continue;
+    let abs;
+    try { abs = path.resolve(r); } catch { continue; }
+    const key = process.platform === 'win32' ? abs.toLowerCase() : abs;
+    if (seen.has(key)) continue;
+    try {
+      if (!fs.statSync(abs).isDirectory()) continue;
+    } catch { continue; }
+    seen.add(key);
+    out.push(abs);
+  }
+  return out;
+}
+
 function normalizePath(p) {
   if (!p || typeof p !== 'string') return '';
   // 拒绝路径穿越 —— Phase 0A 只允许绝对路径且必须在 allowedRoots 内
@@ -540,7 +597,7 @@ function normalizePath(p) {
 function pathInAllowed(p) {
   const norm = normalizePath(p);
   if (!norm) return false;
-  const roots = allowedRoots();
+  const roots = mobileFileRoots();
   return roots.some(r => {
     const rn = path.resolve(r);
     return norm === rn || norm.startsWith(rn + path.sep);
@@ -729,7 +786,7 @@ function friendlySendError (agentId, code) {
 function mobileAllowedRoots() {
   const out = [];
   const seen = new Set();
-  function pushDir(p, label) {
+  function pushDir(p, label, type) {
     if (!p) return;
     let abs;
     try { abs = path.resolve(p); } catch { return; }
@@ -739,7 +796,7 @@ function mobileAllowedRoots() {
       if (!s.isDirectory()) return;
     } catch { return; }
     seen.add(abs);
-    out.push({ name: label || path.basename(abs) || abs, path: abs });
+    out.push({ type: type || (/^[A-Z]:\\?$/i.test(abs) ? 'drive' : 'folder'), name: label || path.basename(abs) || abs, path: abs });
   }
 
   // 1) Windows 驱动器（D:\ / E:\ / F:\ ...），仅在 win32 上
@@ -750,25 +807,32 @@ function mobileAllowedRoots() {
         const drive = `${ch}:\\`;
         try {
           const s = fs.statSync(drive);
-          if (s.isDirectory()) pushDir(drive, `${ch}:`);
+          if (s.isDirectory()) pushDir(drive, `${ch}:`, 'drive');
         } catch { /* 驱动器不存在，继续下一个 */ }
       }
     } catch { /* */ }
   }
 
   // 2) 常用目录（Home + Desktop / Downloads / Documents / Pictures / Music / Videos）
-  pushDir(HOME, 'Home');
-  pushDir(path.join(HOME, 'Desktop'),   'Desktop');
-  pushDir(path.join(HOME, 'Downloads'), 'Downloads');
-  pushDir(path.join(HOME, 'Documents'), 'Documents');
-  pushDir(path.join(HOME, 'Pictures'),  'Pictures');
-  pushDir(path.join(HOME, 'Music'),     'Music');
-  pushDir(path.join(HOME, 'Videos'),    'Videos');
+  pushDir(HOME, 'Home', 'folder');
+  pushDir(path.join(HOME, 'Desktop'),   'Desktop', 'folder');
+  pushDir(path.join(HOME, 'Downloads'), 'Downloads', 'folder');
+  pushDir(path.join(HOME, 'Documents'), 'Documents', 'folder');
+  pushDir(path.join(HOME, 'Pictures'),  'Pictures', 'folder');
+  pushDir(path.join(HOME, 'Music'),     'Music', 'folder');
+  pushDir(path.join(HOME, 'Videos'),    'Videos', 'folder');
 
   // 3) allowedRoots 自身（HOME + 项目 cwd）
-  for (const r of allowedRoots()) pushDir(r, path.basename(r) || r);
+  for (const r of allowedRoots()) pushDir(r, path.basename(r) || r, 'folder');
 
   return out;
+}
+
+function mobileRootItems() {
+  return [
+    { type: 'this-pc', name: '此电脑', path: '__fanbox_this_pc__' },
+    ...mobileAllowedRoots()
+  ];
 }
 
 // ============================================================
@@ -917,57 +981,157 @@ function skillFrontmatterMobile(txt) {
   const m = txt.match(/^---\s*\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return null;
   const fm = m[1];
+  const nm = fm.match(/(?:^|\r?\n)name\s*:\s*([\s\S]*?)(?=\r?\n[\w-]+\s*:|\s*$)/);
+  const tm = fm.match(/(?:^|\r?\n)title\s*:\s*([\s\S]*?)(?=\r?\n[\w-]+\s*:|\s*$)/);
   const dm = fm.match(/(?:^|\r?\n)description\s*:\s*([\s\S]*?)(?=\r?\n[\w-]+\s*:|\s*$)/);
+  const cm = fm.match(/(?:^|\r?\n)category\s*:\s*([\s\S]*?)(?=\r?\n[\w-]+\s*:|\s*$)/);
+  const clean = (v) => String(v || '').trim().replace(/^[|>][+-]?\s*/, '').replace(/^(['"])([\s\S]*)\1$/, '$2').trim();
   let desc = dm ? dm[1].trim() : '';
-  desc = desc.replace(/^[|>][+-]?\s*/, '').replace(/^(['"])([\s\S]*)\1$/, '$2').trim();
-  return { desc };
+  desc = clean(desc);
+  return { name: clean(nm && nm[1]), title: clean(tm && tm[1]), desc, category: clean(cm && cm[1]) };
 }
 
-async function scanSkillDirMobile(root, source, label, out, disabled) {
+function skillAgentScopeMobile(source, name) {
+  const blob = String(source || '') + ' ' + String(name || '');
+  if (/claude/i.test(blob)) return 'claude';
+  if (/codex/i.test(blob)) return 'codex';
+  if (/qoder/i.test(blob)) return 'qoder';
+  if (/opencode|open-code|open_code/i.test(blob)) return 'opencode';
+  if (/agents/i.test(blob)) return 'all';
+  return 'all';
+}
+
+function skillCategoryMobile(name, desc, rawCategory) {
+  const c = String(rawCategory || '').trim();
+  if (/^(Document|Code|Research|File|Agent|Other)$/i.test(c)) {
+    return c.charAt(0).toUpperCase() + c.slice(1).toLowerCase();
+  }
+  const blob = (String(name || '') + ' ' + String(desc || '')).toLowerCase();
+  if (/\b(doc|paper|pdf|markdown|md|ppt|slide|word|excel|sheet|report)\b/.test(blob)) return 'Document';
+  if (/\b(code|debug|test|tdd|review|git|repo|bug|fix|build)\b/.test(blob)) return 'Code';
+  if (/\b(research|academic|literature|invest|market|paper)\b/.test(blob)) return 'Research';
+  if (/\b(file|folder|path|storage|vault|obsidian)\b/.test(blob)) return 'File';
+  if (/\b(agent|triage|handoff|plan|workflow|automation)\b/.test(blob)) return 'Agent';
+  return 'Other';
+}
+
+function mobileSkillItem(fields) {
+  const id = String(fields.id || fields.name || '').replace(/[^A-Za-z0-9._\-+:]/g, '').slice(0, 128);
+  if (!id) return null;
+  const desc = String(fields.description || '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, SKILL_DESC_CUT_MOBILE);
+  const title = String(fields.title || fields.name || id).replace(/[\r\n\t]+/g, ' ').trim().slice(0, 120);
+  const category = fields.category || skillCategoryMobile(id, desc, '');
+  return {
+    id,
+    name: id,
+    title,
+    description: desc,
+    cnDescription: desc || '暂无简介',
+    agentScope: fields.agentScope || skillAgentScopeMobile(fields.source, id),
+    category,
+    source: fields.source || 'Built-in',
+    enabled: fields.enabled !== false,
+    usageCount: 0,
+    lastUsedAt: 0,
+  };
+}
+
+async function scanSkillDirMobile(root, source, label, out, scannedRoots, disabled) {
+  const scan = { label, exists: false, count: 0 };
+  scannedRoots.push(scan);
   let names;
-  try { names = await fsp.readdir(root, { withFileTypes: true }); } catch { return; }
+  try { names = await fsp.readdir(root, { withFileTypes: true }); scan.exists = true; } catch { return; }
   for (const n of names) {
     if (n.name.startsWith('.') || n.name === '_archive' || n.name === '_backups') continue;
     const fp = path.join(root, n.name);
     if (n.name === '_disabled') {
-      if (n.isDirectory() && !disabled) await scanSkillDirMobile(fp, source, label, out, true);
+      if (n.isDirectory() && !disabled) await scanSkillDirMobile(fp, source, label + '/_disabled', out, scannedRoots, true);
       continue;
     }
     if (!n.isDirectory()) continue; // 残留在 root 的 .md 不计
-    let desc = '', mtime = 0;
+    let desc = '', title = n.name, category = '';
     try {
       const sm = path.join(fp, 'SKILL.md');
       const st = await fsp.stat(sm);
-      mtime = st.mtimeMs;
       const fh = await fsp.open(sm, 'r');
       try {
         const buf = Buffer.alloc(Math.min(st.size, 8192));
         const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
         const head = buf.toString('utf8', 0, bytesRead);
         const fm = skillFrontmatterMobile(head);
-        if (fm && fm.desc) desc = fm.desc.slice(0, SKILL_DESC_CUT_MOBILE);
+        if (fm) {
+          if (fm.name) title = fm.name;
+          if (fm.title) title = fm.title;
+          if (fm.desc) desc = fm.desc.slice(0, SKILL_DESC_CUT_MOBILE);
+          if (fm.category) category = fm.category;
+        }
       } finally { await fh.close(); }
     } catch { /* 缺 SKILL.md：description 留空 */ }
-    out.push({
+    const item = mobileSkillItem({
+      id: n.name,
       name: n.name,
+      title,
       source,
       enabled: !disabled,
       description: desc,
-      // 不返回 path / dir / dir 索引（防路径暴露）
-      // 不返回真实 hits/lastUsedAt（避免暴露 Claude/Codex JSONL 路径）
-      hits: 0,
-      lastUsedAt: 0,
+      category: skillCategoryMobile(n.name, desc, category)
     });
+    if (item) {
+      out.push(item);
+      scan.count++;
+    }
+  }
+}
+
+async function scanCommandDirMobile(root, source, label, out, scannedRoots) {
+  const scan = { label, exists: false, count: 0 };
+  scannedRoots.push(scan);
+  let names;
+  try { names = await fsp.readdir(root, { withFileTypes: true }); scan.exists = true; } catch { return; }
+  for (const n of names) {
+    if (!n.isFile() || !/\.md$/i.test(n.name) || n.name.startsWith('.')) continue;
+    const id = n.name.replace(/\.md$/i, '');
+    let desc = '';
+    try {
+      const txt = await fsp.readFile(path.join(root, n.name), 'utf8');
+      desc = txt.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).join(' ').slice(0, SKILL_DESC_CUT_MOBILE);
+    } catch { /* ignore */ }
+    const item = mobileSkillItem({
+      id,
+      name: id,
+      title: id,
+      source,
+      agentScope: skillAgentScopeMobile(source, id),
+      category: skillCategoryMobile(id, desc, 'Agent'),
+      description: desc,
+      enabled: true
+    });
+    if (item) {
+      out.push(item);
+      scan.count++;
+    }
   }
 }
 
 async function readSkillsMobile() {
   const out = [];
-  // 只扫三个公开根；不扫 plugin / project 级（避免路径膨胀）
-  await scanSkillDirMobile(path.join(HOME, '.claude', 'skills'), 'claude', '~/.claude', out, false);
-  await scanSkillDirMobile(path.join(HOME, '.codex', 'skills'), 'codex', '~/.codex', out, false);
-  await scanSkillDirMobile(path.join(HOME, '.agents', 'skills'), 'agents', '~/.agents', out, false);
-  return { ok: true, items: out };
+  const scannedRoots = [];
+  await scanSkillDirMobile(path.join(HOME, '.claude', 'skills'), 'Claude skills', 'Claude skills', out, scannedRoots, false);
+  await scanCommandDirMobile(path.join(HOME, '.claude', 'commands'), 'Claude commands', 'Claude commands', out, scannedRoots);
+  await scanSkillDirMobile(path.join(HOME, '.codex', 'skills'), 'Codex skills', 'Codex skills', out, scannedRoots, false);
+  await scanSkillDirMobile(path.join(HOME, '.agents', 'skills'), 'Agent skills', 'Agent skills', out, scannedRoots, false);
+  await scanSkillDirMobile(path.join(process.cwd(), '.claude', 'skills'), 'Project skills', 'Project Claude skills', out, scannedRoots, false);
+  await scanSkillDirMobile(path.join(process.cwd(), '.codex', 'skills'), 'Project skills', 'Project Codex skills', out, scannedRoots, false);
+
+  const seen = new Set();
+  const items = [];
+  for (const item of out) {
+    const key = item.source + ':' + item.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push(item);
+  }
+  return { ok: true, items, scannedRoots };
 }
 
 // ============================================================
@@ -1247,6 +1411,519 @@ async function readMobileRunnerUsageMobile(filter) {
 }
 
 // ============================================================
+// Mobile-B1 backend contract helpers
+// 只做现有 mobile 数据的统一投影；不改变旧 API、不复制 Paseo 代码。
+// ============================================================
+
+function mobileConnectionCapabilities() {
+  return {
+    rest: true,
+    sse: true,
+    webSocket: false,
+    relay: false,
+    e2ee: false,
+    heartbeatEvent: 'connection.heartbeat',
+    lanOnly: true,
+    pairCode: true,
+    tokenAuth: true
+  };
+}
+
+function mobileFeatures() {
+  return {
+    sessions: true,
+    timeline: true,
+    files: true,
+    skills: true,
+    projects: true,
+    approvals: true,
+    devices: true,
+    audit: true,
+    usage: true,
+    relay: false,
+    e2ee: false
+  };
+}
+
+async function readDevicesMobile(currentDeviceId) {
+  const cfg = await getConfig();
+  const all = await listAllTokens();
+  const now = Date.now();
+  const items = all.map((t) => {
+    const lastSeenAt = Number.isFinite(t.lastSeenAt) ? t.lastSeenAt : 0;
+    const pairedAt = Number.isFinite(t.pairedAt) ? t.pairedAt : 0;
+    const active = !t.revoked && (!lastSeenAt || (now - lastSeenAt) < TOKEN_INACTIVE_MS);
+    return {
+      deviceId: String(t.id || ''),
+      id: String(t.id || ''),
+      name: String(t.deviceName || 'Mobile Device').slice(0, 60),
+      deviceName: String(t.deviceName || 'Mobile Device').slice(0, 60),
+      pairedAt,
+      lastSeenAt,
+      lastActiveAt: lastSeenAt || pairedAt || 0,
+      lastIp: typeof t.lastIp === 'string' ? t.lastIp.slice(0, 80) : '',
+      revoked: !!t.revoked,
+      active,
+      isCurrent: !!currentDeviceId && t.id === currentDeviceId,
+      scopes: Array.isArray(t.scopes) ? t.scopes.filter((s) => typeof s === 'string').slice(0, 20) : []
+    };
+  }).filter((d) => d.id);
+  items.sort((a, b) => (b.lastSeenAt || b.pairedAt || 0) - (a.lastSeenAt || a.pairedAt || 0));
+  return {
+    ok: true,
+    serverId: cfg.serverId,
+    currentDeviceId: currentDeviceId || '',
+    items,
+    capabilities: {
+      revoke: false,
+      rename: false
+    },
+    meta: mobileContractMeta('token-store', {
+      count: items.length
+    })
+  };
+}
+
+async function readAuditMobile(limitRaw) {
+  const limit = Math.max(1, Math.min(200, Number(limitRaw) || 50));
+  let raw;
+  try {
+    raw = await fsp.readFile(mobileSessions.AUDIT_FILE, 'utf8');
+  } catch (e) {
+    if (!e || e.code === 'ENOENT') {
+      return { ok: true, items: [], total: 0, meta: mobileContractMeta('audit-jsonl', { limit, missing: true }) };
+    }
+    return {
+      ok: false,
+      error: mobileError('audit_read_failed', 'Failed to read mobile audit log.'),
+      items: [],
+      meta: mobileContractMeta('audit-jsonl', { limit })
+    };
+  }
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(-limit * 2);
+  const items = [];
+  for (let i = lines.length - 1; i >= 0 && items.length < limit; i--) {
+    let row;
+    try { row = JSON.parse(lines[i]); } catch { continue; }
+    if (!row || typeof row !== 'object') continue;
+    items.push({
+      id: 'audit-' + String(row.ts || Date.now()) + '-' + items.length,
+      timestamp: Number(row.ts) || 0,
+      ts: Number(row.ts) || 0,
+      action: String(row.action || 'unknown').slice(0, 80),
+      sessionId: String(row.sessionId || '').slice(0, 128),
+      deviceId: String(row.deviceId || '').slice(0, 128),
+      agentId: mobileSessions.normalizeAgentId(row.agentId || ''),
+      cwdLabel: row.cwd ? path.basename(String(row.cwd)) || String(row.cwd).slice(0, 80) : '',
+      inputHash: String(row.inputHash || '').slice(0, 80),
+      inputLen: Number.isFinite(row.inputLen) ? row.inputLen : 0,
+      decision: String(row.decision || '').slice(0, 32),
+      actor: String(row.actor || '').slice(0, 80),
+      reasons: Array.isArray(row.reasons) ? row.reasons.map((r) => String(r).slice(0, 80)).slice(0, 10) : []
+    });
+  }
+  return { ok: true, items, total: items.length, meta: mobileContractMeta('audit-jsonl', { limit }) };
+}
+
+function mobileFileEntryFromPath(filePath, source, extra) {
+  let abs;
+  try { abs = path.resolve(String(filePath || '')); } catch { return null; }
+  if (!abs || isForbiddenPath(abs) || !pathInAllowed(abs)) return null;
+  let st;
+  try { st = fs.statSync(abs); } catch { return null; }
+  if (!st.isFile() && !st.isDirectory()) return null;
+  return Object.assign({
+    id: sha256(abs).slice(0, 16),
+    name: path.basename(abs) || abs,
+    path: abs,
+    kind: st.isDirectory() ? 'directory' : 'file',
+    type: st.isDirectory() ? 'directory' : kindOf(abs),
+    source: source || 'recent',
+    reason: source || 'recent',
+    size: st.size,
+    mtime: st.mtimeMs,
+    lastAccessedAt: st.atimeMs || st.mtimeMs,
+    thumbUrl: !st.isDirectory() && (kindOf(abs) === 'image' || kindOf(abs) === 'pdf')
+      ? `/api/mobile/thumb?path=${encodeURIComponent(abs)}&w=240`
+      : ''
+  }, extra || {});
+}
+
+async function readRecentFilesMobile(limitRaw) {
+  const limit = Math.max(1, Math.min(100, Number(limitRaw) || 30));
+  const out = [];
+  const seen = new Set();
+  function push(item) {
+    if (!item || !item.path) return;
+    const key = process.platform === 'win32' ? item.path.toLowerCase() : item.path;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(item);
+  }
+
+  const sessionResult = await mobileSessions.listSessions({ limit: 100 }).catch(() => ({ items: [] }));
+  const sessions = Array.isArray(sessionResult.items) ? sessionResult.items : [];
+  for (const s of sessions) {
+    const files = s && s.context && Array.isArray(s.context.files) ? s.context.files : [];
+    for (const f of files) push(mobileFileEntryFromPath(f, 'session', { reason: 'session-context', sessionId: s.sessionId || '' }));
+    if (s.cwd && pathInAllowed(s.cwd) && !isForbiddenPath(s.cwd)) {
+      let names;
+      try { names = await fsp.readdir(s.cwd, { withFileTypes: true }); } catch { names = []; }
+      for (const n of names.slice(0, 40)) {
+        if (n.name.startsWith('.')) continue;
+        push(mobileFileEntryFromPath(path.join(s.cwd, n.name), 'workspace', { reason: 'workspace-recent-entry', sessionId: s.sessionId || '' }));
+      }
+    }
+  }
+
+  const shots = await readScreenshotsMobile(Math.min(20, limit)).catch(() => ({ items: [] }));
+  for (const shot of (Array.isArray(shots.items) ? shots.items : [])) {
+    push(mobileFileEntryFromPath(shot.path, 'screenshot', { thumbUrl: shot.thumbUrl || '' }));
+  }
+
+  out.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+  return {
+    ok: true,
+    items: out.slice(0, limit),
+    truncated: out.length > limit,
+    meta: mobileContractMeta('recent-files-projection', { limit, totalCandidates: out.length })
+  };
+}
+
+function timelineEventFromMessage(sessionId, message, index) {
+  const rawRole = message && (message.role === 'user' || message.role === 'agent' || message.role === 'assistant' || message.role === 'system')
+    ? message.role
+    : 'system';
+  const role = rawRole === 'agent' ? 'assistant' : rawRole;
+  const ts = Number(message && message.ts) || 0;
+  const rawStatus = String((message && message.status) || 'sent');
+  const status = rawStatus === 'sent' || rawStatus === 'done' ? 'completed'
+    : rawStatus === 'failed' ? 'failed'
+    : rawStatus === 'running' ? 'running'
+    : rawStatus === 'blocked' ? 'blocked'
+    : rawStatus === 'pending' ? 'pending'
+    : 'completed';
+  return {
+    id: 'tl-' + sha256([sessionId, index, role, ts, status].join('|')).slice(0, 16),
+    type: 'message',
+    role,
+    title: role === 'user' ? 'User message' : role === 'assistant' ? 'Agent response' : 'System message',
+    text: mobileSessions.safeStr((message && message.text) || '', 2000),
+    status,
+    timestamp: ts,
+    createdAt: ts,
+    agentId: mobileSessions.normalizeAgentId((message && message.agentId) || ''),
+    approvalId: String((message && message.approvalId) || '').slice(0, 128),
+    redacted: false,
+    source: 'session-message'
+  };
+}
+
+async function readSessionTimelineMobile(sessionId, limitRaw) {
+  const sess = await mobileSessions.getSessionById(sessionId);
+  if (!sess) return { ok: false, error: 'session_not_found', status: 404 };
+  const limit = Math.max(1, Math.min(200, Number(limitRaw) || 100));
+  const msgs = await mobileSessions.getSessionMessages(sessionId, limit).catch(() => ({ messages: [] }));
+  const messages = Array.isArray(msgs.messages) ? msgs.messages : [];
+  const events = messages.map((m, idx) => timelineEventFromMessage(sess.sessionId, m, idx));
+  return {
+    ok: true,
+    sessionId: sess.sessionId,
+    status: sess.status,
+    agentId: sess.agentId,
+    cwd: sess.cwd,
+    cwdLabel: sess.cwdLabel,
+    events,
+    nextCursor: null,
+    hasMore: false,
+    meta: mobileContractMeta('messages-projection', {
+      limit,
+      eventCount: events.length,
+      extensibleTypes: ['message', 'tool', 'approval', 'file', 'status', 'system']
+    })
+  };
+}
+
+// ============================================================
+// Phase B2A：Desktop Continuation Read Model
+// 只读投影桌面端正在运行/最近活跃的终端 Agent，不发送 follow-up，不暴露 raw PTY。
+// 通过 setDesktopTerminalProvider() 注入 provider，保持 mobile.js 不直接依赖 node-pty。
+// ============================================================
+
+let _desktopTerminalProvider = null;
+
+function setDesktopTerminalProvider(fn) {
+  if (typeof fn === 'function' || fn === null) {
+    _desktopTerminalProvider = fn;
+  }
+}
+
+function stripAnsi(str) {
+  if (!str || typeof str !== 'string') return '';
+  return str
+    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+    .replace(/\x1b[()][AB0]/g, '')
+    .replace(/\x1b\][^\x07\x1b]*[\x07\x1b\\]/g, '')
+    .replace(/\x1b[PX^_][^\x1b]*\x1b\\/g, '')
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
+    .replace(/\r/g, '');
+}
+
+const SECRET_PATTERNS = [
+  /(sk-[A-Za-z0-9_-]{20,})/g,
+  /(ghp_[A-Za-z0-9]{30,})/g,
+  /(github_pat_[A-Za-z0-9_]{20,})/g,
+  /(xox[baprs]-[A-Za-z0-9-]{10,})/g,
+  /(Bearer\s+[A-Za-z0-9._~+/=-]{20,})/gi,
+  /(token["']?\s*[:=]\s*["']?[A-Za-z0-9._~+/=-]{16,})/gi,
+  /(api[_-]?key["']?\s*[:=]\s*["']?[A-Za-z0-9._~+/=-]{16,})/gi,
+  /(password["']?\s*[:=]\s*["']?[^"'\s]{6,})/gi,
+  /(secret["']?\s*[:=]\s*["']?[A-Za-z0-9._~+/=-]{16,})/gi,
+  /(ANTHROPIC_API_KEY\s*=\s*[A-Za-z0-9_-]{20,})/g,
+  /(OPENAI_API_KEY\s*=\s*[A-Za-z0-9_-]{20,})/g,
+];
+
+function scrubSecrets(text) {
+  if (!text || typeof text !== 'string') return { text: '', redacted: false };
+  let redacted = false;
+  let result = text;
+  for (const pat of SECRET_PATTERNS) {
+    if (pat.test(result)) {
+      redacted = true;
+      result = result.replace(pat, '[REDACTED]');
+    }
+    pat.lastIndex = 0;
+  }
+  return { text: result, redacted };
+}
+
+function detectAgentFromProc(proc) {
+  const p = String(proc || '').toLowerCase();
+  if (!p) return 'unknown';
+  if (/claude/.test(p)) return 'claude';
+  if (/codex/.test(p)) return 'codex';
+  if (/qoder/.test(p)) return 'qoder';
+  if (/opencode|open-code/.test(p)) return 'opencode';
+  return 'unknown';
+}
+
+function agentLabel(agentId, projectName) {
+  const names = { claude: 'Claude Code', codex: 'Codex', qoder: 'Qoder', opencode: 'OpenCode', unknown: 'Terminal' };
+  const n = names[agentId] || 'Terminal';
+  return projectName ? `${n} · ${projectName}` : n;
+}
+
+function safeTermIdHash(termId) {
+  const h = sha256(String(termId || '') + ':fanbox-term-v1');
+  return 'term-' + h.slice(0, 12);
+}
+
+function determineStatus(proc, busy, lastActiveAt) {
+  const now = Date.now();
+  if (!proc) return 'exited';
+  if (busy) return 'running';
+  if (lastActiveAt && (now - lastActiveAt) < DESKTOP_AGENT_IDLE_CUTOFF_MS) return 'idle';
+  if (lastActiveAt && (now - lastActiveAt) >= DESKTOP_AGENT_IDLE_CUTOFF_MS) return 'idle';
+  return 'unknown';
+}
+
+async function getRecentFilesForCwd(cwd) {
+  if (!cwd || typeof cwd !== 'string') return [];
+  const norm = normalizePath(cwd);
+  if (!norm || isForbiddenPath(norm) || !pathInAllowed(norm)) return [];
+  let entries;
+  try { entries = await fsp.readdir(norm, { withFileTypes: true }); } catch { return []; }
+  const files = [];
+  for (const e of entries) {
+    if (e.name.startsWith('.') || e.name === 'node_modules') continue;
+    const fp = path.join(norm, e.name);
+    if (isForbiddenPath(fp)) continue;
+    try {
+      const st = await fsp.stat(fp);
+      if (st.isFile()) {
+        files.push({
+          id: 'recent-' + sha256(fp).slice(0, 12),
+          name: e.name,
+          path: fp,
+          kind: 'file',
+          type: extOf(e.name) || '',
+          source: 'desktop-cwd',
+          reason: 'recent in desktop terminal cwd',
+          size: st.size,
+          mtime: st.mtimeMs,
+          lastAccessedAt: st.atimeMs,
+          thumbUrl: null,
+        });
+      }
+    } catch { /* skip unreadable */ }
+  }
+  files.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+  return files.slice(0, DESKTOP_AGENT_MAX_RECENT_FILES);
+}
+
+async function buildDesktopContinuableAgents() {
+  if (!_desktopTerminalProvider || typeof _desktopTerminalProvider !== 'function') {
+    return [];
+  }
+  let rawList;
+  try {
+    rawList = await _desktopTerminalProvider();
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(rawList)) return [];
+  const agents = [];
+  for (const t of rawList.slice(0, DESKTOP_AGENT_MAX)) {
+    if (!t || typeof t !== 'object') continue;
+    const rawId = String(t.id || '');
+    if (!rawId) continue;
+    const cwd = typeof t.cwd === 'string' ? t.cwd : '';
+    const norm = normalizePath(cwd);
+    const cwdAllowed = norm && !isForbiddenPath(norm) && pathInAllowed(norm);
+    const proc = typeof t.proc === 'string' ? t.proc : '';
+    const agentId = detectAgentFromProc(proc);
+    const projectName = norm ? (path.basename(norm) || norm) : '';
+    const lastActiveAt = (typeof t.lastActiveAt === 'number' && t.lastActiveAt > 0) ? t.lastActiveAt : Date.now();
+    const busy = !!t.busy;
+    const status = determineStatus(proc, busy, lastActiveAt);
+    const rawTail = typeof t.tail === 'string' ? t.tail : '';
+    const ansiStripped = stripAnsi(rawTail);
+    const { text: scrubbedTail, redacted } = scrubSecrets(ansiStripped);
+    const outputTail = scrubbedTail.slice(-DESKTOP_AGENT_TAIL_MAX);
+    const safeId = safeTermIdHash(rawId);
+    const recentFiles = cwdAllowed ? await getRecentFilesForCwd(norm) : [];
+    const riskFlags = [];
+    if (!cwdAllowed) riskFlags.push('cwd_outside_roots');
+    if (!busy && status !== 'running') riskFlags.push('not_busy');
+    const reason = busy
+      ? (agentId !== 'unknown' ? `${agentLabel(agentId, '').trim()} 正在运行` : '终端正忙')
+      : (agentId !== 'unknown' ? `${agentLabel(agentId, '').trim()} 空闲` : '终端空闲');
+    agents.push({
+      id: safeId,
+      source: 'desktop-terminal',
+      agentId,
+      label: agentLabel(agentId, projectName),
+      cwd: cwdAllowed ? norm : '',
+      projectName,
+      status,
+      busy,
+      lastActiveAt,
+      outputTail,
+      outputTailRedacted: redacted,
+      recentFiles,
+      canOpen: !!cwdAllowed,
+      canSendFollowup: false,
+      reason,
+      terminalId: safeId,
+      sessionId: null,
+      riskFlags,
+    });
+  }
+  agents.sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0));
+  return agents;
+}
+
+async function readMobileAppState(t) {
+  const [cfg, status, context, sessionsResult, approvals, devices, recent, desktopAgents] = await Promise.all([
+    getConfig(),
+    publicStatus(),
+    mobileSessions.getContext().catch(() => ({ ok: true, cwd: '', agentId: '', sessionId: '' })),
+    mobileSessions.listSessions({ limit: 100 }).catch(() => ({ items: [] })),
+    mobileSessions.listPendingApprovals({ deviceId: t.device && t.device.id, limit: 100 }).catch(() => []),
+    readDevicesMobile(t.device && t.device.id),
+    readRecentFilesMobile(20).catch(() => ({ items: [] })),
+    buildDesktopContinuableAgents().catch(() => [])
+  ]);
+  const sessions = Array.isArray(sessionsResult.items) ? sessionsResult.items : [];
+  const runningDesktopAgents = desktopAgents.filter((a) => a.status === 'running' || a.busy).length;
+  return {
+    ok: true,
+    server: {
+      name: 'FanBox Windows Edition',
+      version: '2.4.0',
+      platform: process.platform,
+      enabled: cfg.enabled,
+      port: cfg.port,
+      serverId: cfg.serverId,
+      primaryLanUrl: status.primaryLanUrl || null,
+      lanOnly: true
+    },
+    auth: {
+      paired: true,
+      deviceId: t.device && t.device.id || '',
+      deviceName: t.device && t.device.deviceName || '',
+      scopes: Array.isArray(t.device && t.device.scopes) ? t.device.scopes : []
+    },
+    features: mobileFeatures(),
+    connection: {
+      transport: 'http+sse',
+      state: 'connected',
+      capabilities: mobileConnectionCapabilities(),
+      lastSeenAt: Date.now()
+    },
+    currentContext: {
+      cwd: context.cwd || '',
+      cwdLabel: context.cwd ? (path.basename(context.cwd) || context.cwd) : '',
+      agentId: context.agentId || '',
+      sessionId: context.sessionId || ''
+    },
+    counts: {
+      sessions: sessions.length,
+      activeSessions: sessions.filter((s) => s.status === 'running' || s.status === 'idle').length,
+      pendingApprovals: Array.isArray(approvals) ? approvals.length : 0,
+      devices: Array.isArray(devices.items) ? devices.items.filter((d) => !d.revoked).length : 0,
+      recentFiles: Array.isArray(recent.items) ? recent.items.length : 0,
+      desktopContinuableAgents: desktopAgents.length,
+      runningDesktopAgents
+    },
+    meta: mobileContractMeta('app-state-projection', {
+      desktopAgentsSource: _desktopTerminalProvider ? 'desktop-terminal-provider' : 'none'
+    })
+  };
+}
+
+async function readMobileDashboard(t) {
+  const [sessionsResult, approvals, recentFiles, usage, audit, desktopAgents] = await Promise.all([
+    mobileSessions.listSessions({ limit: 100 }).catch(() => ({ items: [] })),
+    mobileSessions.listPendingApprovals({ deviceId: t.device && t.device.id, limit: 20 }).catch(() => []),
+    readRecentFilesMobile(20).catch(() => ({ items: [] })),
+    readUsageMobile().catch(() => ({ summary: {} })),
+    readAuditMobile(10).catch(() => ({ items: [] })),
+    buildDesktopContinuableAgents().catch(() => [])
+  ]);
+  const sessions = Array.isArray(sessionsResult.items) ? sessionsResult.items : [];
+  const activeSessions = sessions.filter((s) => s.status === 'running' || s.status === 'idle').slice(0, 20);
+  const runningAgents = activeSessions.filter((s) => s.status === 'running').map((s) => ({
+    id: s.sessionId,
+    name: s.title || s.agentId || 'Agent',
+    agentId: s.agentId,
+    sessionId: s.sessionId,
+    status: s.status,
+    cwd: s.cwd,
+    cwdLabel: s.cwdLabel,
+    title: s.title,
+    lastActivityAt: s.lastActiveAt,
+    lastActiveAt: s.lastActiveAt,
+    source: s.source ? 'session-derived:' + s.source : 'session-derived'
+  }));
+  return {
+    ok: true,
+    activeSessions,
+    runningAgents,
+    desktopContinuableAgents: desktopAgents,
+    pendingApprovals: Array.isArray(approvals) ? approvals : [],
+    recentFiles: Array.isArray(recentFiles.items) ? recentFiles.items : [],
+    usageSummary: usage.summary || {},
+    recentAuditEntries: Array.isArray(audit.items) ? audit.items : [],
+    meta: mobileContractMeta('dashboard-projection', {
+      runningAgentsSource: 'session-derived',
+      desktopAgentsSource: _desktopTerminalProvider ? 'desktop-terminal-provider' : 'none',
+      approvalEnforcement: 'redline_detected_but_not_blocked'
+    })
+  };
+}
+
+// ============================================================
 // Phase 0B API 6: GET /api/mobile/screenshots
 // 扫描已知截图目录，返回最近 N 张。返回 thumbUrl（不返回 base64）。
 // ============================================================
@@ -1420,12 +2097,12 @@ async function serveMobileThumb(req, res, p, sizeRaw) {
 // ============================================================
 async function requireMobileAuth(req, res) {
   if (!isLanIp(getClientIp(req))) {
-    sendJson(res, 403, { ok: false, error: 'lan_only' });
+    sendMobileError(res, 403, 'lan_only', 'Mobile API is only available on the local network.');
     return null;
   }
   const t = await validateToken(getAuthToken(req));
   if (!t.ok) {
-    sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    sendMobileError(res, 401, 'unauthorized', 'A valid mobile bearer token is required.');
     return null;
   }
   return t;
@@ -1448,15 +2125,50 @@ async function handleMobileApiV2(req, res, url) {
   // /api/mobile/roots —— allowedRoots 摘要
   if (pathOnly === '/api/mobile/roots') {
     const t = await requireMobileAuth(req, res); if (!t) return;
+    const roots = mobileAllowedRoots();
+    const items = mobileRootItems();
     return sendJson(res, 200, {
       ok: true,
       home: HOME,
       platform: process.platform,
       sep: path.sep,
-      roots: mobileAllowedRoots(),
+      items,
+      roots,
+      drives: roots.filter((r) => r.type === 'drive'),
       // recentCwds 暂留空数组；后续 Phase 接 mobile-sessions.cwdHistory
       recentCwds: [],
     });
+  }
+
+  // /api/mobile/app-state —— unified backend contract entrypoint
+  if (pathOnly === '/api/mobile/app-state') {
+    const t = await requireMobileAuth(req, res); if (!t) return;
+    return sendJson(res, 200, await readMobileAppState(t));
+  }
+
+  // /api/mobile/dashboard —— dashboard-ready summary
+  if (pathOnly === '/api/mobile/dashboard') {
+    const t = await requireMobileAuth(req, res); if (!t) return;
+    return sendJson(res, 200, await readMobileDashboard(t));
+  }
+
+  // /api/mobile/files/recent —— unified recent/changed/screenshot list
+  if (pathOnly === '/api/mobile/files/recent') {
+    const t = await requireMobileAuth(req, res); if (!t) return;
+    return sendJson(res, 200, await readRecentFilesMobile(qp.get('limit')));
+  }
+
+  // /api/mobile/devices —— token/device list without tokenHash
+  if (pathOnly === '/api/mobile/devices') {
+    const t = await requireMobileAuth(req, res); if (!t) return;
+    return sendJson(res, 200, await readDevicesMobile(t.device && t.device.id));
+  }
+
+  // /api/mobile/audit —— scrubbed audit.jsonl reader
+  if (pathOnly === '/api/mobile/audit') {
+    const t = await requireMobileAuth(req, res); if (!t) return;
+    const r = await readAuditMobile(qp.get('limit'));
+    return sendJson(res, r.ok === false ? 500 : 200, r);
   }
 
   // /api/mobile/projects —— unified project list grouped by cwd
@@ -1516,13 +2228,14 @@ async function handleMobileApiV2(req, res, url) {
 
       // 4) Add root directories from mobileAllowedRoots() that aren't already in the list
       const roots = mobileAllowedRoots();
+      const fallback = [];
       for (const r of roots) {
         const rPath = (r.path || r || '');
         if (!rPath) continue;
         const key = rPath.replace(/\\/g, '/').toLowerCase();
         if (seenCwds.has(key)) continue;
         seenCwds.add(key);
-        items.push({
+        const item = {
           id: key,
           name: r.name || path.basename(rPath) || rPath,
           cwd: rPath,
@@ -1535,7 +2248,9 @@ async function handleMobileApiV2(req, res, url) {
           latestSessionTitle: null,
           latestMessagePreview: null,
           statusSummary: { running: 0, done: 0, failed: 0 }
-        });
+        };
+        items.push(item);
+        fallback.push(item);
       }
 
       // 5) Sort by lastActiveAt desc
@@ -1545,7 +2260,7 @@ async function handleMobileApiV2(req, res, url) {
       const recent7d = items.filter(i => i.lastActiveAt > 0 && (now - i.lastActiveAt) <= DAY7);
       const recent30d = items.filter(i => i.lastActiveAt > 0 && (now - i.lastActiveAt) <= DAY30);
 
-      return sendJson(res, 200, { ok: true, items, groups: { recent7d, recent30d } });
+      return sendJson(res, 200, { ok: true, items, groups: { recent7d, recent30d, fallback } });
     } catch (e) {
       return sendJson(res, 500, { ok: false, error: 'internal_error' });
     }
@@ -1781,6 +2496,68 @@ async function handleMobileApiV2A(req, res, url) {
       agentId: sess.agentId,
       cwdLabel: sess.cwdLabel,
       messages: cleanMsgs
+    }), true;
+  }
+
+  // -------- GET /api/mobile/sessions/:id/timeline --------
+  // Mobile-B1：把现有 scrubbed messages 投影成未来 UI 可直接渲染的 timeline。
+  if (req.method === 'GET' && /^\/api\/mobile\/sessions\/[A-Za-z0-9._\-+]{1,128}\/timeline$/.test(pathOnly)) {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    const m = pathOnly.match(/^\/api\/mobile\/sessions\/([A-Za-z0-9._\-+]{1,128})\/timeline$/);
+    const sessionId = m ? m[1] : '';
+    const u = new URL(url, 'http://x');
+    const r = await readSessionTimelineMobile(sessionId, u.searchParams.get('limit'));
+    if (!r.ok) return sendMobileError(res, r.status || 400, r.error || 'bad_timeline', 'Unable to read mobile session timeline.'), true;
+    return sendJson(res, 200, r), true;
+  }
+
+  // -------- GET /api/mobile/desktop-agents/:id/timeline --------
+  // Phase B2A 预留：桌面终端 agent 的只读 timeline。
+  // 不返回 raw log / raw PTY / internal session token；数据不足时返回空 events。
+  if (req.method === 'GET' && /^\/api\/mobile\/desktop-agents\/[A-Za-z0-9._\-+]{1,64}\/timeline$/.test(pathOnly)) {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    const m = pathOnly.match(/^\/api\/mobile\/desktop-agents\/([A-Za-z0-9._\-+]{1,64})\/timeline$/);
+    const agentId = m ? m[1] : '';
+    const u = new URL(url, 'http://x');
+    const limit = Math.max(1, Math.min(50, parseInt(u.searchParams.get('limit') || '20', 10) || 20));
+    // B2A：只读投影当前状态为一条 snapshot event；不伪造历史。
+    const allAgents = await buildDesktopContinuableAgents().catch(() => []);
+    const agent = allAgents.find((a) => a.id === agentId);
+    if (!agent) {
+      return sendJson(res, 404, { ok: false, error: 'desktop_agent_not_found' }), true;
+    }
+    const events = [];
+    events.push({
+      id: 'snap-' + agent.id,
+      type: 'status_snapshot',
+      ts: agent.lastActiveAt,
+      status: agent.status,
+      busy: agent.busy,
+      cwd: agent.cwd,
+      projectName: agent.projectName,
+      outputTail: agent.outputTail,
+      outputTailRedacted: agent.outputTailRedacted,
+      canSendFollowup: false
+    });
+    if (agent.recentFiles && agent.recentFiles.length) {
+      events.push({
+        id: 'files-' + agent.id,
+        type: 'recent_files',
+        ts: agent.lastActiveAt,
+        files: agent.recentFiles.map((f) => ({ name: f.name, path: f.path, type: f.type, mtime: f.mtime }))
+      });
+    }
+    return sendJson(res, 200, {
+      ok: true,
+      id: agent.id,
+      source: agent.source,
+      agentId: agent.agentId,
+      label: agent.label,
+      status: agent.status,
+      canSendFollowup: false,
+      events: events.slice(0, limit),
+      eventCount: events.length,
+      note: 'B2A: read-only snapshot; full history in B2B'
     }), true;
   }
 
@@ -2054,7 +2831,8 @@ async function handleMobileApiV2A(req, res, url) {
   // Phase UI-A8-6：SSE 流式 Agent 响应
   // 请求体与 /api/mobile/agent/send 相同
   // 响应 Content-Type: text/event-stream
-  // 事件类型: start / session / step / delta / message / error / done
+  // 事件类型: start / session / meta / thought / message_delta / command_start
+  // / command_update / command_end / command_count / status / final / error / done
   if (req.method === 'POST' && pathOnly === '/api/mobile/agent/stream') {
     const t = await requireMobileAuth(req, res); if (!t) return true;
     let body;
@@ -2128,6 +2906,17 @@ async function handleMobileApiV2A(req, res, url) {
 
     // 发送 session 事件
     sseEmit('session', { sessionId: sessionId, created: !((body && body.sessionId) && sessionId === body.sessionId) });
+    const runStartedAt = Date.now();
+    await mobileSessions.appendMessageToMobileSession(sessionId, {
+      role: 'user',
+      text: message,
+      status: 'sent',
+      ts: runStartedAt,
+      approvalId: ''
+    }).catch(() => ({ ok: false }));
+    await mobileSessions.setSessionStatus(sessionId, 'running', {
+      lastRunStartedAt: runStartedAt
+    }).catch(() => ({ ok: false }));
 
     // redline audit（不阻塞）
     try {
@@ -2150,6 +2939,8 @@ async function handleMobileApiV2A(req, res, url) {
     // 客户端断开时 abort
     req.on('close', () => { abortController.abort(); });
 
+    let finalText = '';
+    let finalStatus = 'done';
     try {
       await mobileAgentRunner.runMobileAgentStream({
         agentId: agentId,
@@ -2161,12 +2952,53 @@ async function handleMobileApiV2A(req, res, url) {
         signal: signal
       }, function emit(eventType, data) {
         if (signal.aborted) return;
+        if (eventType === 'final') {
+          finalText = data && (data.text || data.content) ? String(data.text || data.content) : finalText;
+        } else if (eventType === 'done') {
+          finalStatus = data && data.status === 'failed' ? 'failed' : 'done';
+          finalText = data && data.message && data.message.content ? String(data.message.content) : finalText;
+        } else if (eventType === 'error') {
+          finalStatus = 'failed';
+          finalText = data && (data.text || data.message) ? String(data.text || data.message) : 'Agent 响应过程中出现错误，请稍后再试。';
+        }
         sseEmit(eventType, data);
       });
     } catch (e) {
       if (!signal.aborted) {
+        finalStatus = 'failed';
+        finalText = 'Agent 响应过程中出现错误，请稍后再试。';
         sseEmit('error', { error: 'stream_error', message: 'Agent 响应过程中出现错误，请稍后再试。' });
       }
+    }
+
+    if (!signal.aborted) {
+      const endedAt = Date.now();
+      if (finalText) {
+        await mobileSessions.appendMessageToMobileSession(sessionId, {
+          role: 'agent',
+          text: finalText,
+          status: finalStatus,
+          ts: endedAt,
+          approvalId: '',
+          agentId: agentId
+        }).catch(() => ({ ok: false }));
+      }
+      await mobileSessions.setSessionStatus(sessionId, finalStatus, {
+        lastRunDurationMs: endedAt - runStartedAt,
+        lastRunAgent: agentId
+      }).catch(() => ({ ok: false }));
+      await mobileSessions.recordMobileUsage({
+        sessionId,
+        agentId,
+        cwd,
+        cwdLabel: cwd ? path.basename(cwd) || cwd : '',
+        startedAt: runStartedAt,
+        endedAt,
+        durationMs: endedAt - runStartedAt,
+        inputChars: message.length,
+        outputChars: finalText.length,
+        status: finalStatus
+      }).catch(() => ({ ok: false }));
     }
 
     // 结束响应
@@ -2252,6 +3084,50 @@ async function handleRequest(req, res) {
 
   const pathOnly = url.split('?')[0];
 
+  // -------- 公开端点：mobile info（LAN-only，不需要 token，不泄露 token）--------
+  if (req.method === 'GET' && pathOnly === '/api/mobile/info') {
+    const cfg = await getConfig();
+    const status = await publicStatus();
+    const authToken = getAuthToken(req);
+    let auth = { paired: false, deviceId: '', deviceName: '', scopes: [] };
+    if (authToken) {
+      const t = await validateToken(authToken);
+      if (!t.ok) return sendMobileError(res, 401, 'unauthorized', 'A valid mobile bearer token is required.');
+      auth = {
+        paired: true,
+        deviceId: t.device && t.device.id || '',
+        deviceName: t.device && t.device.deviceName || '',
+        scopes: Array.isArray(t.device && t.device.scopes) ? t.device.scopes : []
+      };
+    }
+    return sendJson(res, 200, {
+      ok: true,
+      server: {
+        name: 'FanBox Windows Edition',
+        version: '2.4.0',
+        platform: process.platform,
+        enabled: cfg.enabled,
+        port: cfg.port,
+        serverId: cfg.serverId,
+        primaryLanUrl: status.primaryLanUrl || null,
+        lanOnly: true
+      },
+      pairing: {
+        active: !!status.pairing,
+        expiresAt: status.pairCodeExpiresAt || 0
+      },
+      auth,
+      deviceName: auth.deviceName || '',
+      features: mobileFeatures(),
+      connection: {
+        transport: 'http+sse',
+        state: 'connected',
+        capabilities: mobileConnectionCapabilities()
+      },
+      meta: mobileContractMeta('public-info')
+    });
+  }
+
   // -------- 公开端点：/mobile 静态资源（不需 token）--------
   // 1) 主页：/mobile 或 /mobile/
   if (req.method === 'GET' && (pathOnly === '/mobile' || pathOnly === '/mobile/')) {
@@ -2316,6 +3192,10 @@ async function handleRequest(req, res) {
     if (!t.ok) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
     const u = new URL(url, 'http://x');
     const p = u.searchParams.get('path') || HOME;
+    if (p === '__fanbox_this_pc__') {
+      const roots = mobileAllowedRoots();
+      return sendJson(res, 200, { ok: true, path: '__fanbox_this_pc__', items: roots });
+    }
     const r = await listDirSafe(p);
     if (!r.ok) {
       const code_ = (r.error === 'forbidden_path' || r.error === 'path_not_allowed') ? 403 : 400;
@@ -2485,6 +3365,14 @@ module.exports = {
   MAX_THUMB_WIDTH_DEFAULT,
   MAX_THUMB_WIDTH_HARD,
   SKILL_DESC_CUT_MOBILE,
+  // Phase B2A
+  DESKTOP_AGENT_TAIL_MAX,
+  DESKTOP_AGENT_MAX_RECENT_FILES,
+  setDesktopTerminalProvider,
+  buildDesktopContinuableAgents,
+  stripAnsi,
+  scrubSecrets,
+  detectAgentFromProc,
   // LAN
   isLanIp,
   isLoopbackIp,
