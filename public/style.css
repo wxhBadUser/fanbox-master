@@ -261,6 +261,124 @@ body {
 [data-theme="soft"] .xterm .xterm-viewport,
 [data-theme="soft"] .xterm .xterm-screen { background: #fbf4ea !important; }
 [data-theme="soft"] .xterm .xterm-selection div { background: rgba(220, 132, 82, 0.18) !important; }
+/* 柔白主题：会话下拉高亮、对话名、跟随文件归属 */
+[data-theme="soft"] .terminal-session-menu {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+[data-theme="soft"] .terminal-session-menu .session-menu-head,
+[data-theme="soft"] .terminal-session-menu .section-head {
+  padding: 6px 8px 4px;
+  font-size: 11px;
+  color: #aa968b;
+}
+[data-theme="soft"] .terminal-session-menu .session-menu-item {
+  position: relative;
+  align-items: center;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+}
+[data-theme="soft"] .terminal-session-menu .session-menu-item:hover {
+  background: rgba(220, 132, 82, 0.11);
+}
+[data-theme="soft"] .terminal-session-menu .session-menu-item.active {
+  background: rgba(220, 132, 82, 0.16);
+  border-color: rgba(205, 111, 72, 0.30);
+  box-shadow: inset 3px 0 0 #c67a4c;
+}
+[data-theme="soft"] .terminal-session-menu .session-menu-item.is-follow::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 14px;
+  border-radius: 0 2px 2px 0;
+  background: #c67a4c;
+}
+[data-theme="soft"] .terminal-session-menu .session-menu-item.is-follow.active {
+  background: rgba(220, 132, 82, 0.20);
+}
+[data-theme="soft"] .terminal-session-menu .session-menu-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+[data-theme="soft"] .terminal-session-menu .session-menu-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #33251f;
+}
+[data-theme="soft"] .terminal-session-menu .session-menu-item.active .session-menu-name {
+  color: #2a1d17;
+}
+[data-theme="soft"] .terminal-session-menu .session-menu-cwd {
+  font-size: 11.5px;
+  color: #8b766b;
+}
+[data-theme="soft"] .terminal-session-menu .session-menu-state {
+  font-size: 11px;
+  color: #aa968b;
+}
+[data-theme="soft"] .terminal-session-menu .session-menu-close {
+  color: #aa968b;
+}
+[data-theme="soft"] .terminal-session-menu .session-menu-close:hover {
+  color: #9a5934;
+  background: rgba(220, 132, 82, 0.18);
+}
+[data-theme="soft"] .terminal-session-menu .follow-info {
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+[data-theme="soft"] .terminal-session-menu .follow-info.follow-active {
+  background: rgba(220, 132, 82, 0.10);
+  border: 1px solid rgba(205, 111, 72, 0.22);
+}
+[data-theme="soft"] .terminal-session-menu .follow-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fffaf4;
+  background: #c67a4c;
+  padding: 1px 6px;
+  border-radius: 99px;
+  margin-right: 8px;
+}
+[data-theme="soft"] .terminal-session-menu .follow-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #33251f;
+}
+[data-theme="soft"] .terminal-session-menu .follow-agent-row {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: #8b766b;
+}
+[data-theme="soft"] .terminal-session-menu .follow-files-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 4px;
+  margin: 0 0 2px;
+  border-radius: 8px;
+  background: rgba(220, 132, 82, 0.08);
+}
+[data-theme="soft"] .terminal-session-menu .ffs-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #33251f;
+}
+[data-theme="soft"] .terminal-session-menu .ffs-agent {
+  font-size: 11px;
+  color: #8b766b;
+}
 [data-theme="soft"] .term-tab .tab-dot.busy { background: #63ad86; }
 [data-theme="soft"] .term-tab .tab-dot.idle { opacity: 0.38; }
 [data-theme="soft"] .mobile-access {

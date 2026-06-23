@@ -3259,8 +3259,8 @@ const term = {
     },
     soft: {
       background: '#fbf4ea', foreground: '#33251f', cursor: '#c86f43', cursorAccent: '#fffaf4', selectionBackground: '#dc845238',
-      black: '#33251f', red: '#b95043', green: '#43895a', yellow: '#b7791f', blue: '#4f6f9f', magenta: '#8a5a96', cyan: '#4f8a8b', white: '#f7efe4',
-      brightBlack: '#8b766b', brightRed: '#c75c4f', brightGreen: '#4f9d69', brightYellow: '#c88a2a', brightBlue: '#607fb2', brightMagenta: '#9b6aaa', brightCyan: '#5aa0a2', brightWhite: '#fffaf4',
+      black: '#3d3833', red: '#b95043', green: '#43895a', yellow: '#b7791f', blue: '#4f6f9f', magenta: '#8a5a96', cyan: '#4f8a8b', white: '#f7efe4',
+      brightBlack: '#8f837a', brightRed: '#c75c4f', brightGreen: '#4f9d69', brightYellow: '#c88a2a', brightBlue: '#607fb2', brightMagenta: '#9b6aaa', brightCyan: '#5aa0a2', brightWhite: '#fffaf4',
     },
   },
   theme() { return this.themes[state.theme] || this.themes.terminal; },
@@ -3915,6 +3915,26 @@ const term = {
     const p = (s && (s.cwd || s.startDir)) || '';
     return p ? (baseOf(p) || p.replace(state.home, '~')) : '未定位目录';
   },
+  // 统一的会话显示标题：优先真实对话名，其次 Agent + 目录，最后目录名
+  sessionDisplayTitle(s) {
+    if (!s) return '未命名对话';
+    const cwdName = this.sessionPlace(s);
+    const agent = s.agent || '';
+    // 如果 title 不是简单的 cwd 名，就当作真实对话名
+    if (s.title && s.title !== cwdName && s.title !== 'shell') return escapeHtml(s.title);
+    if (agent && agent !== 'Terminal') return escapeHtml(`${agent} · ${cwdName}`);
+    return escapeHtml(cwdName);
+  },
+  // Agent 标签：Claude Code / Codex / Qoder / OpenCode / Terminal，同目录同 Agent 时加 #n
+  sessionAgentLabel(s) {
+    if (!s) return 'Terminal';
+    const baseAgent = s.agent || 'Terminal';
+    const sameKey = baseOf(s.cwd || s.startDir || '') + '|' + baseAgent;
+    const sameCount = this.sessions.filter((x) => (baseOf(x.cwd || x.startDir || '') + '|' + (x.agent || 'Terminal')) === sameKey).length;
+    if (sameCount <= 1) return baseAgent;
+    const idx = this.sessions.filter((x) => (baseOf(x.cwd || x.startDir || '') + '|' + (x.agent || 'Terminal')) === sameKey && this.sessions.indexOf(x) <= this.sessions.indexOf(s)).length;
+    return `${baseAgent} #${idx}`;
+  },
   updateSessionSwitcher() {
     const btn = $('#terminal-session-switcher');
     const title = $('#terminal-session-title');
@@ -3935,39 +3955,30 @@ const term = {
     let h = '<div class="session-menu-head">当前打开的终端</div>';
     this.sessions.forEach((s) => {
       const ac = s.id === this.active ? ' active' : '';
+      const fo = follow.on && s.id === follow.sid ? ' is-follow' : '';
       const st = `session-dot ${this.sessionState(s)}`;
-      const name = escapeHtml(s.title || 'shell');
-            const baseAgent = s.agent ? s.agent : 'Terminal';
-      // 同项目同 agent 编号（#1 / #2 ...）
-      let agentLabel = baseAgent;
-      const sameKey = baseOf(s.cwd || s.startDir || '') + '|' + baseAgent;
-      const sameCount = this.sessions.filter((x) => (baseOf(x.cwd || x.startDir || '') + '|' + (x.agent || 'Terminal')) === sameKey).length;
-      if (sameCount > 1) {
-        const idx = this.sessions.filter((x) => (baseOf(x.cwd || x.startDir || '') + '|' + (x.agent || 'Terminal')) === sameKey && this.sessions.indexOf(x) <= this.sessions.indexOf(s)).length;
-        agentLabel += ' #' + idx;
-      }
-      const subtitle = escapeHtml(agentLabel);
+      const title = this.sessionDisplayTitle(s);
+      const agent = escapeHtml(this.sessionAgentLabel(s));
       const label = escapeHtml(this.sessionStateLabel(s));
-      h += `<button type="button" class="session-menu-item${ac}" data-sid="${s.id}"><span class="${st}"></span><span><span class="session-menu-name">${name}</span><span class="session-menu-cwd">${subtitle}</span></span><span class="session-menu-state">${label}</span><span class="session-menu-close" data-close="${s.id}" title="关闭此终端">✕</span></button>`;
+      h += `<button type="button" class="session-menu-item${ac}${fo}" data-sid="${s.id}">
+        <span class="${st}"></span>
+        <span class="session-menu-main"><span class="session-menu-name">${title}</span><span class="session-menu-cwd">${agent}</span></span>
+        <span class="session-menu-state">${label}</span>
+        <span class="session-menu-close" data-close="${s.id}" title="关闭此终端">✕</span>
+      </button>`;
     });
-    // 跟随状态
+    // 当前跟随
     const fol = follow.on && follow.sid;
     h += '<hr class="session-section-divider">';
     h += '<div class="section-head">当前跟随</div>';
     if (fol) {
       const s = this.sessions.find((x) => x.id === follow.sid);
-      const baseFollowAgent = s ? (s.agent || 'Terminal') : '—';
-      let followLabel = baseFollowAgent;
-      if (s && s.agent) {
-        const key = baseOf(s.cwd || s.startDir || '') + '|' + s.agent;
-        const sameCount = this.sessions.filter((x) => (baseOf(x.cwd || x.startDir || '') + '|' + (x.agent || 'Terminal')) === key).length;
-        if (sameCount > 1) {
-          const idx = this.sessions.filter((x) => (baseOf(x.cwd || x.startDir || '') + '|' + (x.agent || 'Terminal')) === key && this.sessions.indexOf(x) <= this.sessions.indexOf(s)).length;
-          followLabel = s.agent + ' #' + idx;
-        }
-      }
-      const label = s ? escapeHtml(followLabel) : '—';
-      h += `<div class="follow-info follow-active">正在跟随：<span class="follow-label">${label}</span><span class="fn-sep">/</span>正在关注文件改动</div>`;
+      const title = s ? this.sessionDisplayTitle(s) : '未知对话';
+      const agent = s ? escapeHtml(this.sessionAgentLabel(s)) : '—';
+      h += `<div class="follow-info follow-active">
+        <div class="follow-title-row"><span class="follow-tag">正在跟随</span><span class="follow-name">${title}</span></div>
+        <div class="follow-agent-row">${agent}</div>
+      </div>`;
     } else {
       h += '<div class="follow-info">当前未跟随任何对话</div>';
     }
@@ -3976,7 +3987,12 @@ const term = {
     h += '<hr class="session-section-divider">';
     h += '<div class="section-head">跟随中的文件改动</div>';
     if (fol) {
-      if (changedFiles.length) {
+      const s = this.sessions.find((x) => x.id === follow.sid);
+      if (s && changedFiles.length) {
+        h += `<div class="follow-files-head">
+          <span class="ffs-title">${this.sessionDisplayTitle(s)}</span>
+          <span class="ffs-agent">${escapeHtml(this.sessionAgentLabel(s))}</span>
+        </div>`;
         changedFiles.forEach((f) => {
           const expanded = menu._expandedFile === f.path ? 'expanded' : '';
           const arrow = menu._expandedFile === f.path ? '▾' : '▸';
