@@ -345,6 +345,85 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// 根据用户第一句话生成简短会话标题；不调用 AI，只用本地规则
+function titleFromFirstUserMessage(text) {
+  const raw = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+  const isChinese = /[\u4e00-\u9fa5]/.test(raw);
+
+  // 去掉礼貌前缀/语气词
+  let t = raw
+    .replace(/^(请|麻烦|帮我|请你|希望|现在|当前|我想|我要|我需要|我想要|能否|可否|可以|请帮我|请帮我一下|请帮我个忙)\s*/i, '')
+    .replace(/^\s*(please|can you|could you|i want|i need|i would like|would you|will you|could you please|can you please)\s*/i, '')
+    .replace(/^\s*(分析一下|分析|看看|看一下|看一下这个|看一下下面|帮我看看|帮我分析|帮我处理|帮我解决|帮我修复|帮我优化|帮我创建|帮我生成|帮我写|帮我做|帮我添加|帮我实现|帮我重载|帮我重构)\s*/i, '')
+    .replace(/^\s*(analyze|look at|look into|check|check out|review|help me|help us|handle|fix|solve|resolve|optimize|create|generate|write|make|add|implement|refactor)\s*/i, '')
+    .replace(/[\s。，！？;?]+$/, '')
+    .trim();
+  if (!t) t = raw;
+
+  // 中文：按关键词映射动作
+  const actionMapCN = [
+    { re: /初始化|创建|生成|写一个标准的最佳|新建/, out: '初始化' },
+    { re: /分析|了解|理解|查看|梳理|探索|调查/, out: '分析' },
+    { re: /修复|解决|处理|报错|bug|失败|错误|崩溃|异常/, out: '修复' },
+    { re: /优化|改进|提升|性能|加速/, out: '优化' },
+    { re: /添加|增加|实现|引入|集成|支持/, out: '添加' },
+    { re: /重构|改写|重写|整理|调整/, out: '重构' },
+    { re: /测试|验证|检查|排查/, out: '测试' },
+  ];
+  let actionCN = '';
+  for (const m of actionMapCN) {
+    if (m.re.test(t)) { actionCN = m.out; break; }
+  }
+
+  // 提取文件名（含扩展名）
+  const fileMatch = t.match(/([A-Za-z0-9_\-\.\/]+\.(?:md|markdown|js|ts|jsx|tsx|vue|html|css|scss|json|py|java|go|rs|rb|php|cs|cpp|c|h|sh|ps1|txt|yml|yaml|xml|sql))/i);
+  const fileName = fileMatch ? fileMatch[1].split('/').pop() : '';
+
+  if (isChinese) {
+    let title = actionCN;
+    if (fileName) title = (title ? title + ' ' : '') + fileName;
+    if (!title) title = t.slice(0, 18);
+    if (title.length > 18) title = title.slice(0, 18).replace(/\s+$/, '') + '…';
+    return title || raw.slice(0, 18);
+  }
+
+  // 英文：动词 + 宾语
+  const actionMapEN = [
+    { re: /^(initialize|init|create|generate|write|build|setup|set up)\b/i, out: 'Create' },
+    { re: /^(analyze|analyse|understand|explore|review|investigate|examine|study)\b/i, out: 'Analyze' },
+    { re: /^(fix|resolve|solve|repair|debug|handle|address)\b/i, out: 'Fix' },
+    { re: /^(optimize|improve|enhance|boost|performance)\b/i, out: 'Optimize' },
+    { re: /^(add|implement|introduce|integrate|support)\b/i, out: 'Add' },
+    { re: /^(refactor|rewrite|restructure|reorganize|clean up)\b/i, out: 'Refactor' },
+    { re: /^(test|verify|validate|check)\b/i, out: 'Test' },
+  ];
+  let actionEN = '';
+  for (const m of actionMapEN) {
+    if (m.re.test(t)) { actionEN = m.out; break; }
+  }
+  if (!actionEN) {
+    const firstWord = t.match(/^([A-Za-z]+)/);
+    actionEN = firstWord ? (firstWord[1][0].toUpperCase() + firstWord[1].slice(1).toLowerCase()) : '';
+  }
+
+  // 英文宾语：文件名 或 前几个有意义的词
+  let objectEN = '';
+  if (fileName) objectEN = fileName;
+  else {
+    const words = t.replace(/[^A-Za-z0-9\-_\s]/g, ' ').split(/\s+/).filter(Boolean);
+    const skip = new Set(['a', 'an', 'the', 'this', 'that', 'these', 'those', 'is', 'are', 'was', 'were', 'to', 'for', 'of', 'in', 'on', 'with', 'and', 'or', 'from', 'by', 'my', 'our', 'me', 'us', 'it', 'its']);
+    const meaningful = words.filter((w) => !skip.has(w.toLowerCase()));
+    objectEN = meaningful.slice(0, 4).join(' ');
+  }
+
+  let titleEN = actionEN + (objectEN ? ' ' + objectEN : '');
+  const wordsEN = titleEN.split(/\s+/).filter(Boolean);
+  if (wordsEN.length > 6) titleEN = wordsEN.slice(0, 6).join(' ') + '…';
+  if (titleEN.length > 48) titleEN = titleEN.slice(0, 48).replace(/\s+$/, '') + '…';
+  return titleEN || raw.slice(0, 30);
+}
+
 // ---------- 未保存守卫 ----------
 // 文本/图片编辑期间，离开当前编辑器（点别的文件、跳目录、关预览）都要先确认，
 // 否则会静默丢掉改动。dirtyCheck 在进入编辑器时挂上，保存/确认离开后清空。
@@ -3258,9 +3337,9 @@ const term = {
       brightBlack: '#57534a', brightRed: '#e8302a', brightGreen: '#00a33e', brightYellow: '#a67c00', brightBlue: '#2222dd', brightMagenta: '#b03aa0', brightCyan: '#008a9a', brightWhite: '#0a0a0a',
     },
     soft: {
-      background: '#fbf4ea', foreground: '#33251f', cursor: '#c86f43', cursorAccent: '#fffaf4', selectionBackground: '#dc845238',
-      black: '#3d3833', red: '#b95043', green: '#43895a', yellow: '#b7791f', blue: '#4f6f9f', magenta: '#8a5a96', cyan: '#4f8a8b', white: '#f7efe4',
-      brightBlack: '#8f837a', brightRed: '#c75c4f', brightGreen: '#4f9d69', brightYellow: '#c88a2a', brightBlue: '#607fb2', brightMagenta: '#9b6aaa', brightCyan: '#5aa0a2', brightWhite: '#fffaf4',
+      background: '#fbfcf8', foreground: '#2f332d', cursor: '#7d9270', cursorAccent: '#fbfcf8', selectionBackground: '#7d927038',
+      black: '#3e433b', red: '#b45b52', green: '#5f8f69', yellow: '#a67c3d', blue: '#5f7798', magenta: '#8a6f8f', cyan: '#5d8a86', white: '#f8faf6',
+      brightBlack: '#7f8878', brightRed: '#c66b61', brightGreen: '#6fa77a', brightYellow: '#b9914c', brightBlue: '#728bab', brightMagenta: '#9b80a2', brightCyan: '#6e9f9a', brightWhite: '#ffffff',
     },
   },
   theme() { return this.themes[state.theme] || this.themes.terminal; },
@@ -3622,7 +3701,7 @@ const term = {
       } catch { /* 回退默认 DOM renderer */ }
     }
     if (fit) try { fit.fit(); } catch { /* */ }
-    const sess = { id, xterm, fit, host, dead: false, status: 'idle', unread: false, startDir, title: baseOf(startDir || '') || 'shell', agent: '' };
+    const sess = { id, xterm, fit, host, dead: false, status: 'idle', unread: false, startDir, title: baseOf(startDir || '') || 'shell', agent: '', inputBuffer: '', firstUserMessage: '', chatTitle: '' };
     this.sessions.push(sess);
     this.activate(id);
     updateWatches(); // 新终端的项目目录也纳入监听
@@ -3631,6 +3710,7 @@ const term = {
     else sess.cwd = r.cwd || startDir; // 末尾 renderTabs 统一带上 cwd 重画
     xterm.onData((d) => {
       if (sess.dead) { if (d === '\r' || d === '\n') this.respawn(sess); return; } // 进程退出后回车真重开
+      this.captureInputLine(sess, d);
       this.input(id, d);
     });
     // Ctrl+V 粘贴：拦截终端区域的 Ctrl+V，智能识别图片/文本
@@ -3915,15 +3995,17 @@ const term = {
     const p = (s && (s.cwd || s.startDir)) || '';
     return p ? (baseOf(p) || p.replace(state.home, '~')) : '未定位目录';
   },
-  // 统一的会话显示标题：优先真实对话名，其次 Agent + 目录，最后目录名
+  // 统一的会话显示标题：
+  // 1) 自定义标题 / 由 firstUserMessage 生成的 chatTitle
+  // 2) Agent + cwd（fallback，用户不想再优先看到这个）
+  // 3) cwd 名
   sessionDisplayTitle(s) {
     if (!s) return '未命名对话';
-    const cwdName = this.sessionPlace(s);
+    if (s.chatTitle) return escapeHtml(s.chatTitle);
+    if (s.title && s.title !== this.sessionPlace(s) && s.title !== 'shell') return escapeHtml(s.title);
     const agent = s.agent || '';
-    // 如果 title 不是简单的 cwd 名，就当作真实对话名
-    if (s.title && s.title !== cwdName && s.title !== 'shell') return escapeHtml(s.title);
-    if (agent && agent !== 'Terminal') return escapeHtml(`${agent} · ${cwdName}`);
-    return escapeHtml(cwdName);
+    if (agent && agent !== 'Terminal') return escapeHtml(`${agent} · ${this.sessionPlace(s)}`);
+    return escapeHtml(this.sessionPlace(s));
   },
   // Agent 标签：Claude Code / Codex / Qoder / OpenCode / Terminal，同目录同 Agent 时加 #n
   sessionAgentLabel(s) {
@@ -3935,15 +4017,47 @@ const term = {
     const idx = this.sessions.filter((x) => (baseOf(x.cwd || x.startDir || '') + '|' + (x.agent || 'Terminal')) === sameKey && this.sessions.indexOf(x) <= this.sessions.indexOf(s)).length;
     return `${baseAgent} #${idx}`;
   },
+  // 记录用户第一次真实输入，用于生成会话标题
+  captureInputLine(s, d) {
+    if (!s || s.firstUserMessage) return;
+    if (!s.inputBuffer) s.inputBuffer = '';
+    // 忽略 bracketed paste 内容（通常是代码/长文本，不是请求）
+    if (d.includes('\x1b[200~') || d.includes('\x1b[201~')) return;
+    for (let i = 0; i < d.length; i++) {
+      const ch = d[i];
+      const code = ch.charCodeAt(0);
+      if (ch === '\r' || ch === '\n') {
+        this.finalizeInputLine(s);
+        s.inputBuffer = '';
+      } else if (code === 127 || code === 8) {
+        s.inputBuffer = s.inputBuffer.slice(0, -1);
+      } else if (code >= 32 && code !== 127) {
+        s.inputBuffer += ch;
+      }
+    }
+  },
+  finalizeInputLine(s) {
+    if (!s || s.firstUserMessage) return;
+    const line = s.inputBuffer.trim();
+    if (!line || line.length < 2) return;
+    // 忽略 agent 启动命令本身，从“第一条真实请求”开始记录
+    const low = line.toLowerCase();
+    if (/^(claude|codex|qoder|opencode)(?:\.exe)?(?:\s+.*)?$/.test(low)) return;
+    s.firstUserMessage = line;
+    s.chatTitle = titleFromFirstUserMessage(line);
+    this.updateSessionSwitcher();
+    const menu = $('#terminal-session-menu');
+    if (menu && !menu.classList.contains('hidden')) this.renderSessionMenu();
+  },
   updateSessionSwitcher() {
     const btn = $('#terminal-session-switcher');
     const title = $('#terminal-session-title');
     if (!btn || !title) return;
     const cur = this.sessions.find((x) => x.id === this.active);
-    title.textContent = cur ? (cur.title || this.sessionPlace(cur) || '会话') : '会话';
+    title.textContent = cur ? (this.sessionDisplayTitle(cur) || '会话') : '会话';
     const dot = btn.querySelector('.session-dot');
     if (dot) dot.className = 'session-dot ' + this.sessionState(cur);
-    btn.title = cur ? `当前会话：${cur.title || 'shell'} · ${this.sessionPlace(cur)}` : '选择终端会话';
+    btn.title = cur ? `当前会话：${this.sessionDisplayTitle(cur)} · ${this.sessionAgentLabel(cur)}` : '选择终端会话';
   },
   renderSessionMenu() {
     const menu = $('#terminal-session-menu');
@@ -5191,7 +5305,7 @@ function setFileFollow(on, offMsg) {
     follow.sid = sid;
     const s = term.sessions.find((x) => x.id === sid);
     if (s) term.refreshCwd(s, true).catch(() => {}); // 立刻校准 cwd，scope 从第一笔就准（不靠回车后的延迟轮询）
-    follow.label = s ? (baseOf(s.cwd || s.startDir || '') || s.title || '') : '';
+    follow.label = s ? (s.chatTitle || baseOf(s.cwd || s.startDir || '') || s.title || '') : '';
 	      follow.agent = s ? (s.title && s.title.indexOf('Claude') >= 0 ? 'Claude Code' : s.title && s.title.indexOf('Codex') >= 0 ? 'Codex' : s.title && s.title.indexOf('opencode') >= 0 ? 'OpenCode' : s.title && s.title.indexOf('qoder') >= 0 ? 'Qoder' : 'agent') : 'agent';
   } else {
     follow.sid = null; follow.label = ''; // 浏览器版无终端：维持旧口径（全跟）
