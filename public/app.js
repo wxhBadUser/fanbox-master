@@ -649,7 +649,7 @@ function renderStatusbar() {
   const files = list.length - dirs;
   const bytes = list.reduce((a, e) => a + (e.isDir ? 0 : e.size || 0), 0);
   sb.classList.remove('hidden');
-  sb.innerHTML = `<span>${list.length} 项${dirs ? ` · ${dirs} 文件夹` : ''}${files ? ` · ${files} 文件 ${fmtSize(bytes)}` : ''}</span><span class="sb-links">${state.project ? '<a id="sb-rel" title="版本号→CHANGELOG→打包→push→Release 一条龙，在终端跑">发版</a>' : ''}<a id="sb-mem" title="这个文件夹里 AI 干过什么：历史会话、改过的文件、一键续上">项目记忆</a><a id="sb-du" data-testid="btn-disk-usage" title="算上子目录的真实磁盘占用">占用透视</a></span>`;
+  sb.innerHTML = `<span>${list.length} 项${dirs ? ` · ${dirs} 文件夹` : ''}${files ? ` · ${files} 文件 ${fmtSize(bytes)}` : ''}</span><span class="sb-links">${state.project ? '<a id="sb-rel" class="sb-entry" title="版本号→CHANGELOG→打包→push→Release 一条龙，在终端跑">🚀 发版</a>' : ''}<a id="sb-mem" class="sb-entry sb-entry-memory" title="这个文件夹里 AI 干过什么：历史会话、改过的文件、一键续上">✨ 项目记忆</a><a id="sb-du" class="sb-entry" data-testid="btn-disk-usage" title="算上子目录的真实磁盘占用">📊 占用透视</a></span>`;
   $('#sb-du').onclick = () => diskPanel(state.cwd);
   $('#sb-mem').onclick = () => memoryPanel(state.cwd);
   const rel = $('#sb-rel'); if (rel) rel.onclick = () => releasePanel();
@@ -1986,8 +1986,41 @@ async function memoryPanel(dirPath) {
 // AI 整理：一键在内嵌终端拉起交互式 agent（claude/codex）对话式整理。
 // 翻箱只备料——把整理偏好、过往整理历史、工作约定写成 brief 文件，agent 读完先摊方案，
 // 你在终端里对话确认/调整后它才动手；每批移动写回滚日志，想撤销在对话里说一声就行
+async function chooseOrganizeAgent(dirPath) {
+  const ov = document.createElement('div');
+  ov.className = 'input-overlay organize-overlay';
+  ov.innerHTML = `<div class="input-dialog organize-dialog">
+    <div class="input-title">AI 整理 · ${escapeHtml(dirPath.replace(state.home, '~'))}</div>
+    <div class="organize-body"><div class="cmdk-loading">检测本机 Agent…</div></div>
+    <div class="input-actions"><button class="ghost-btn" data-act="cancel">取消</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+  const body = ov.querySelector('.organize-body');
+  return new Promise((resolve) => {
+    const close = (value) => { ov.remove(); document.removeEventListener('keydown', onKey, true); resolve(value); };
+    const onKey = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); close(null); } };
+    document.addEventListener('keydown', onKey, true);
+    ov.onclick = (ev) => { if (ev.target === ov) close(null); };
+    ov.querySelector('[data-act=cancel]').onclick = () => close(null);
+    api('/api/agents/detect').catch(() => ({ ok: false, agents: [] })).then((result) => {
+      const agents = result.agents || [];
+      body.innerHTML = `<div class="organize-hint">选择一个可用 Agent。未检测到的 Agent 不会影响其它 Agent 使用。</div>
+        <div class="organize-agents">${agents.map((a) => `
+          <button class="organize-agent${a.available ? '' : ' unavailable'}${a.available && !['claude', 'codex'].includes(a.id) ? ' unsupported' : ''}" data-agent="${escapeHtml(a.id)}" ${a.available && ['claude', 'codex'].includes(a.id) ? '' : 'disabled'} title="${escapeHtml(a.available ? (['claude', 'codex'].includes(a.id) ? '可用' : '已检测到，AI 整理本轮先支持 Claude Code / Codex') : (a.reason || '未检测到命令，请确认已安装并在 PATH 中可见'))}">
+            <span class="organize-agent-name">${escapeHtml(a.label)}</span>
+            <span class="organize-agent-state">${a.available ? '可用' : '未检测到'}</span>
+          </button>`).join('')}</div>`;
+    ov.querySelectorAll('.organize-agent:not(.unavailable)').forEach((btn) => {
+        btn.onclick = () => close(btn.dataset.agent);
+      });
+    });
+  });
+}
+
 async function organizeLaunch(dirPath) {
-  const r = await apiPost('/api/organize/launch', { path: dirPath });
+  const engine = await chooseOrganizeAgent(dirPath);
+  if (!engine) return;
+  const r = await apiPost('/api/organize/launch', { path: dirPath, engine });
   if (!r.ok) { toast(r.error || 'AI 整理启动失败', true); return; }
   term.runInDir(dirPath, r.cmd, `${r.engine === 'codex' ? 'Codex' : 'Claude'} 已开聊——先摊方案，你点头它才动手`);
 }

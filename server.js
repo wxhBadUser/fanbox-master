@@ -685,11 +685,93 @@ const DEFAULT_ORGANIZE_STRATEGY = `- 默认归档：过时/低频的文件移入
 - 文件夹一律不动，只整理松散文件
 - 拿不准的单独列出来问，宁可少动不要乱动`;
 
+const AGENT_CLI = {
+  claude: { id: 'claude', label: 'Claude Code', bins: ['claude'] },
+  codex: { id: 'codex', label: 'Codex', bins: ['codex'] },
+  opencode: { id: 'opencode', label: 'OpenCode', bins: ['opencode'] },
+  qoder: { id: 'qoder', label: 'Qoder', bins: ['qoder', 'qodercli', 'qoder-cli'] },
+  aider: { id: 'aider', label: 'Aider', bins: ['aider'] },
+};
+
+function pathParts() {
+  const parts = [];
+  const add = (p) => { if (p && !parts.includes(p)) parts.push(p); };
+  String(process.env.PATH || '').split(path.delimiter).forEach(add);
+  if (PLATFORM === 'win32') {
+    add(path.join(HOME, '.npm-global'));
+    add(process.env.APPDATA && path.join(process.env.APPDATA, 'npm'));
+    add(path.join(HOME, 'AppData', 'Roaming', 'npm'));
+    add(path.join(HOME, '.local', 'bin'));
+    add(path.join(HOME, 'AppData', 'Local', 'pnpm'));
+    add(process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs'));
+    add(process.env.ProgramFiles && path.join(process.env.ProgramFiles, 'nodejs'));
+    add(process.env['ProgramFiles(x86)'] && path.join(process.env['ProgramFiles(x86)'], 'nodejs'));
+  } else {
+    add('/usr/local/bin');
+    add('/opt/homebrew/bin');
+    add(path.join(HOME, '.local', 'bin'));
+    add(path.join(HOME, '.npm-global', 'bin'));
+    add(path.join(HOME, '.bun', 'bin'));
+  }
+  return parts;
+}
+
+function commandCandidates(bin) {
+  if (path.isAbsolute(bin)) return [bin];
+  const suffixes = PLATFORM === 'win32' ? ['', '.cmd', '.exe'] : [''];
+  const out = [];
+  for (const dir of pathParts()) {
+    for (const suffix of suffixes) out.push(path.join(dir, bin + suffix));
+  }
+  return out;
+}
+
+async function verifyAgentCommand(file) {
+  const argsList = [['--version'], ['--help']];
+  for (const args of argsList) {
+    const ok = await new Promise((resolve) => {
+      execFile(file, args, { timeout: 5000, windowsHide: true, shell: PLATFORM === 'win32' }, (err) => resolve(!err));
+    });
+    if (ok) return true;
+  }
+  return false;
+}
+
+async function resolveAgentCommand(agentName) {
+  const agent = AGENT_CLI[agentName];
+  if (!agent) return { ok: false, id: agentName, label: agentName, error: 'unknown agent' };
+  let foundUnverified = null;
+  for (const bin of agent.bins) {
+    for (const file of commandCandidates(bin)) {
+      try {
+        const st = await fsp.stat(file);
+        if (!st.isFile()) continue;
+      } catch { continue; }
+      const verified = await verifyAgentCommand(file);
+      if (verified) return { ok: true, id: agent.id, label: agent.label, command: bin, path: file, verified, reason: 'available' };
+      foundUnverified = foundUnverified || { bin, file };
+    }
+  }
+  if (foundUnverified) {
+    return { ok: false, id: agent.id, label: agent.label, command: foundUnverified.bin, error: 'exec-failed', reason: '命令存在但执行失败，请检查 CLI 是否可正常运行' };
+  }
+  return { ok: false, id: agent.id, label: agent.label, error: 'not-found', reason: '未检测到命令，请确认已安装并在 PATH 中可见' };
+}
+
+async function detectAgents() {
+  const agents = [];
+  for (const id of Object.keys(AGENT_CLI)) {
+    const r = await resolveAgentCommand(id);
+    agents.push({ id, label: AGENT_CLI[id].label, available: !!r.ok, reason: r.reason || r.error || '', command: r.command || AGENT_CLI[id].bins[0] });
+  }
+  return { ok: true, agents };
+}
+
 // codex 各版本旗标常变（0.139 移除了 --full-auto）：按 --help 实测有什么用什么，
 // 全不认识就裸跑——退化成多几次审批确认，但不会因 unexpected argument 拉不起来
 async function codexOrganizeFlags(bin) {
   const help = await new Promise((resolve) => {
-    execFile(bin, ['--help'], { timeout: 8000 }, (err, stdout) => resolve(err ? '' : String(stdout)));
+    execFile(bin, ['--help'], { timeout: 8000, windowsHide: true, shell: PLATFORM === 'win32' }, (err, stdout) => resolve(err ? '' : String(stdout)));
   });
   if (help.includes('--full-auto')) return ' --full-auto';
   let flags = '';
@@ -697,16 +779,6 @@ async function codexOrganizeFlags(bin) {
   if (help.includes('--ask-for-approval')) flags += ' -a on-request';
   if (help.includes('--add-dir')) flags += ` --add-dir "${CONFIG_DIR}"`;
   return flags;
-}
-
-async function findAgentBin(name) {
-  // GUI 启动的 app 没有用户 shell 的 PATH，走登录 shell 找一次绝对路径
-  return new Promise((resolve) => {
-    execFile('/bin/zsh', ['-lc', `command -v ${name}`], { timeout: 8000 }, (err, stdout) => {
-      const out = String(stdout || '').trim().split('\n').pop();
-      resolve(!err && out && out.startsWith('/') ? out : null);
-    });
-  });
 }
 
 // 最近几次整理日志的一句话摘要，给 agent 当历史参照（日志由 agent 按 brief 约定写入）
@@ -730,13 +802,17 @@ async function organizeHistory() {
 async function organizeLaunch(b) {
   const dir = resolvePath(b.path);
   const cfg = await readConfig();
-  let engine = cfg.organizeEngine === 'codex' ? 'codex' : 'claude';
-  let bin = await findAgentBin(engine);
-  if (!bin) {
-    const alt = engine === 'claude' ? 'codex' : 'claude';
-    bin = await findAgentBin(alt);
-    if (bin) engine = alt;
-    else return { ok: false, error: '没找到 claude / codex 命令——AI 整理需要装其中一个 CLI' };
+  let engine = AGENT_CLI[b.engine] ? b.engine : (cfg.organizeEngine === 'codex' ? 'codex' : 'claude');
+  let resolved = await resolveAgentCommand(engine);
+  if (!resolved.ok) {
+    const fallbackOrder = engine === 'claude' ? ['codex'] : ['claude'];
+    for (const alt of fallbackOrder) {
+      const r = await resolveAgentCommand(alt);
+      if (r.ok) { engine = alt; resolved = r; break; }
+    }
+    if (!resolved.ok) {
+      return { ok: false, error: '没找到 claude / codex 命令——AI 整理需要装其中一个 CLI' };
+    }
   }
   const prefs = await fsp.readFile(ORGANIZE_PREFS_FILE, 'utf8').catch(() => '');
   const history = await organizeHistory();
@@ -771,7 +847,7 @@ ${history || '（还没有历史记录）'}
   const kickoff = `先完整读 ${ORGANIZE_BRIEF_FILE}，然后按里面的约定，和我对话式整理当前文件夹`;
   // claude 跳权限确认（动手前方案已过人）；codex 旗标按当前版本实测拼出
   const cmd = engine === 'codex'
-    ? `codex${await codexOrganizeFlags(bin)} "${kickoff}"`
+    ? `codex${await codexOrganizeFlags(resolved.path)} "${kickoff}"`
     : `claude --dangerously-skip-permissions "${kickoff}"`;
   return { ok: true, engine, cmd };
 }
@@ -2446,6 +2522,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/project-memory') {
       return sendJSON(res, 200, await projectMemory(url.searchParams.get('path')));
+    }
+    if (p === '/api/agents/detect') {
+      return sendJSON(res, 200, await detectAgents());
     }
     if (p === '/api/lang' && req.method === 'POST') {
       const b = await readBody(req);
