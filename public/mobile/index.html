@@ -75,46 +75,64 @@
         <span>New Chat</span>
       </button>
 
-      <nav class="sidebar-nav" aria-label="Workspace navigation">
-        <button class="sidebar-item is-active" data-go="home-cockpit" type="button" title="Home">
-          <span class="sidebar-item-icon" data-i="home"></span>
-          <span>Home</span>
-        </button>
-        <button class="sidebar-item" data-go="safety" type="button" title="Safety">
-          <span class="sidebar-item-icon" data-i="shield"></span>
-          <span>Safety</span>
-        </button>
-        <button class="sidebar-item" data-go="projects" type="button" title="Projects">
-          <span class="sidebar-item-icon" data-i="project"></span>
-          <span>Projects</span>
-        </button>
-        <button class="sidebar-item" data-go="files" type="button" title="Files">
-          <span class="sidebar-item-icon" data-i="files"></span>
-          <span>Files</span>
-        </button>
-        <button class="sidebar-item" data-go="home" type="button" title="Legacy Chat">
-          <span class="sidebar-item-icon" data-i="chat"></span>
-          <span>Legacy Chat</span>
-        </button>
-        <button class="sidebar-item" data-go="project" type="button" title="Legacy Project">
-          <span class="sidebar-item-icon" data-i="project"></span>
-          <span>Legacy Project</span>
-        </button>
-        <button class="sidebar-item" data-go="skills" type="button" title="Skills">
-          <span class="sidebar-item-icon" data-i="skills"></span>
-          <span>Skills</span>
-        </button>
-        <button class="sidebar-item" data-go="settings" type="button" title="Settings">
-          <span class="sidebar-item-icon" data-i="settings"></span>
-          <span>Settings</span>
-        </button>
-      </nav>
+      <!-- 已连接区 -->
+      <div class="sidebar-connected" id="sb-connected">
+        <span class="sidebar-connected-label">已连接</span>
+        <span class="sidebar-connected-name" id="sb-computer-name">—</span>
+      </div>
 
-      <div class="sidebar-section">
-        <div class="sidebar-h">
-          <span>Recent Sessions</span>
-        </div>
-        <div id="sidebar-sessions" class="sidebar-sessions" role="list" aria-label="Recent sessions"></div>
+      <!-- 正在运行区（desktop agents） -->
+      <div class="sidebar-section sidebar-running" id="sb-section-running">
+        <div class="sidebar-h"><span>正在运行</span></div>
+        <div class="sidebar-running-list" id="sb-running-list"></div>
+      </div>
+
+      <!-- 最近项目区（可展开项目树） -->
+      <div class="sidebar-section sidebar-projects">
+        <div class="sidebar-h"><span>最近项目</span></div>
+        <div class="sidebar-projects-list" id="sb-projects-list"></div>
+      </div>
+
+      <!-- More/Debug 折叠区（隐藏旧功能，代码全部保留） -->
+      <div class="sidebar-section sidebar-more">
+        <button class="sidebar-more-toggle" id="sb-more-toggle" type="button">
+          <span>更多</span>
+          <svg class="sidebar-more-caret" viewBox="0 0 20 20" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 8 10 12 14 8"/></svg>
+        </button>
+        <nav class="sidebar-more-nav" id="sb-more-nav" hidden>
+          <button class="sidebar-item" data-go="home-cockpit" type="button" title="Home">
+            <span class="sidebar-item-icon" data-i="home"></span>
+            <span>Home</span>
+          </button>
+          <button class="sidebar-item" data-go="safety" type="button" title="Safety">
+            <span class="sidebar-item-icon" data-i="shield"></span>
+            <span>Safety</span>
+          </button>
+          <button class="sidebar-item" data-go="projects" type="button" title="Projects">
+            <span class="sidebar-item-icon" data-i="project"></span>
+            <span>Projects</span>
+          </button>
+          <button class="sidebar-item" data-go="files" type="button" title="Files">
+            <span class="sidebar-item-icon" data-i="files"></span>
+            <span>Files</span>
+          </button>
+          <button class="sidebar-item" data-go="home" type="button" title="Legacy Chat">
+            <span class="sidebar-item-icon" data-i="chat"></span>
+            <span>Legacy Chat</span>
+          </button>
+          <button class="sidebar-item" data-go="project" type="button" title="Legacy Project">
+            <span class="sidebar-item-icon" data-i="project"></span>
+            <span>Legacy Project</span>
+          </button>
+          <button class="sidebar-item" data-go="skills" type="button" title="Skills">
+            <span class="sidebar-item-icon" data-i="skills"></span>
+            <span>Skills</span>
+          </button>
+          <button class="sidebar-item" data-go="settings" type="button" title="Settings">
+            <span class="sidebar-item-icon" data-i="settings"></span>
+            <span>Settings</span>
+          </button>
+        </nav>
       </div>
 
       <div class="sidebar-foot">
@@ -156,6 +174,10 @@
 
         <div class="app-topbar-spacer"></div>
 
+        <button id="app-files-drawer" class="app-icon-btn" type="button" aria-label="Files" title="当前工作区文件">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
+        </button>
+
         <button id="app-refresh" class="app-icon-btn" type="button" aria-label="Refresh" title="Refresh">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><polyline points="21 4 21 9 16 9"/></svg>
         </button>
@@ -180,7 +202,7 @@
               <div class="cockpit-scopes-chips" id="c-scopes-chips"></div>
             </div>
 
-            <div class="cockpit-section" id="c-section-desktop">
+            <div class="cockpit-section" id="c-section-desktop" hidden>
               <div class="cockpit-section-head">
                 <h3 class="cockpit-section-title">电脑端运行中</h3>
                 <span class="cockpit-section-count" id="c-desktop-count">0</span>
@@ -188,7 +210,7 @@
               <div class="cockpit-scroll" id="c-desktop-list"></div>
             </div>
 
-            <div class="cockpit-section" id="c-section-mobile">
+            <div class="cockpit-section" id="c-section-mobile" hidden>
               <div class="cockpit-section-head">
                 <h3 class="cockpit-section-title">我的手机任务</h3>
                 <span class="cockpit-section-count" id="c-mobile-count">0</span>
@@ -196,7 +218,15 @@
               <div class="cockpit-list" id="c-mobile-list"></div>
             </div>
 
-            <div class="cockpit-section" id="c-section-newtask">
+            <!-- 最近活跃项目（新：Home 主内容） -->
+            <div class="cockpit-section" id="c-section-projects">
+              <div class="cockpit-section-head">
+                <h3 class="cockpit-section-title">最近活跃项目</h3>
+              </div>
+              <div class="cockpit-list" id="c-projects-list"></div>
+            </div>
+
+            <div class="cockpit-section" id="c-section-newtask" hidden>
               <div class="cockpit-section-head">
                 <h3 class="cockpit-section-title">新建任务</h3>
               </div>
@@ -222,14 +252,14 @@
               <div class="cockpit-list" id="c-approvals-list"></div>
             </div>
 
-            <div class="cockpit-section" id="c-section-files">
+            <div class="cockpit-section" id="c-section-files" hidden>
               <div class="cockpit-section-head">
                 <h3 class="cockpit-section-title">最近文件</h3>
               </div>
               <div class="cockpit-list cockpit-list-compact" id="c-recent-files"></div>
             </div>
 
-            <div class="cockpit-section" id="c-section-usage">
+            <div class="cockpit-section" id="c-section-usage" hidden>
               <div class="cockpit-section-head">
                 <h3 class="cockpit-section-title">使用统计</h3>
               </div>
@@ -266,6 +296,26 @@
             <div class="detail-start-zone" id="d-start-zone" hidden>
               <button id="d-start" class="btn-primary btn-block btn-start" type="button">启动 Agent</button>
               <div id="d-start-hint" class="detail-composer-hint"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =========================================================
+             UX-Reframe: Project Overview
+             点击项目时显示项目信息和 session 列表
+             ========================================================= -->
+        <section class="view" data-view="project-overview" hidden>
+          <div class="project-overview" id="po-container">
+            <div class="project-overview-head">
+              <h2 id="po-title">—</h2>
+              <div class="project-overview-cwd" id="po-cwd">—</div>
+            </div>
+            <div class="project-overview-section">
+              <div class="project-overview-section-head">
+                <h3>最近 session</h3>
+                <button id="po-new-task" class="btn-primary btn-sm" type="button">新建任务</button>
+              </div>
+              <div class="project-overview-sessions" id="po-sessions"></div>
             </div>
           </div>
         </section>
@@ -590,6 +640,66 @@
           </div>
         </section>
       </main>
+    </div>
+
+    <!-- =========================================================
+         UX-Reframe: 右侧文件 drawer
+         手机端 fixed + scrim，桌面端 sticky 常驻
+         ========================================================= -->
+    <aside class="files-drawer" id="files-drawer" aria-label="Workspace files" hidden>
+      <div class="files-drawer-head">
+        <span class="files-drawer-title">当前工作区文件</span>
+        <button id="files-drawer-close" class="files-drawer-close" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="files-drawer-cwd" id="files-drawer-cwd">—</div>
+      <div class="files-drawer-search">
+        <input id="files-drawer-q" class="field" type="search" placeholder="搜索文件..." maxlength="80" autocomplete="off">
+      </div>
+      <div class="files-drawer-list" id="files-drawer-list" role="list" aria-label="File list"></div>
+      <div class="files-drawer-preview" id="files-drawer-preview" hidden>
+        <header class="files-drawer-preview-head">
+          <div class="files-drawer-preview-meta">
+            <div id="files-drawer-preview-name" class="files-drawer-preview-name"></div>
+            <div id="files-drawer-preview-sub" class="files-drawer-preview-sub"></div>
+          </div>
+          <button id="files-drawer-preview-close" class="files-drawer-close" type="button" aria-label="Close preview">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+          </button>
+        </header>
+        <div id="files-drawer-preview-body" class="files-preview-body"></div>
+      </div>
+    </aside>
+    <div class="files-drawer-scrim" id="files-drawer-scrim" hidden></div>
+  </div>
+
+  <!-- =========================================================
+       UX-Reframe: New Chat 全屏模态框
+       ========================================================= -->
+  <div class="newchat-modal" id="newchat-modal" hidden>
+    <div class="newchat-modal-card">
+      <div class="newchat-modal-head">
+        <h2>新建任务</h2>
+        <button id="newchat-close" class="newchat-close" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="newchat-modal-body">
+        <label class="field-label">项目</label>
+        <div class="newchat-project-display" id="newchat-project-name">—</div>
+        <label class="field-label">Agent</label>
+        <div class="nt-agents" id="newchat-agents"></div>
+        <label class="field-label">标题（可选）</label>
+        <input id="newchat-title" class="field" type="text" placeholder="任务标题" maxlength="80">
+        <label class="field-label">任务描述</label>
+        <textarea id="newchat-message" class="field field-textarea" rows="4" placeholder="描述你要做什么..." maxlength="2000"></textarea>
+      </div>
+      <div class="newchat-modal-foot">
+        <button id="newchat-cancel" class="btn-secondary" type="button">取消</button>
+        <button id="newchat-submit" class="btn-primary" type="button">创建草稿</button>
+      </div>
+      <div id="newchat-msg" class="msg" role="status"></div>
     </div>
   </div>
 

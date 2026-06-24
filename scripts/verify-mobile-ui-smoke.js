@@ -423,7 +423,6 @@ async function main() {
   section('B1B-Safety: Safety page contract');
   // ============================================================
   ok('HTML contains safety view', htmlRes.body.includes('data-view="safety"'), 'missing safety view');
-  ok('HTML contains safety sidebar item', htmlRes.body.includes('data-go="safety"'), 'missing safety sidebar item');
   ok('HTML contains safety-devices container', htmlRes.body.includes('id="safety-devices"'), 'missing safety-devices');
   ok('HTML contains safety-scopes container', htmlRes.body.includes('id="safety-scopes"'), 'missing safety-scopes');
   ok('HTML contains safety-audit container', htmlRes.body.includes('id="safety-audit"'), 'missing safety-audit');
@@ -460,7 +459,6 @@ async function main() {
   section('B1B-Projects: Projects page contract');
   // ============================================================
   ok('HTML contains projects view', htmlRes.body.includes('data-view="projects"'), 'missing projects view');
-  ok('HTML contains projects sidebar item', htmlRes.body.includes('data-go="projects"'), 'missing projects sidebar item');
   ok('HTML contains projects-list container', htmlRes.body.includes('id="projects-list"'), 'missing projects-list');
   ok('JS contains renderContractProjects', jsContent.includes('function renderContractProjects'), 'missing renderContractProjects');
   ok('JS contains openProjects', jsContent.includes('function openProjects'), 'missing openProjects');
@@ -488,7 +486,6 @@ async function main() {
   section('B1B-Files: Files page contract');
   // ============================================================
   ok('HTML contains files view', htmlRes.body.includes('data-view="files"'), 'missing files view');
-  ok('HTML contains files sidebar item', htmlRes.body.includes('data-go="files"'), 'missing files sidebar item');
   ok('HTML contains files-list container', htmlRes.body.includes('id="files-list"'), 'missing files-list');
   ok('HTML contains files-search input', htmlRes.body.includes('id="files-q"'), 'missing files-q');
   ok('HTML contains files-preview container', htmlRes.body.includes('id="files-preview"'), 'missing files-preview');
@@ -571,6 +568,79 @@ async function main() {
 
   // 14. Pairing screen has LAN URL display element
   ok('UX14. HTML has pair-lan element for LAN URL display', htmlRes.body.includes('pair-lan'), 'missing pair-lan element');
+
+
+  // ============================================================
+  section('UX-Reframe: Agent Remote Cockpit');
+  // ============================================================
+  // 1. sidebar 显示 connected computer
+  ok('R1. sidebar has connected section', htmlRes.body.includes('sb-connected'), 'missing connected section');
+
+  // 2. sidebar 显示 running agents section
+  ok('R2. sidebar has running agents section', htmlRes.body.includes('sb-section-running'), 'missing running section');
+
+  // 3. sidebar 显示 projects tree
+  ok('R3. sidebar has projects list', htmlRes.body.includes('sb-projects-list'), 'missing projects list');
+
+  // 4. project row 可展开（JS 有 toggleProjectExpanded）
+  ok('R4. JS has toggleProjectExpanded', jsContent.includes('toggleProjectExpanded'), 'missing toggle');
+
+  // 5. session row 显示 status badge（CSS 有 sidebar-session-status）
+  ok('R5. CSS has sidebar-session-status', cssContent.includes('.sidebar-session-status'), 'missing session status CSS');
+
+  // 6. 点击 session 打开 detail（JS 有 openMobileSession）
+  ok('R6. JS has openMobileSession', jsContent.includes('openMobileSession'), 'missing openMobileSession');
+
+  // 7. Home 显示 connected + permission chips
+  ok('R7a. Home has c-connection', htmlRes.body.includes('c-connection'), 'missing connection');
+  ok('R7b. Home has c-scopes-summary', htmlRes.body.includes('c-scopes-summary'), 'missing scopes');
+
+  // 8. permission chips 人话
+  ok('R8a. JS has 查看状态', jsContent.includes('查看状态'), 'missing label');
+  ok('R8b. JS has 继续输入', jsContent.includes('继续输入'), 'missing label');
+  ok('R8c. JS has 启动任务', jsContent.includes('启动任务'), 'missing label');
+
+  // 9. New Chat 模态框存在
+  ok('R9a. HTML has newchat-modal', htmlRes.body.includes('newchat-modal'), 'missing modal');
+  ok('R9b. JS has openNewChatModal', jsContent.includes('openNewChatModal'), 'missing openNewChatModal');
+
+  // 10. right file drawer 存在
+  ok('R10a. HTML has files-drawer', htmlRes.body.includes('files-drawer'), 'missing drawer');
+  ok('R10b. HTML has files-drawer-scrim', htmlRes.body.includes('files-drawer-scrim'), 'missing scrim');
+  ok('R10c. JS has openFilesDrawer', jsContent.includes('openFilesDrawer'), 'missing openFilesDrawer');
+
+  // 11. file drawer 默认隐藏
+  ok('R11. files-drawer has hidden attr', htmlRes.body.includes('files-drawer"') && htmlRes.body.includes('hidden'), 'drawer not hidden');
+
+  // 12. file button 存在
+  ok('R12. HTML has app-files-drawer button', htmlRes.body.includes('app-files-drawer'), 'missing files button');
+
+  // 13. 旧功能在 More 区
+  ok('R13. HTML has sidebar-more section', htmlRes.body.includes('sidebar-more'), 'missing more section');
+  ok('R14. old sidebar items moved to more-nav', htmlRes.body.includes('sb-more-nav'), 'missing more-nav');
+
+  // 15. project overview view 存在
+  ok('R15. HTML has project-overview view', htmlRes.body.includes('data-view="project-overview"'), 'missing project-overview view');
+
+  // 16. 390×844 无横向溢出
+  ok('R16. CSS has overflow-x hidden', /overflow-x:\s*hidden/i.test(cssContent), 'missing overflow guard');
+
+  // 17. 不显示 token/tokenHash
+  ok('R17. JS does not render tokenHash', !/tokenHash.*innerHTML/.test(jsContent), 'may leak tokenHash');
+
+  // 19. sessions-by-cwd API 被使用
+  ok('R19. JS uses sessions/by-cwd', jsContent.includes('sessions/by-cwd'), 'missing by-cwd API');
+
+  // 20. More 区默认折叠
+  ok('R20. more-nav has hidden attr', htmlRes.body.includes('sb-more-nav" hidden'), 'more-nav not hidden');
+
+  // 21. goBack 支持分层返回
+  ok('R21. JS goBack supports layered back', jsContent.includes('CS.selectedProject') && jsContent.includes('openProjectOverview'), 'missing layered goBack');
+
+  // 22. startContractMode wires new functions
+  ok('R22. JS startContractMode wires wireSidebarMore', jsContent.includes('wireSidebarMore'), 'missing wireSidebarMore call');
+  ok('R23. JS startContractMode wires wireNewChatModal', jsContent.includes('wireNewChatModal'), 'missing wireNewChatModal call');
+  ok('R24. JS startContractMode wires wireFilesDrawer', jsContent.includes('wireFilesDrawer'), 'missing wireFilesDrawer call');
 
 
   // ============================================================

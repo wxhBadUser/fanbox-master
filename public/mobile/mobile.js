@@ -3010,6 +3010,9 @@ const UI1A = (() => {
     dashboard: null,
     projects: null,
     selected: null,
+    selectedProject: null,
+    expandedProjects: new Set(),
+    selectedNewChatAgent: null,
     timelines: new Map(),
     loading: {},
     errors: {},
@@ -3759,15 +3762,463 @@ const UI1A = (() => {
     });
   }
 
+  /* ---- RENDER: Sidebar (UX-Reframe) ---- */
+  function renderSidebarConnected () {
+    const name = (CS.appState && CS.appState.server && (CS.appState.server.name || CS.appState.server.hostname)) || "—";
+    const el2 = $c("sb-computer-name");
+    if (el2) el2.textContent = name;
+  }
+
+  function renderSidebarRunningAgents () {
+    const list = $c("sb-running-list");
+    if (!list) return;
+    const agents = (CS.dashboard && CS.dashboard.desktopContinuableAgents) || [];
+    list.innerHTML = "";
+    if (agents.length === 0) {
+      list.appendChild(el("div", { class: "sidebar-empty", text: "无运行中的 Agent" }));
+      return;
+    }
+    for (const a of agents) {
+      const row = el("button", { class: "sidebar-running-row", onclick: () => openDesktopAgent(a.id) });
+      row.appendChild(el("span", { class: "sidebar-running-icon", text: "🖥️" }));
+      row.appendChild(el("span", { class: "sidebar-running-name", text: a.proc || a.id || "agent" }));
+      const st = a.busy ? "running" : "idle";
+      row.appendChild(el("span", { class: `sidebar-running-status is-${st}`, text: st }));
+      list.appendChild(row);
+    }
+  }
+
+  function renderSidebarProjects () {
+    const list = $c("sb-projects-list");
+    if (!list) return;
+    const projects = CS.projects || [];
+    list.innerHTML = "";
+    if (projects.length === 0) {
+      list.appendChild(el("div", { class: "sidebar-empty", text: "暂无项目" }));
+      return;
+    }
+    for (const p of projects) {
+      const item = el("div", { class: "sidebar-project" });
+      const isExpanded = CS.expandedProjects.has(p.id);
+      const header = el("button", { class: "sidebar-project-header", onclick: () => toggleProjectExpanded(p.id) });
+      header.appendChild(el("span", { class: `sidebar-project-caret ${isExpanded ? "is-expanded" : ""}`, text: "▸" }));
+      header.appendChild(el("span", { class: "sidebar-project-name", text: p.name || p.cwdLabel || p.cwd }));
+      if (p.sessionCount > 0) {
+        header.appendChild(el("span", { class: "sidebar-project-count", text: String(p.sessionCount) }));
+      }
+      item.appendChild(header);
+      if (isExpanded) {
+        const sessions = el("div", { class: "sidebar-project-sessions", id: `sb-sessions-${p.id}` });
+        sessions.appendChild(el("div", { class: "sidebar-empty", text: "加载中..." }));
+        item.appendChild(sessions);
+        loadProjectSessions(p.id, p.cwd);
+      }
+      list.appendChild(item);
+    }
+  }
+
+  async function loadProjectSessions (projectId, cwd) {
+    try {
+      const data = await cApi(`/api/mobile/sessions/by-cwd?cwd=${encodeURIComponent(cwd)}`);
+      const sessions = (data && data.items) || [];
+      const container = $c(`sb-sessions-${projectId}`);
+      if (!container) return;
+      container.innerHTML = "";
+      if (sessions.length === 0) {
+        container.appendChild(el("div", { class: "sidebar-empty", text: "暂无 session" }));
+        return;
+      }
+      for (const s of sessions) {
+        const row = el("button", { class: "sidebar-session-row", onclick: () => openMobileSession(s.id) });
+        row.appendChild(el("span", { class: "sidebar-session-icon", text: agentIcon(s.agentId) }));
+        row.appendChild(el("span", { class: "sidebar-session-title", text: s.title || s.agentId || "session" }));
+        row.appendChild(el("span", { class: `sidebar-session-status is-${s.status}`, text: sessionStatusLabel(s.status) }));
+        container.appendChild(row);
+      }
+    } catch (e) {
+      const container = $c(`sb-sessions-${projectId}`);
+      if (container) container.innerHTML = '<div class="sidebar-empty">加载失败</div>';
+    }
+  }
+
+  function toggleProjectExpanded (projectId) {
+    if (CS.expandedProjects.has(projectId)) {
+      CS.expandedProjects.delete(projectId);
+    } else {
+      CS.expandedProjects.add(projectId);
+    }
+    renderSidebarProjects();
+  }
+
+  function agentIcon (agentId) {
+    const id = (agentId || "").toLowerCase();
+    if (id.includes("claude")) return "🤖";
+    if (id.includes("codex")) return "⚡";
+    if (id.includes("qoder")) return "🎯";
+    if (id.includes("opencode")) return "📂";
+    return "💬";
+  }
+
+  function sessionStatusLabel (status) {
+    const labels = { running: "running", draft: "draft", done: "done", failed: "failed", idle: "idle" };
+    return labels[status] || status || "—";
+  }
+
+  /* ---- RENDER: Home projects list ---- */
+  function renderHomeProjectsList () {
+    const list = $c("c-projects-list");
+    if (!list) return;
+    const projects = CS.projects || [];
+    list.innerHTML = "";
+    if (projects.length === 0) {
+      list.appendChild(el("div", { class: "cockpit-empty", text: "暂无项目，请在电脑端打开 FanBox 创建项目" }));
+      return;
+    }
+    for (const p of projects.slice(0, 8)) {
+      const card = el("button", { class: "cockpit-project-card", onclick: () => openProjectOverview(p.id) });
+      card.appendChild(el("div", { class: "cockpit-project-name", text: p.name || p.cwdLabel || p.cwd }));
+      card.appendChild(el("div", { class: "cockpit-project-meta" }, [
+        el("span", { text: `${p.sessionCount || 0} session` }),
+        p.lastActiveAt ? el("span", { text: " · " + relTime(p.lastActiveAt) }) : null,
+      ].filter(Boolean)));
+      list.appendChild(card);
+    }
+  }
+
+  /* ---- RENDER: Project Overview ---- */
+  function openProjectOverview (projectId) {
+    const project = (CS.projects || []).find(p => p.id === projectId);
+    if (!project) return;
+    CS.selectedProject = project;
+    CS.selected = { type: "project", id: projectId };
+    stopHomePoll();
+    stopDetailPoll();
+    switchContractView("project-overview");
+    renderProjectOverview(project);
+    loadProjectOverviewSessions(project.cwd);
+  }
+
+  function renderProjectOverview (project) {
+    const titleEl = $c("po-title");
+    const cwdEl = $c("po-cwd");
+    if (titleEl) titleEl.textContent = project.name || project.cwdLabel || project.cwd;
+    if (cwdEl) cwdEl.textContent = project.cwd;
+  }
+
+  async function loadProjectOverviewSessions (cwd) {
+    const container = $c("po-sessions");
+    if (!container) return;
+    container.innerHTML = "";
+    container.appendChild(el("div", { class: "sidebar-empty", text: "加载中..." }));
+    try {
+      const data = await cApi(`/api/mobile/sessions/by-cwd?cwd=${encodeURIComponent(cwd)}`);
+      const sessions = (data && data.items) || [];
+      container.innerHTML = "";
+      if (sessions.length === 0) {
+        container.appendChild(el("div", { class: "sidebar-empty", text: "暂无 session" }));
+        return;
+      }
+      for (const s of sessions) {
+        const row = el("button", { class: "po-session-row", onclick: () => openMobileSession(s.id) });
+        row.appendChild(el("span", { class: "sidebar-session-icon", text: agentIcon(s.agentId) }));
+        row.appendChild(el("span", { class: "po-session-title", text: s.title || s.agentId || "session" }));
+        row.appendChild(el("span", { class: `sidebar-session-status is-${s.status}`, text: sessionStatusLabel(s.status) }));
+        if (s.updatedAt) row.appendChild(el("span", { class: "po-session-time", text: relTime(s.updatedAt) }));
+        container.appendChild(row);
+      }
+    } catch (e) {
+      container.innerHTML = "";
+      container.appendChild(el("div", { class: "sidebar-empty", text: "加载失败" }));
+    }
+  }
+
+  /* ---- New Chat Modal ---- */
+  function openNewChatModal () {
+    const modal = $c("newchat-modal");
+    if (!modal) return;
+    const projectEl = $c("newchat-project-name");
+    if (projectEl) {
+      projectEl.textContent = CS.selectedProject ? (CS.selectedProject.name || CS.selectedProject.cwdLabel || CS.selectedProject.cwd) : "未选择项目";
+    }
+    renderNewChatAgents();
+    const msgEl = $c("newchat-msg");
+    if (msgEl) { msgEl.textContent = ""; msgEl.className = "msg"; }
+    modal.hidden = false;
+  }
+
+  function closeNewChatModal () {
+    const modal = $c("newchat-modal");
+    if (!modal) return;
+    modal.hidden = true;
+    const msgEl = $c("newchat-msg");
+    if (msgEl) msgEl.textContent = "";
+    const titleEl = $c("newchat-title");
+    if (titleEl) titleEl.value = "";
+    const msgInput = $c("newchat-message");
+    if (msgInput) msgInput.value = "";
+  }
+
+  function renderNewChatAgents () {
+    const container = $c("newchat-agents");
+    if (!container) return;
+    const agents = (CS.appState && CS.appState.availableAgents) || [];
+    container.innerHTML = "";
+    if (agents.length === 0) {
+      container.appendChild(el("div", { class: "sidebar-empty", text: "无可用 Agent" }));
+      return;
+    }
+    if (!CS.selectedNewChatAgent) CS.selectedNewChatAgent = agents[0].id;
+    for (const a of agents) {
+      const chip = el("button", {
+        class: `nt-agent-chip ${CS.selectedNewChatAgent === a.id ? "is-active" : ""}`,
+        onclick: () => { CS.selectedNewChatAgent = a.id; renderNewChatAgents(); },
+      });
+      chip.appendChild(el("span", { class: "nt-agent-chip-icon", text: agentIcon(a.id) }));
+      chip.appendChild(el("span", { text: a.name || a.id }));
+      container.appendChild(chip);
+    }
+  }
+
+  async function submitNewChat () {
+    const msgEl = $c("newchat-msg");
+    if (!CS.selectedProject) {
+      if (msgEl) { msgEl.textContent = "请先在左侧选择一个项目"; msgEl.className = "msg msg-err"; }
+      return;
+    }
+    const agentId = CS.selectedNewChatAgent || (CS.appState && CS.appState.availableAgents && CS.appState.availableAgents[0] && CS.appState.availableAgents[0].id);
+    if (!agentId) {
+      if (msgEl) { msgEl.textContent = "请选择 Agent"; msgEl.className = "msg msg-err"; }
+      return;
+    }
+    const message = ($c("newchat-message") || {}).value || "";
+    if (!message.trim()) {
+      if (msgEl) { msgEl.textContent = "请输入任务描述"; msgEl.className = "msg msg-err"; }
+      return;
+    }
+    const title = ($c("newchat-title") || {}).value || "";
+    const submitBtn = $c("newchat-submit");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      const result = await createDraftSession({
+        cwd: CS.selectedProject.cwd,
+        agentId,
+        title: title.trim() || undefined,
+        initialMessage: message.trim(),
+      });
+      if (result && result.session) {
+        closeNewChatModal();
+        openMobileSession(result.session.id);
+      } else {
+        if (msgEl) { msgEl.textContent = "创建失败"; msgEl.className = "msg msg-err"; }
+      }
+    } catch (e) {
+      if (msgEl) { msgEl.textContent = "创建失败: " + e.message; msgEl.className = "msg msg-err"; }
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  }
+
+  /* ---- Right Files Drawer ---- */
+  function openFilesDrawer () {
+    const drawer = $c("files-drawer");
+    const scrim = $c("files-drawer-scrim");
+    if (!drawer) return;
+    const cwd = (CS.selectedProject && CS.selectedProject.cwd) ||
+                (CS.selected && CS.selected.cwd) ||
+                (CS.appState && CS.appState.currentContext && CS.appState.currentContext.cwd);
+    if (!cwd) {
+      const cwdEl = $c("files-drawer-cwd");
+      if (cwdEl) cwdEl.textContent = "请先选择项目";
+      drawer.hidden = false;
+      if (scrim) scrim.hidden = false;
+      return;
+    }
+    drawer.hidden = false;
+    if (scrim) scrim.hidden = false;
+    loadFilesDrawerList(cwd);
+  }
+
+  function closeFilesDrawer () {
+    const drawer = $c("files-drawer");
+    const scrim = $c("files-drawer-scrim");
+    const preview = $c("files-drawer-preview");
+    if (drawer) drawer.hidden = true;
+    if (scrim) scrim.hidden = true;
+    if (preview) preview.hidden = true;
+  }
+
+  async function loadFilesDrawerList (cwd) {
+    const cwdEl = $c("files-drawer-cwd");
+    const listEl = $c("files-drawer-list");
+    if (cwdEl) cwdEl.textContent = cwd;
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    listEl.appendChild(el("div", { class: "sidebar-empty", text: "加载中..." }));
+    try {
+      const data = await cApi(`/api/mobile/files?path=${encodeURIComponent(cwd)}`);
+      const items = (data && data.items) || [];
+      listEl.innerHTML = "";
+      if (items.length === 0) {
+        listEl.appendChild(el("div", { class: "sidebar-empty", text: "空文件夹" }));
+        return;
+      }
+      for (const item of items) {
+        const row = el("button", { class: `file-row ${item.kind === "directory" ? "is-folder" : "is-file"}`, "data-path": item.path || "" });
+        row.appendChild(el("span", { class: "file-row-icon", text: fileTypeIcon(item) }));
+        row.appendChild(el("span", { class: "file-row-name", text: item.name || item.path || "" }));
+        if (item.size != null && item.kind !== "directory") {
+          row.appendChild(el("span", { class: "file-row-meta", text: formatSize(item.size) }));
+        }
+        row.addEventListener("click", () => {
+          if (item.kind === "directory") {
+            loadFilesDrawerList(item.path);
+          } else {
+            openFilePreviewInDrawer(item);
+          }
+        });
+        listEl.appendChild(row);
+      }
+    } catch (e) {
+      listEl.innerHTML = "";
+      listEl.appendChild(el("div", { class: "sidebar-empty", text: "加载失败: " + e.message }));
+    }
+  }
+
+  function fileTypeIcon (item) {
+    if (item.kind === "directory") return "📁";
+    const name = (item.name || "").toLowerCase();
+    if (name.endsWith(".pdf")) return "📕";
+    if (/\.(docx?|)$/.test(name)) return "📘";
+    if (/\.(xlsx?|csv)$/.test(name)) return "📗";
+    if (/\.(pptx?)$/.test(name)) return "📙";
+    if (/\.(md|markdown)$/.test(name)) return "📝";
+    if (/\.(js|ts|py|go|rs|java|c|cpp|h|css|html|json|xml|sh|bat|ps1)$/.test(name)) return "⚙️";
+    if (/\.(txt|log)$/.test(name)) return "📄";
+    if (/\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)$/.test(name)) return "🖼️";
+    if (/\.(zip|rar|7z|tar|gz)$/.test(name)) return "🗜️";
+    return "📄";
+  }
+
+  function formatSize (bytes) {
+    if (bytes < 1024) return bytes + "B";
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + "KB";
+    return (bytes / 1048576).toFixed(1) + "MB";
+  }
+
+  async function openFilePreviewInDrawer (item) {
+    const preview = $c("files-drawer-preview");
+    const nameEl = $c("files-drawer-preview-name");
+    const subEl = $c("files-drawer-preview-sub");
+    const bodyEl = $c("files-drawer-preview-body");
+    if (!preview || !bodyEl) return;
+    preview.hidden = false;
+    if (nameEl) nameEl.textContent = item.name || item.path || "";
+    if (subEl) subEl.textContent = item.size ? formatSize(item.size) : "";
+    bodyEl.innerHTML = "加载中...";
+    try {
+      const data = await cApi(`/api/mobile/file?path=${encodeURIComponent(item.path)}`);
+      bodyEl.innerHTML = "";
+      const content = data && (data.content || data.text);
+      if (data && data.fileType === "image" && data.thumbUrl) {
+        bodyEl.appendChild(el("img", { src: data.thumbUrl, style: "max-width:100%;height:auto;border-radius:8px;" }));
+      } else if (content) {
+        const text = typeof content === "string" ? content : JSON.stringify(content, null, 2);
+        const truncated = text.length > 50000 ? text.slice(0, 50000) + "\n\n... (已截断)" : text;
+        bodyEl.appendChild(el("pre", { style: "white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,monospace;font-size:12px;margin:0;" }, { text: truncated }));
+      } else {
+        bodyEl.appendChild(el("div", { class: "sidebar-empty", text: "无法预览此文件类型" }));
+      }
+    } catch (e) {
+      bodyEl.innerHTML = "";
+      bodyEl.appendChild(el("div", { class: "sidebar-empty", text: "加载失败: " + e.message }));
+    }
+  }
+
+  /* ---- Wire More/Debug toggle ---- */
+  function wireSidebarMore () {
+    const toggle = $c("sb-more-toggle");
+    const nav = $c("sb-more-nav");
+    if (!toggle || !nav) return;
+    toggle.addEventListener("click", () => {
+      nav.hidden = !nav.hidden;
+      toggle.classList.toggle("is-expanded", !nav.hidden);
+    });
+  }
+
+  /* ---- Wire New Chat modal ---- */
+  function wireNewChatModal () {
+    const newChatBtn = $c("sidebar-new-chat");
+    if (newChatBtn) newChatBtn.addEventListener("click", openNewChatModal);
+    const closeBtn = $c("newchat-close");
+    if (closeBtn) closeBtn.addEventListener("click", closeNewChatModal);
+    const cancelBtn = $c("newchat-cancel");
+    if (cancelBtn) cancelBtn.addEventListener("click", closeNewChatModal);
+    const submitBtn = $c("newchat-submit");
+    if (submitBtn) submitBtn.addEventListener("click", submitNewChat);
+    const poNewTask = $c("po-new-task");
+    if (poNewTask) poNewTask.addEventListener("click", openNewChatModal);
+  }
+
+  /* ---- Wire files drawer ---- */
+  function wireFilesDrawer () {
+    const openBtn = $c("app-files-drawer");
+    if (openBtn) openBtn.addEventListener("click", openFilesDrawer);
+    const closeBtn = $c("files-drawer-close");
+    if (closeBtn) closeBtn.addEventListener("click", closeFilesDrawer);
+    const scrim = $c("files-drawer-scrim");
+    if (scrim) scrim.addEventListener("click", closeFilesDrawer);
+    const previewClose = $c("files-drawer-preview-close");
+    if (previewClose) previewClose.addEventListener("click", () => {
+      const preview = $c("files-drawer-preview");
+      if (preview) preview.hidden = true;
+    });
+    const searchInput = $c("files-drawer-q");
+    if (searchInput) {
+      let searchTimer = null;
+      searchInput.addEventListener("input", () => {
+        if (searchTimer) clearTimeout(searchTimer);
+        searchTimer = setTimeout(async () => {
+          const q = searchInput.value.trim();
+          if (q.length < 2) return;
+          const cwd = ($c("files-drawer-cwd") || {}).textContent || "";
+          if (!cwd || cwd === "—") return;
+          try {
+            const data = await cApi(`/api/mobile/search?q=${encodeURIComponent(q)}&path=${encodeURIComponent(cwd)}`);
+            const items = (data && data.items) || [];
+            const listEl = $c("files-drawer-list");
+            if (!listEl) return;
+            listEl.innerHTML = "";
+            if (items.length === 0) {
+              listEl.appendChild(el("div", { class: "sidebar-empty", text: "无匹配文件" }));
+              return;
+            }
+            for (const item of items) {
+              const row = el("button", { class: `file-row ${item.kind === "directory" ? "is-folder" : "is-file"}`, "data-path": item.path || "" });
+              row.appendChild(el("span", { class: "file-row-icon", text: fileTypeIcon(item) }));
+              row.appendChild(el("span", { class: "file-row-name", text: item.name || item.path || "" }));
+              row.addEventListener("click", () => {
+                if (item.kind === "directory") {
+                  loadFilesDrawerList(item.path);
+                } else {
+                  openFilePreviewInDrawer(item);
+                }
+              });
+              listEl.appendChild(row);
+            }
+          } catch (e) { /* ignore */ }
+        }, 300);
+      });
+    }
+  }
+
   /* ---- RENDER: Contract Home ---- */
   function renderContractHome () {
     renderConnection();
-    renderDesktopAgents();
-    renderMobileSessions();
-    renderNewTask();
-    renderRecentFiles();
-    renderApprovals();
-    renderUsage();
+    renderScopesSummary();
+    renderSidebarConnected();
+    renderSidebarRunningAgents();
+    renderSidebarProjects();
+    renderHomeProjectsList();
   }
 
   /* ---- RENDER: Timeline Events ---- */
@@ -4118,7 +4569,7 @@ const UI1A = (() => {
   function setTopbarElements(viewName) {
     const dd = $c("agent-dropdown");
     const cwd = $c("topbar-cwd");
-    const isContract = viewName === "home-cockpit" || viewName === "agent-detail" || viewName === "safety" || viewName === "projects" || viewName === "files";
+    const isContract = viewName === "home-cockpit" || viewName === "agent-detail" || viewName === "project-overview" || viewName === "safety" || viewName === "projects" || viewName === "files";
     if (dd) dd.style.display = isContract ? "none" : "";
     if (cwd) cwd.style.display = isContract ? "none" : "";
   }
@@ -4136,6 +4587,7 @@ const UI1A = (() => {
     const titleEl = $c("app-topbar-title");
     if (titleEl) {
       if (viewName === "home-cockpit") titleEl.textContent = "FanBox Mobile";
+      else if (viewName === "project-overview") titleEl.textContent = (CS.selectedProject && CS.selectedProject.name) || "Project";
       else if (viewName === "agent-detail") titleEl.textContent = "Detail";
       else if (viewName === "safety") titleEl.textContent = "Safety";
       else if (viewName === "projects") titleEl.textContent = "Projects";
@@ -4222,7 +4674,11 @@ const UI1A = (() => {
   }
 
   function goBack () {
-    openHome();
+    if (S.currentTab === "agent-detail" && CS.selectedProject) {
+      openProjectOverview(CS.selectedProject.id);
+    } else {
+      openHome();
+    }
   }
 
   /* ---- Polling ---- */
@@ -4306,6 +4762,8 @@ const UI1A = (() => {
         } else {
           loadMobileTimeline(CS.selected.id).then(() => renderMobileDetail(CS.selected.id));
         }
+      } else if (S.currentTab === "project-overview" && CS.selectedProject) {
+        loadProjectOverviewSessions(CS.selectedProject.cwd);
       } else if (S.currentTab === "safety") refreshSafety();
       else if (S.currentTab === "projects") refreshProjects();
       else if (S.currentTab === "files" && typeof loadFiles === "function") loadFiles();
@@ -4371,6 +4829,9 @@ const UI1A = (() => {
     wireRefresh();
     wireContractSidebar();
     wireLegacySidebarTabs();
+    wireSidebarMore();
+    wireNewChatModal();
+    wireFilesDrawer();
     await loadProjects();
     openHome();
   }
