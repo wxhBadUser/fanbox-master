@@ -1,12 +1,12 @@
 /* eslint-disable */
 /**
- * FanBox Mobile · Phase UI-A8-6 smoke
- * True Streaming Agent Response
+ * FanBox Mobile · Phase UI-A8-11 smoke
+ * Codex-like realtime transcript stream
  *
  * 覆盖：
  *   - Backend stream endpoint (POST /api/mobile/agent/stream)
- *   - Event protocol (mobile-agent-runner.js)
- *   - Frontend stream (public/mobile/mobile.js)
+ *   - Event protocol (mobile-agent-runner.js + mobile.js)
+ *   - Frontend realtime transcript (public/mobile/mobile.js)
  *   - UI CSS (public/mobile/mobile.css)
  *   - Skill integration
  *   - Security (禁止项)
@@ -164,9 +164,9 @@ function req(opts, body) {
   ok('#12 backend: session 事件在 mobile.js stream handler 中 emit',
     /sseEmit\(\s*'session'/.test(mobileJsCode));
 
-  // 13) Has step event emission
-  ok('#13 runner: emit step 事件',
-    /emit\(\s*'step'/.test(runnerCode));
+  // 13) Has command events
+  ok('#13 runner: emit command_start 事件',
+    /emit\(\s*'command_start'/.test(runnerCode));
 
   // 14) Has done event emission
   ok('#14 runner: emit done 事件',
@@ -176,13 +176,14 @@ function req(opts, body) {
   ok('#15 runner: runner_unavailable → emit error 事件',
     /emit\(\s*'error'[\s\S]{0,200}runner_unavailable/.test(runnerCode));
 
-  // 16) Step contains label/status/text
-  ok('#16 runner: step 事件含 label + status + text',
-    /emit\(\s*'step'[\s\S]{0,100}label[\s\S]{0,100}status[\s\S]{0,100}text/.test(runnerCode));
+  // 16) Command events contain id/label/status
+  ok('#16 runner: command 事件含 id + label + status',
+    /emit\(\s*'command_start'[\s\S]{0,160}id[\s\S]{0,160}label/.test(runnerCode) &&
+    /emit\(\s*'command_end'[\s\S]{0,160}id[\s\S]{0,160}status/.test(runnerCode));
 
-  // 17) Delta can appear multiple times
-  ok('#17 runner: delta 事件可多次 emit (循环内 emit delta)',
-    /for\s*\(.*chunk.*\)[\s\S]{0,200}emit\(\s*'delta'/.test(runnerCode));
+  // 17) Message delta can appear multiple times
+  ok('#17 runner: message_delta 事件可多次 emit (循环内 emit message_delta)',
+    /for\s*\(.*chunk.*\)[\s\S]{0,240}emit\(\s*'message_delta'/.test(runnerCode));
 
   // 18) Done contains final message
   ok('#18 runner: done 事件含 message (role + content)',
@@ -213,12 +214,16 @@ function req(opts, body) {
     /event:\s*start/.test(rLive.body));
   ok('#3d live stream body 含 event: session',
     /event:\s*session/.test(rLive.body));
-  ok('#3e live stream body 含 event: step',
-    /event:\s*step/.test(rLive.body));
-  ok('#3f live stream body 含 event: delta',
-    /event:\s*delta/.test(rLive.body));
+  ok('#3e live stream body 含 event: command_start',
+    /event:\s*command_start/.test(rLive.body));
+  ok('#3f live stream body 含 event: message_delta',
+    /event:\s*message_delta/.test(rLive.body));
   ok('#3g live stream body 含 event: done',
     /event:\s*done/.test(rLive.body));
+  ok('#3g1 live stream body 含 event: command_count',
+    /event:\s*command_count/.test(rLive.body));
+  ok('#3g2 live stream body 含 event: final',
+    /event:\s*final/.test(rLive.body));
   ok('#3h live stream body 不含 raw stdout/JSONL/token',
     !/(jsonl|scrollback|Bearer\s+[A-Za-z0-9]{10,})/i.test(rLive.body));
 
@@ -243,13 +248,14 @@ function req(opts, body) {
   ok('#24 mobile.js: doSend 创建 pendingAssistant bubble',
     /pendingAssistant\s*=\s*\{[\s\S]{0,300}role:\s*['"]assistant['"]/.test(js));
 
-  // 25) Step updates same bubble
-  ok('#25 mobile.js: handleStreamEvent step 更新 pendingAssistant.trace',
-    /handleStreamEvent[\s\S]{0,500}case\s+'step'[\s\S]{0,500}pendingAssistant\.trace/.test(js));
+  // 25) Command events update same transcript
+  ok('#25 mobile.js: handleStreamEvent command_start 追加 pendingAssistant._streamCommands',
+    /function\s+upsertStreamCommand[\s\S]{0,1200}msg\._streamCommands/.test(js) &&
+    /handleStreamEvent[\s\S]{0,4000}case\s+'command_start'[\s\S]{0,400}upsertStreamCommand/.test(js));
 
   // 26) Delta appends to same bubble
-  ok('#26 mobile.js: handleStreamEvent delta 追加到 pendingAssistant._streamDelta',
-    /handleStreamEvent[\s\S]{0,4000}case\s+'delta'[\s\S]{0,500}pendingAssistant\._streamDelta/.test(js));
+  ok('#26 mobile.js: handleStreamEvent message_delta 追加到 pendingAssistant._streamText',
+    /handleStreamEvent[\s\S]{0,4000}case\s+'message_delta'[\s\S]{0,800}pendingAssistant\._streamText/.test(js));
 
   // 27) Done completes same bubble
   ok('#27 mobile.js: handleStreamEvent done 完成 pendingAssistant',
@@ -257,7 +263,7 @@ function req(opts, body) {
 
   // 28) Error writes to same bubble
   ok('#28 mobile.js: handleStreamEvent error 写入 pendingAssistant.content',
-    /handleStreamEvent[\s\S]{0,4000}case\s+'error'[\s\S]{0,500}pendingAssistant\.content/.test(js));
+    /handleStreamEvent[\s\S]{0,6000}case\s+'error'[\s\S]{0,800}pendingAssistant\.content/.test(js));
 
   // 29) No second textarea created
   ok('#29 mobile.js: 不创建第二个 textarea',
@@ -291,21 +297,33 @@ function req(opts, body) {
   // ============================================================
   section('5) UI CSS (public/mobile/mobile.css)');
 
-  // 35) Has .stream-steps
-  ok('#35 CSS: .stream-steps 存在',
-    /\.stream-steps\s*\{/.test(css));
+  // 35) Has realtime transcript classes
+  ok('#35 CSS: .stream-transcript 存在',
+    /\.stream-transcript\s*\{/.test(css));
 
-  // 36) Has .stream-step.is-running
-  ok('#36 CSS: .stream-step.is-running 存在',
-    /\.stream-step\.is-running/.test(css));
+  // 36) Has stream prose
+  ok('#36 CSS: .stream-prose 存在',
+    /\.stream-prose\s*\{/.test(css));
 
-  // 37) Has .stream-step.is-done
-  ok('#37 CSS: .stream-step.is-done 存在',
-    /\.stream-step\.is-done/.test(css));
+  // 37) Has command summary
+  ok('#37 CSS: .stream-command-summary 存在',
+    /\.stream-command-summary\s*\{/.test(css));
 
-  // 38) Has .stream-step.is-failed
-  ok('#38 CSS: .stream-step.is-failed 存在',
-    /\.stream-step\.is-failed/.test(css));
+  // 38) Has command list
+  ok('#38 CSS: .stream-commands 存在',
+    /\.stream-commands\s*\{/.test(css));
+
+  ok('#38a CSS: 旧 run 卡片样式已移除',
+    !/\.(run-thinking|run-skill|run-tools|run-command)\s*\{/.test(css));
+  ok('#38b CSS: assistant transcript 外层无气泡框',
+    /\.chat-row-agent\s+\.chat-bubble\s*\{[\s\S]{0,260}background:\s*transparent[\s\S]{0,260}border:\s*0[\s\S]{0,260}padding:\s*0/.test(css));
+  ok('#38c CSS: assistant running 不显示气泡尾部蓝点',
+    /\.chat-row-agent\s+\.chat-bubble-running::after\s*\{[\s\S]{0,100}content:\s*none/.test(css));
+  ok('#38d CSS: assistant 不显示头像占位',
+    /\.chat-row-agent\s+\.chat-avatar\s*\{[\s\S]{0,140}display:\s*none/.test(css));
+  ok('#38e CSS: command 行不是卡片/左色条',
+    /\.stream-command\s*\{[\s\S]{0,220}border:\s*0[\s\S]{0,220}background:\s*transparent/.test(css) &&
+    !/\.stream-command\s*\{[\s\S]{0,220}border-left/.test(css));
 
   // 39) No raw JSON display
   ok('#39 CSS: 不含 raw JSON 显示样式 (无 .raw-json / .json-output)',
@@ -332,9 +350,10 @@ function req(opts, body) {
   ok('#43 mobile.js: doSendStream payload 含 skillId',
     /doSendStream[\s\S]{0,500}skillId/.test(js));
 
-  // 44) Stream step shows Skill usage
-  ok('#44 runner: step 事件显示 Skill 使用 (使用 Skill)',
-    /emit\(\s*'step'[\s\S]{0,200}使用 Skill/.test(runnerCode));
+  // 44) Skill is inline meta, not a large card
+  ok('#44 runner: meta/thought 显示 Skill 使用',
+    /emit\(\s*'meta'[\s\S]{0,260}skillId/.test(runnerCode) &&
+    /emit\(\s*'thought'[\s\S]{0,260}使用/.test(runnerCode));
 
   // 45) Skill only affects current turn (not persisted in session state)
   ok('#45 mobile.js: skill 不持久锁定 (selectedSkill 仅在 doSend 内使用)',

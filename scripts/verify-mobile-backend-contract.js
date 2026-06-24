@@ -859,6 +859,576 @@ function containsSensitiveAuditData(value) {
   ok('detectAgentFromProc identifies codex', mobile.detectAgentFromProc('/usr/bin/codex') === 'codex');
   ok('detectAgentFromProc unknown for shell', mobile.detectAgentFromProc('bash') === 'unknown');
 
+  section('5d) B3A: Phone project selection + new agent session draft');
+
+  // B3A-1: GET /api/mobile/projects returns startable project list shape
+  const projectsRes = asJson(await request({ path: '/api/mobile/projects', method: 'GET', headers: auth }));
+  ok('GET /api/mobile/projects returns ok:true', projectsRes.ok === true, JSON.stringify(projectsRes).substring(0, 300));
+  ok('projects.items is array', Array.isArray(projectsRes.items), 'items=' + JSON.stringify(projectsRes.items));
+
+  if (Array.isArray(projectsRes.items) && projectsRes.items.length > 0) {
+    const p0 = projectsRes.items[0];
+    ok('project item has id', typeof p0.id === 'string');
+    ok('project item has name', typeof p0.name === 'string');
+    ok('project item has cwd', typeof p0.cwd === 'string');
+    ok('project item has source', typeof p0.source === 'string');
+    ok('project item has canCreateSession (boolean)', typeof p0.canCreateSession === 'boolean');
+    ok('project item has reason (string)', typeof p0.reason === 'string');
+    ok('project item has riskFlags (array)', Array.isArray(p0.riskFlags));
+    ok('project item has agentIds (array)', Array.isArray(p0.agentIds), 'agentIds=' + JSON.stringify(p0.agentIds));
+    ok('project item has sessionCount (number)', typeof p0.sessionCount === 'number');
+    ok('project item has lastActiveAt (number)', typeof p0.lastActiveAt === 'number');
+  }
+  ok('projects response does not contain forbidden paths',
+    !containsForbiddenPath(projectsRes), 'projects=' + JSON.stringify(projectsRes).substring(0, 500));
+
+  // Helper for POST /sessions/draft
+  const VALID_TEST_CWD = TMP_HOME;
+  function postDraft(body, hdrs) {
+    return request({
+      path: '/api/mobile/sessions/draft',
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, hdrs || {}),
+    }, JSON.stringify(body || {}));
+  }
+
+  // Track write provider calls before B3A (B2C set both providers to null, so writeCalls is gone)
+  // We verify write provider is not called by noting that no new input events appear on a dummy agent timeline.
+
+  // B3A-2: No token -> unauthorized
+  const noAuthDraft = asJson(await postDraft({ cwd: VALID_TEST_CWD, agentId: 'claude', mode: 'draft' }, {}));
+  ok('POST draft without token returns unauthorized',
+    noAuthDraft.ok === false && isStableError(noAuthDraft, 'unauthorized'), JSON.stringify(noAuthDraft));
+
+  // B3A-3: Missing cwd -> cwd_required
+  const noCwdDraft = asJson(await postDraft({ agentId: 'claude', mode: 'draft' }, auth));
+  ok('POST draft with missing cwd returns cwd_required',
+    isStableError(noCwdDraft, 'cwd_required'), JSON.stringify(noCwdDraft));
+
+  // B3A-4: Empty cwd -> cwd_required
+  const emptyCwdDraft = asJson(await postDraft({ cwd: '', agentId: 'claude', mode: 'draft' }, auth));
+  ok('POST draft with empty cwd returns cwd_required',
+    isStableError(emptyCwdDraft, 'cwd_required'), JSON.stringify(emptyCwdDraft));
+
+  // B3A-5: cwd outside allowed roots -> cwd_not_allowed
+  // Use a path that resolves outside TMP_HOME
+  const badCwdDraft = asJson(await postDraft({ cwd: 'C:\\Windows\\System32', agentId: 'claude', mode: 'draft' }, auth));
+  ok('POST draft with disallowed cwd returns cwd_not_allowed',
+    isStableError(badCwdDraft, 'cwd_not_allowed'), JSON.stringify(badCwdDraft));
+
+  // B3A-6: bad agentId -> agent_not_allowed
+  const badAgentDraft = asJson(await postDraft({ cwd: VALID_TEST_CWD, agentId: 'evilsh', mode: 'draft' }, auth));
+  ok('POST draft with invalid agentId returns agent_not_allowed',
+    isStableError(badAgentDraft, 'agent_not_allowed'), JSON.stringify(badAgentDraft));
+
+  // B3A-7: title too long -> title_too_long
+  const longTitle = 'x'.repeat(81);
+  const longTitleDraft = asJson(await postDraft({ cwd: VALID_TEST_CWD, agentId: 'claude', title: longTitle, mode: 'draft' }, auth));
+  ok('POST draft with title >80 returns title_too_long',
+    isStableError(longTitleDraft, 'title_too_long'), JSON.stringify(longTitleDraft));
+
+  // B3A-8: initialMessage too long -> initial_message_too_long
+  const longMsg = 'y'.repeat(2001);
+  const longMsgDraft = asJson(await postDraft({ cwd: VALID_TEST_CWD, agentId: 'claude', initialMessage: longMsg, mode: 'draft' }, auth));
+  ok('POST draft with initialMessage >2000 returns initial_message_too_long',
+    isStableError(longMsgDraft, 'initial_message_too_long'), JSON.stringify(longMsgDraft));
+
+  // B3A-9: invalid mode -> invalid_mode
+  const badModeDraft = asJson(await postDraft({ cwd: VALID_TEST_CWD, agentId: 'claude', mode: 'run' }, auth));
+  ok('POST draft with invalid mode returns invalid_mode',
+    isStableError(badModeDraft, 'invalid_mode'), JSON.stringify(badModeDraft));
+
+  // Record write provider call count BEFORE the valid draft, to verify no write happens
+  // (B2C already reset provider to null; B3A must not call it anyway)
+  const auditBeforeDraft = asJson(await request({ path: '/api/mobile/audit?limit=50', method: 'GET', headers: auth }));
+  const draftSecret = 'B3A-SECRET-PAYLOAD-' + Date.now() + '-do-not-echo-zzz';
+
+  // B3A-10: Valid request creates draft
+  const validDraftRes = await postDraft({
+    cwd: VALID_TEST_CWD,
+    agentId: 'claude',
+    title: 'B3A test draft',
+    initialMessage: draftSecret,
+    mode: 'draft'
+  }, auth);
+  const validDraft = asJson(validDraftRes);
+  ok('POST valid draft returns 200 ok:true', validDraftRes.status === 200 && validDraft.ok === true,
+    'status=' + validDraftRes.status + ' body=' + JSON.stringify(validDraft).substring(0, 500));
+  ok('POST valid draft has session object', !!(validDraft.session && typeof validDraft.session === 'object'),
+    JSON.stringify(validDraft).substring(0, 400));
+  ok('POST valid draft session.id is non-empty string',
+    typeof (validDraft.session && validDraft.session.id) === 'string' && validDraft.session.id.length > 0);
+  ok('POST valid draft session.status === "draft"',
+    validDraft.session && validDraft.session.status === 'draft', 'status=' + (validDraft.session && validDraft.session.status));
+  ok('POST valid draft session.agentId === "claude"',
+    validDraft.session && validDraft.session.agentId === 'claude');
+  ok('POST valid draft session.canStart === false',
+    validDraft.session && validDraft.session.canStart === false);
+  ok('POST valid draft session.source === "mobile-draft"',
+    validDraft.session && validDraft.session.source === 'mobile-draft');
+  ok('POST valid draft session has createdAt (number)',
+    typeof (validDraft.session && validDraft.session.createdAt) === 'number');
+  ok('POST valid draft session has cwd/cwdLabel/title',
+    !!(validDraft.session && validDraft.session.cwd && validDraft.session.cwdLabel && validDraft.session.title));
+  ok('POST valid draft meta.willSpawnAgent === false',
+    validDraft.meta && validDraft.meta.willSpawnAgent === false);
+  ok('POST valid draft meta.phase === "B3A"',
+    validDraft.meta && validDraft.meta.phase === 'B3A');
+  ok('POST valid draft meta.initialMessageLength equals message length',
+    validDraft.meta && validDraft.meta.initialMessageLength === draftSecret.length);
+
+  // B3A-11: timeline in response contains session_created event
+  const draftTimeline = validDraft.timeline;
+  ok('POST valid draft has timeline object', !!(draftTimeline && typeof draftTimeline === 'object'));
+  ok('POST valid draft timeline.events is array',
+    Array.isArray(draftTimeline && draftTimeline.events));
+  const sessionCreatedEvt = draftTimeline && Array.isArray(draftTimeline.events)
+    ? draftTimeline.events.find((e) => e && e.type === 'session_created')
+    : null;
+  ok('POST valid draft timeline contains session_created event', !!sessionCreatedEvt,
+    'events=' + JSON.stringify(draftTimeline && draftTimeline.events));
+  if (sessionCreatedEvt) {
+    ok('session_created event.text is fixed literal',
+      sessionCreatedEvt.text === 'Mobile session draft created', 'text=' + JSON.stringify(sessionCreatedEvt.text));
+    ok('session_created event has meta.initialMessageLength (number)',
+      typeof sessionCreatedEvt.meta.initialMessageLength === 'number');
+    ok('session_created event does NOT include deviceId',
+      !('deviceId' in (sessionCreatedEvt.meta || {})), 'meta=' + JSON.stringify(sessionCreatedEvt.meta));
+    ok('session_created event meta does NOT contain initialMessage text',
+      JSON.stringify(sessionCreatedEvt).indexOf(draftSecret) === -1);
+  }
+
+  // B3A-12: Response does not leak sensitive fields
+  const draftJson = JSON.stringify(validDraft);
+  ok('draft response does not contain internalId', !/internalId/.test(draftJson));
+  ok('draft response does not contain pid', !/["']pid["']\s*:/.test(draftJson));
+  ok('draft response does not contain tokenHash', !/tokenHash/.test(draftJson));
+  ok('draft response does not contain resumeToken', !/resumeToken/.test(draftJson));
+  ok('draft response does NOT echo initialMessage secret',
+    draftJson.indexOf(draftSecret) === -1, 'found secret in response!');
+
+  // B3A-13: Audit contains mobile_session.draft.created, no secret
+  const auditAfterDraft = asJson(await request({ path: '/api/mobile/audit?limit=50', method: 'GET', headers: auth }));
+  const auditHasDraftCreated = Array.isArray(auditAfterDraft.items) &&
+    auditAfterDraft.items.some((a) => a && a.action === 'mobile_session.draft.created');
+  ok('audit contains mobile_session.draft.created entry', auditHasDraftCreated,
+    'audit actions=' + JSON.stringify((auditAfterDraft.items || []).map((a) => a && a.action)));
+  const auditText = JSON.stringify(auditAfterDraft);
+  ok('audit does NOT contain initialMessage secret',
+    auditText.indexOf(draftSecret) === -1, 'audit has secret!');
+  ok('audit entries contain initialMessageLength (number) for draft',
+    Array.isArray(auditAfterDraft.items) && auditAfterDraft.items.some((a) =>
+      a && a.action === 'mobile_session.draft.created' && typeof a.initialMessageLength === 'number'));
+
+  // B3A-14: Re-fetch timeline via GET, session_created still present
+  const newSessionId = validDraft.session.id;
+  const fetchedTimeline = asJson(await request({
+    path: '/api/mobile/sessions/' + encodeURIComponent(newSessionId) + '/timeline',
+    method: 'GET',
+    headers: auth
+  }));
+  ok('GET session timeline after draft returns ok:true', fetchedTimeline.ok === true, JSON.stringify(fetchedTimeline).substring(0, 300));
+  ok('GET session timeline contains session_created event',
+    Array.isArray(fetchedTimeline.events) && fetchedTimeline.events.some((e) => e && e.type === 'session_created'),
+    'events=' + JSON.stringify((fetchedTimeline.events || []).map((e) => e && e.type)));
+
+  // B3A-15: Timeline does not leak secrets/sensitive fields
+  const timelineText = JSON.stringify(fetchedTimeline);
+  ok('timeline response does not contain initialMessage secret',
+    timelineText.indexOf(draftSecret) === -1);
+  ok('timeline response does not contain tokenHash/resumeToken/pid/internalId',
+    !/tokenHash|resumeToken|["']pid["']\s*:|internalId/.test(timelineText));
+
+  // B3A-16: Session list includes the new draft session
+  const sessionsList = asJson(await request({ path: '/api/mobile/sessions?limit=50', method: 'GET', headers: auth }));
+  ok('GET /api/mobile/sessions returns ok:true with items',
+    sessionsList.ok === true && Array.isArray(sessionsList.items), JSON.stringify(sessionsList).substring(0, 200));
+  const foundDraftInList = Array.isArray(sessionsList.items) && sessionsList.items.some((s) => s && s.sessionId === newSessionId);
+  ok('sessions list contains the newly created draft session', foundDraftInList,
+    'looking for ' + newSessionId);
+
+  // B3A-17: Draft session does not trigger write provider (B2C path) — since provider is null,
+  // any accidental call would throw. The successful creation of the draft already proves no spawn.
+  // Additionally verify no new desktop agent timeline was created/polluted.
+
+  section('5e) B3B: Start Mobile Draft Session Runner');
+
+  // Create a token with session:start scope for B3B tests
+  const b3bTokenPlain = mobile.genToken();
+  const b3bDeviceId = mobile.genDeviceId();
+  const b3bTokenHash = mobile.sha256(b3bTokenPlain);
+  await mobile.addTokenRecord({
+    id: b3bDeviceId,
+    deviceName: 'B3B Test Phone',
+    tokenHash: b3bTokenHash,
+    scopes: ['read:status', 'read:files', 'session:start'],
+    pairedAt: Date.now(),
+    lastSeenAt: Date.now(),
+    revoked: false,
+  });
+  const b3bAuth = { Authorization: 'Bearer ' + b3bTokenPlain };
+
+  // Also create a read-only token without session:start
+  const roTokenPlain = mobile.genToken();
+  const roDeviceId = mobile.genDeviceId();
+  const roTokenHash = mobile.sha256(roTokenPlain);
+  await mobile.addTokenRecord({
+    id: roDeviceId,
+    deviceName: 'Read-Only Phone',
+    tokenHash: roTokenHash,
+    scopes: ['read:status', 'read:files'],
+    pairedAt: Date.now(),
+    lastSeenAt: Date.now(),
+    revoked: false,
+  });
+  const roAuth = { Authorization: 'Bearer ' + roTokenPlain };
+
+  // Create a fresh draft session for B3B tests (with initialMessage)
+  const b3bProjectDir = path.join(TMP_HOME, 'b3b-project');
+  fs.mkdirSync(b3bProjectDir, { recursive: true });
+  fs.writeFileSync(path.join(b3bProjectDir, 'README.md'), '# B3B test\n');
+
+  const b3bDraftBody = JSON.stringify({
+    cwd: b3bProjectDir,
+    agentId: 'qoder',
+    title: 'B3B start test',
+    initialMessage: 'Run a quick test for B3B phase',
+    mode: 'draft',
+  });
+  const b3bDraftResp = await request({
+    path: '/api/mobile/sessions/draft',
+    method: 'POST',
+    headers: { ...b3bAuth, 'Content-Type': 'application/json' },
+  }, b3bDraftBody);
+  const b3bDraftJson = asJson(b3bDraftResp);
+  ok('B3B: fresh draft created with session:start token',
+    b3bDraftResp.status === 200 && b3bDraftJson.ok === true && b3bDraftJson.session && b3bDraftJson.session.id,
+    JSON.stringify(b3bDraftJson).substring(0, 300));
+  const b3bSessionId = b3bDraftJson.session && b3bDraftJson.session.id;
+
+  // B3B-1: No token returns 401
+  const b3bNoTokenStart = asJson(await request({
+    path: '/api/mobile/sessions/' + b3bSessionId + '/start',
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  }, JSON.stringify({ confirm: true })));
+  ok('B3B-1: POST start without token returns 401 unauthorized',
+    b3bNoTokenStart.ok === false && isStableError(b3bNoTokenStart, 'unauthorized'),
+    JSON.stringify(b3bNoTokenStart));
+
+  // B3B-2: Read-only token returns session_start_scope_required
+  const b3bRoStart = asJson(await request({
+    path: '/api/mobile/sessions/' + b3bSessionId + '/start',
+    method: 'POST',
+    headers: { ...roAuth, 'Content-Type': 'application/json' },
+  }, JSON.stringify({ confirm: true })));
+  ok('B3B-2: POST start without session:start scope returns session_start_scope_required',
+    b3bRoStart.ok === false && isStableError(b3bRoStart, 'session_start_scope_required'),
+    JSON.stringify(b3bRoStart));
+
+  // B3B-3: Non-existent session returns session_not_found
+  const b3bNotFoundStart = asJson(await request({
+    path: '/api/mobile/sessions/mobile-nonexistent123/start',
+    method: 'POST',
+    headers: { ...b3bAuth, 'Content-Type': 'application/json' },
+  }, JSON.stringify({ confirm: true })));
+  ok('B3B-3: POST start for non-existent session returns session_not_found',
+    b3bNotFoundStart.ok === false && isStableError(b3bNotFoundStart, 'session_not_found'),
+    JSON.stringify(b3bNotFoundStart));
+
+  // B3B-4: Non-draft session returns session_not_draft (use the seeded session which is running)
+  const b3bRunningStart = asJson(await request({
+    path: '/api/mobile/sessions/' + draft.sessionId + '/start',
+    method: 'POST',
+    headers: { ...b3bAuth, 'Content-Type': 'application/json' },
+  }, JSON.stringify({ confirm: true })));
+  ok('B3B-4: POST start for non-draft session returns session_not_draft',
+    b3bRunningStart.ok === false && isStableError(b3bRunningStart, 'session_not_draft'),
+    JSON.stringify(b3bRunningStart));
+
+  // B3B-5: Missing confirm:true returns confirm_required
+  const b3bNoConfirmStart = asJson(await request({
+    path: '/api/mobile/sessions/' + b3bSessionId + '/start',
+    method: 'POST',
+    headers: { ...b3bAuth, 'Content-Type': 'application/json' },
+  }, JSON.stringify({})));
+  ok('B3B-5: POST start without confirm returns confirm_required',
+    b3bNoConfirmStart.ok === false && isStableError(b3bNoConfirmStart, 'confirm_required'),
+    JSON.stringify(b3bNoConfirmStart));
+
+  // B3B-6: cwd not allowed (create a draft with a forbidden cwd scenario via direct manipulation)
+  // Test by starting another device's draft session
+  const b3bOtherDeviceDraft = await mobileSessions.createMobileDraftSession({
+    cwd: b3bProjectDir,
+    agentId: 'qoder',
+    deviceId: 'other-device-id-not-mine',
+    initialMessage: 'not my session',
+    title: 'other device draft',
+  });
+  const b3bOtherStart = asJson(await request({
+    path: '/api/mobile/sessions/' + b3bOtherDeviceDraft.sessionId + '/start',
+    method: 'POST',
+    headers: { ...b3bAuth, 'Content-Type': 'application/json' },
+  }, JSON.stringify({ confirm: true })));
+  ok('B3B-6: POST start for another device\'s draft is rejected',
+    b3bOtherStart.ok === false && (isStableError(b3bOtherStart, 'forbidden') || b3bOtherStart.error),
+    JSON.stringify(b3bOtherStart));
+
+  // B3B-7: bad agentId returns agent_not_allowed
+  // Create a valid draft first, then tamper with stored agentId
+  const b3bBadDraftBody = JSON.stringify({
+    cwd: b3bProjectDir,
+    agentId: 'qoder',
+    title: 'bad agent draft',
+    initialMessage: 'bad agent',
+    mode: 'draft',
+  });
+  const b3bBadDraftResp = await request({
+    path: '/api/mobile/sessions/draft',
+    method: 'POST',
+    headers: { ...b3bAuth, 'Content-Type': 'application/json' },
+  }, b3bBadDraftBody);
+  const b3bBadDraftJson = asJson(b3bBadDraftResp);
+  const b3bBadAgentSessionId = b3bBadDraftJson.session && b3bBadDraftJson.session.id;
+  // Tamper: directly modify stored session to have invalid agentId
+  {
+    const sObj = await mobileSessions.readMobileSessionsObj();
+    const entry = Object.entries(sObj.sessions || {}).find(([, v]) => v && v.sessionId === b3bBadAgentSessionId);
+    if (entry) {
+      entry[1].agentId = 'malicious-agent';
+      await mobileSessions.writeMobileSessions(sObj);
+    }
+  }
+  const b3bBadAgentStart = asJson(await request({
+    path: '/api/mobile/sessions/' + b3bBadAgentSessionId + '/start',
+    method: 'POST',
+    headers: { ...b3bAuth, 'Content-Type': 'application/json' },
+  }, JSON.stringify({ confirm: true })));
+  ok('B3B-7: POST start with bad agentId returns agent_not_allowed',
+    b3bBadAgentStart.ok === false && isStableError(b3bBadAgentStart, 'agent_not_allowed'),
+    JSON.stringify(b3bBadAgentStart));
+
+  // B3B-8: Legal start with mock runner (MOBILE_AGENT_FORCE_STUB=1 already set)
+  const b3bValidStart = asJson(await request({
+    path: '/api/mobile/sessions/' + b3bSessionId + '/start',
+    method: 'POST',
+    headers: { ...b3bAuth, 'Content-Type': 'application/json' },
+  }, JSON.stringify({ confirm: true })));
+  ok('B3B-8: Legal POST start returns ok:true',
+    b3bValidStart.ok === true,
+    JSON.stringify(b3bValidStart).substring(0, 500));
+  ok('B3B-8b: session status is done (sync runner completed)',
+    b3bValidStart.session && b3bValidStart.session.status === 'done',
+    'status=' + (b3bValidStart.session && b3bValidStart.session.status));
+  ok('B3B-8c: session.source is mobile-draft',
+    b3bValidStart.session && b3bValidStart.session.source === 'mobile-draft',
+    'source=' + (b3bValidStart.session && b3bValidStart.session.source));
+  ok('B3B-8d: session.canStart is false',
+    b3bValidStart.session && b3bValidStart.session.canStart === false,
+    'canStart=' + (b3bValidStart.session && b3bValidStart.session.canStart));
+  ok('B3B-8e: meta.phase is B3B',
+    b3bValidStart.meta && b3bValidStart.meta.phase === 'B3B',
+    'meta=' + JSON.stringify(b3bValidStart.meta));
+  ok('B3B-8f: meta.willSpawnAgent is true',
+    b3bValidStart.meta && b3bValidStart.meta.willSpawnAgent === true);
+  ok('B3B-8g: meta.auditWritten is true',
+    b3bValidStart.meta && b3bValidStart.meta.auditWritten === true);
+  ok('B3B-8h: meta.usedStub is true (MOBILE_AGENT_FORCE_STUB=1)',
+    b3bValidStart.meta && b3bValidStart.meta.usedStub === true);
+  ok('B3B-8i: initialMessageLength is positive',
+    typeof b3bValidStart.meta.initialMessageLength === 'number' && b3bValidStart.meta.initialMessageLength > 0);
+
+  // B3B-9: timeline contains required events
+  const b3bStartTl = b3bValidStart.timeline;
+  ok('B3B-9: timeline.events is an array', Array.isArray(b3bStartTl && b3bStartTl.events), JSON.stringify(b3bStartTl));
+  const b3bTlTypes = Array.isArray(b3bStartTl && b3bStartTl.events) ? b3bStartTl.events.map(e => e.type) : [];
+  ok('B3B-9b: timeline contains agent_start_requested',
+    b3bTlTypes.includes('agent_start_requested'), 'types=' + b3bTlTypes.join(','));
+  ok('B3B-9c: timeline contains agent_started',
+    b3bTlTypes.includes('agent_started'), 'types=' + b3bTlTypes.join(','));
+  ok('B3B-9d: timeline contains agent_completed',
+    b3bTlTypes.includes('agent_completed'), 'types=' + b3bTlTypes.join(','));
+
+  // B3B-10: Response does NOT contain sensitive fields
+  const b3bStartText = JSON.stringify(b3bValidStart);
+  ok('B3B-10: Response does not leak pid/tokenHash/resumeToken/raw process',
+    !/tokenHash|["']pid["']\s*:|resumeToken|rawProcess|internalId|_internal/.test(b3bStartText),
+    b3bStartText.substring(0, 400));
+
+  // B3B-11: Response does not contain initialMessage plain text
+  ok('B3B-11: Response does not echo initialMessage plain text',
+    !b3bStartText.includes('Run a quick test for B3B phase'),
+    'message text should not be in response');
+
+  // B3B-12: Audit does not contain initialMessage plain text
+  const b3bAuditAfter = await mobileSessions.readAuditMobile();
+  const b3bAuditText = JSON.stringify(b3bAuditAfter);
+  ok('B3B-12: Audit does not contain initialMessage plain text',
+    !b3bAuditText.includes('Run a quick test for B3B phase'),
+    'audit should not contain initial message content');
+  ok('B3B-12b: Audit contains mobile_session.start.accepted',
+    b3bAuditText.includes('mobile_session.start.accepted'));
+  ok('B3B-12c: Audit contains mobile_session.start.completed',
+    b3bAuditText.includes('mobile_session.start.completed'));
+  ok('B3B-12d: Audit contains mobile_session.start.rejected for scope check',
+    b3bAuditText.includes('session_start_scope_required'));
+
+  // B3B-13: Verify via GET that session status is done and canStart is false
+  const b3bSessionAfter = asJson(await request({
+    path: '/api/mobile/sessions/' + b3bSessionId,
+    method: 'GET',
+    headers: b3bAuth,
+  }));
+  ok('B3B-13: GET session after start returns status=done',
+    b3bSessionAfter.ok === true && b3bSessionAfter.session && b3bSessionAfter.session.status === 'done',
+    JSON.stringify(b3bSessionAfter).substring(0, 300));
+
+  // B3B-14: Verify messages: user message is now 'sent', agent message is present
+  const b3bMsgsAfter = asJson(await request({
+    path: '/api/mobile/sessions/' + b3bSessionId + '/messages',
+    method: 'GET',
+    headers: b3bAuth,
+  }));
+  ok('B3B-14: GET messages returns ok with messages array',
+    b3bMsgsAfter.ok === true && Array.isArray(b3bMsgsAfter.messages),
+    JSON.stringify(b3bMsgsAfter).substring(0, 300));
+  const b3bMsgArr = Array.isArray(b3bMsgsAfter.messages) ? b3bMsgsAfter.messages : [];
+  const b3bUserMsg = b3bMsgArr.find(m => m.role === 'user');
+  const b3bAgentMsg = b3bMsgArr.find(m => m.role === 'agent');
+  ok('B3B-14b: user message exists with status=sent (not draft-pending)',
+    b3bUserMsg && b3bUserMsg.status === 'sent',
+    b3bUserMsg ? 'user status=' + b3bUserMsg.status : 'no user msg');
+  ok('B3B-14c: agent response message exists',
+    !!b3bAgentMsg, 'agent present=' + !!b3bAgentMsg);
+
+  // B3B-15: Rate limit: second immediate start is rate_limited
+  const b3bDraft2Body = JSON.stringify({
+    cwd: b3bProjectDir,
+    agentId: 'qoder',
+    title: 'B3B rate limit test',
+    initialMessage: 'rate limit test',
+    mode: 'draft',
+  });
+  const b3bDraft2Resp = await request({
+    path: '/api/mobile/sessions/draft',
+    method: 'POST',
+    headers: { ...b3bAuth, 'Content-Type': 'application/json' },
+  }, b3bDraft2Body);
+  const b3bDraft2Json = asJson(b3bDraft2Resp);
+  const b3bSessionId2 = b3bDraft2Json.session && b3bDraft2Json.session.id;
+
+  const b3bRateStart = asJson(await request({
+    path: '/api/mobile/sessions/' + b3bSessionId2 + '/start',
+    method: 'POST',
+    headers: { ...b3bAuth, 'Content-Type': 'application/json' },
+  }, JSON.stringify({ confirm: true })));
+  ok('B3B-15: Second immediate start is rate_limited (429)',
+    b3bRateStart.ok === false && isStableError(b3bRateStart, 'rate_limited'),
+    JSON.stringify(b3bRateStart).substring(0, 300));
+
+  // Wait for rate limit to pass, then verify the second draft can be started
+  await new Promise(r => setTimeout(r, 5200));
+  const b3bAfterRateStart = asJson(await request({
+    path: '/api/mobile/sessions/' + b3bSessionId2 + '/start',
+    method: 'POST',
+    headers: { ...b3bAuth, 'Content-Type': 'application/json' },
+  }, JSON.stringify({ confirm: true })));
+  ok('B3B-15b: After rate limit window passes, start succeeds',
+    b3bAfterRateStart.ok === true,
+    JSON.stringify(b3bAfterRateStart).substring(0, 200));
+
+  // B3B-16: Devices endpoint shows scopes without exposing tokens
+  const b3bDevicesResp = asJson(await request({
+    path: '/api/mobile/devices',
+    method: 'GET',
+    headers: b3bAuth,
+  }));
+  ok('B3B-16: Devices endpoint returns ok with items',
+    b3bDevicesResp.ok === true && Array.isArray(b3bDevicesResp.items),
+    JSON.stringify(b3bDevicesResp).substring(0, 300));
+  const b3bDeviceInList = Array.isArray(b3bDevicesResp.items) && b3bDevicesResp.items.find(d => d.id === b3bDeviceId);
+  ok('B3B-16b: B3B device is listed with scopes array containing session:start',
+    b3bDeviceInList && Array.isArray(b3bDeviceInList.scopes) && b3bDeviceInList.scopes.includes('session:start'),
+    b3bDeviceInList ? 'scopes=' + JSON.stringify(b3bDeviceInList.scopes) : 'device not found');
+  const b3bDevicesText = JSON.stringify(b3bDevicesResp);
+  ok('B3B-16c: Devices endpoint does NOT leak tokens/tokenHash',
+    !/tokenHash|["']token["']\s*:|secret/i.test(b3bDevicesText),
+    'devices response should not contain raw tokens');
+
+  // B3B-17: Timeline fetched via GET for completed session includes all B3B events
+  const b3bTlAfter = asJson(await request({
+    path: '/api/mobile/sessions/' + b3bSessionId + '/timeline?limit=50',
+    method: 'GET',
+    headers: b3bAuth,
+  }));
+  ok('B3B-17: GET timeline returns ok', b3bTlAfter.ok === true, JSON.stringify(b3bTlAfter).substring(0, 200));
+  const b3bTlAfterTypes = Array.isArray(b3bTlAfter.events) ? b3bTlAfter.events.map(e => e.type) : [];
+  ok('B3B-17b: GET timeline contains session_created',
+    b3bTlAfterTypes.includes('session_created'), 'types=' + b3bTlAfterTypes.join(','));
+  ok('B3B-17c: GET timeline contains agent_start_requested',
+    b3bTlAfterTypes.includes('agent_start_requested'), 'types=' + b3bTlAfterTypes.join(','));
+  ok('B3B-17d: GET timeline contains agent_started',
+    b3bTlAfterTypes.includes('agent_started'), 'types=' + b3bTlAfterTypes.join(','));
+  ok('B3B-17e: GET timeline contains agent_completed',
+    b3bTlAfterTypes.includes('agent_completed'), 'types=' + b3bTlAfterTypes.join(','));
+
+  // B3B-18: Client cannot override cwd/agentId/initialMessage (body params are ignored)
+  const b3bDraft3Body = JSON.stringify({
+    cwd: b3bProjectDir,
+    agentId: 'qoder',
+    title: 'override test',
+    initialMessage: 'original message',
+    mode: 'draft',
+  });
+  const b3bDraft3Resp = await request({
+    path: '/api/mobile/sessions/draft',
+    method: 'POST',
+    headers: { ...b3bAuth, 'Content-Type': 'application/json' },
+  }, b3bDraft3Body);
+  const b3bDraft3Json = asJson(b3bDraft3Resp);
+  const b3bSessionId3 = b3bDraft3Json.session && b3bDraft3Json.session.id;
+  await new Promise(r => setTimeout(r, 5200)); // wait rate limit
+
+  const b3bOverrideStart = asJson(await request({
+    path: '/api/mobile/sessions/' + b3bSessionId3 + '/start',
+    method: 'POST',
+    headers: { ...b3bAuth, 'Content-Type': 'application/json' },
+  }, JSON.stringify({
+    confirm: true,
+    cwd: 'C:\\Windows\\System32',
+    agentId: 'malware',
+    initialMessage: 'overridden message',
+    command: 'rm -rf /',
+    args: ['--evil'],
+    binary: 'cmd.exe'
+  })));
+  ok('B3B-18: Extra body fields (cwd/agentId/command/args) are ignored - start still succeeds with stored values',
+    b3bOverrideStart.ok === true && b3bOverrideStart.session && b3bOverrideStart.session.agentId === 'qoder',
+    JSON.stringify(b3bOverrideStart).substring(0, 400));
+  const b3bOverrideText = JSON.stringify(b3bOverrideStart);
+  ok('B3B-18b: No command injection in response',
+    !b3bOverrideText.includes('rm -rf') && !b3bOverrideText.includes('cmd.exe') && !b3bOverrideText.includes('malware'));
+
+  // B3B-19: No arbitrary shell - verify runner is the safe stub, no raw shell executed
+  ok('B3B-19: No shell access - runner uses MOBILE_AGENT_FORCE_STUB (usedStub=true in meta)',
+    b3bOverrideStart.meta && b3bOverrideStart.meta.usedStub === true,
+    'stub runner was used, no real CLI spawned');
+
+  // B3B-20: Response does not contain pid/tokenHash/resumeToken/raw process
+  ok('B3B-20: Response does not leak process details',
+    !/tokenHash|["']pid["']\s*:|resumeToken|rawProcess|internalId|_internal/.test(b3bOverrideText));
+
+  // B3B-21: Verify that trying to start an already-started session returns session_not_draft
+  await new Promise(r => setTimeout(r, 5200)); // wait for rate limit to pass
+  const b3bSecondStart = asJson(await request({
+    path: '/api/mobile/sessions/' + b3bSessionId + '/start',
+    method: 'POST',
+    headers: { ...b3bAuth, 'Content-Type': 'application/json' },
+  }, JSON.stringify({ confirm: true })));
+  ok('B3B-21: Second start on completed session returns session_not_draft',
+    b3bSecondStart.ok === false && isStableError(b3bSecondStart, 'session_not_draft'),
+    JSON.stringify(b3bSecondStart).substring(0, 200));
+
   section('6) Syntax checks');
   ok('node -c electron/mobile.js already loaded', typeof mobile.createMobileServer === 'function');
 

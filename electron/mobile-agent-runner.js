@@ -550,9 +550,27 @@ async function runMobileAgentStream(opts, emit) {
     'write-a-skill': '创建新的 Agent 技能包，含结构与资源模板',
   };
 
+  let commandCount = 0;
+  function commandStart(id, label) {
+    commandCount++;
+    emit('command_start', { id, label, status: 'running' });
+    emit('command_count', { count: commandCount });
+  }
+  function commandEnd(id, status, label) {
+    emit('command_end', { id, label, status: status || 'success' });
+  }
+
   // a. Emit start
   if (aborted()) return;
-  emit('start', { ok: true, agentId, cwd: opts.cwd || '' });
+  emit('start', { ok: true, agentId, cwd: opts.cwd || '', startedAt: Date.now() });
+  emit('meta', {
+    agentId,
+    skillId: opts.skillId || '',
+    skillName: opts.skillName || '',
+    cwd: opts.cwd || '',
+    startedAt: Date.now()
+  });
+  emit('status', { text: '正在处理…', state: 'running' });
 
   // b. Validate agentId
   if (!ALLOWED_AGENT_IDS.includes(agentId)) {
@@ -567,53 +585,44 @@ async function runMobileAgentStream(opts, emit) {
     return;
   }
 
-  // d. Emit step: 准备工作区
+  // d. Emit command: 准备工作区
   if (aborted()) return;
   const cwdLabel = (opts.cwd || '').split(/[\\/]/).filter(Boolean).slice(-1)[0] || opts.cwd || 'unknown';
-  emit('step', { label: '准备工作区', status: 'running', text: cwdLabel });
+  commandStart('workspace', '读取工作区信息');
   if (aborted()) return;
-  emit('step', { label: '准备工作区', status: 'done', text: cwdLabel });
-  // New: tool event for workspace preparation
-  if (aborted()) return;
-  emit('tool', { id: 'tool-workspace', label: '读取工作区信息', status: 'done', safe: true });
-  // New: thought event — reasoning before action
+  commandEnd('workspace', 'success', cwdLabel);
+  // Public progress note, not hidden chain-of-thought.
   if (aborted()) return;
   emit('thought', { text: '我会先检查当前工作区，然后' + (opts.skillId ? '使用 ' + opts.skillName + ' 技能处理你的请求' : '处理你的请求') + '。' });
 
   // e. If skillId provided
   if (opts.skillId) {
     if (aborted()) return;
-    emit('step', { label: '使用 Skill: ' + (opts.skillName || opts.skillId), status: 'done', text: opts.skillId });
-    // New: skill event
-    if (aborted()) return;
-    emit('skill', { skillId: opts.skillId, skillName: opts.skillName || opts.skillId, description: SKILL_CN_DESCRIPTIONS_FOR_RUNNER[opts.skillId] || '' });
+    emit('meta', { agentId, skillId: opts.skillId, skillName: opts.skillName || opts.skillId, cwd: opts.cwd || '' });
+    emit('thought', { text: '使用 skill：' + (opts.skillName || opts.skillId) + '。' });
   }
 
-  // f. Emit step: 调用 Agent
+  // f. Emit command: 调用 Agent
   if (aborted()) return;
-  emit('step', { label: '调用 ' + agentDisplayName(agentId), status: 'running' });
-  // New: tool event for runner invocation
-  if (aborted()) return;
-  emit('tool', { id: 'tool-runner', label: '调用 ' + agentDisplayName(agentId), status: 'running', safe: true });
+  commandStart('runner', '调用 ' + agentDisplayName(agentId));
 
   // g. Stub mode
   if (process.env.MOBILE_AGENT_FORCE_STUB === '1') {
     if (aborted()) return;
     emit('thought', { text: '我会先检查当前工作区，然后' + (opts.skillId ? '使用 ' + opts.skillName + ' 技能处理你的请求' : '处理你的请求') + '。当前为模拟模式，将生成示例回复。' });
     if (aborted()) return;
-    emit('step', { label: '调用 ' + agentDisplayName(agentId), status: 'done' });
-    if (aborted()) return;
-    emit('command_output', { id: 'tool-runner', status: 'done' });
+    commandEnd('runner', 'success', '调用 ' + agentDisplayName(agentId));
     const stubResult = runStubRunner({ agentId, text, cwd: opts.cwd });
     const stubText = sanitizeOutput(stubResult.text || '');
     // Split into ~200 char chunks with small delays
     const chunks = splitIntoChunks(stubText, 200);
     for (const chunk of chunks) {
       if (aborted()) return;
-      emit('delta', { text: chunk });
+      emit('message_delta', { text: chunk });
       await delay(30); // eslint-disable-line no-await-in-loop
     }
     if (aborted()) return;
+    emit('final', { text: stubText });
     emit('done', { status: 'done', message: { role: 'assistant', content: stubText } });
     return;
   }
@@ -643,10 +652,12 @@ async function runMobileAgentStream(opts, emit) {
 
   // i. Runner failed / timed out
   if (raw.timedOut) {
+    commandEnd('runner', 'failed', '调用 ' + agentDisplayName(agentId));
     emit('error', { ok: false, text: friendlyRunnerTimeout(agentId), error: 'timeout' });
     return;
   }
   if (!raw.ok) {
+    commandEnd('runner', 'failed', '调用 ' + agentDisplayName(agentId));
     // j. Runner unavailable
     if (raw.error === 'runner_unavailable') {
       emit('error', { ok: false, text: friendlyRunnerUnavailable(agentId), error: 'runner_unavailable' });
@@ -656,11 +667,9 @@ async function runMobileAgentStream(opts, emit) {
     return;
   }
 
-  // Mark step done
-  emit('step', { label: '调用 ' + agentDisplayName(agentId), status: 'done' });
-  // New: command_output for the runner tool
+  // Mark command done
   if (aborted()) return;
-  emit('command_output', { id: 'tool-runner', status: 'done' });
+  commandEnd('runner', 'success', '调用 ' + agentDisplayName(agentId));
 
   const resultText = sanitizeOutput(raw.text || '');
 
@@ -668,11 +677,12 @@ async function runMobileAgentStream(opts, emit) {
   const chunks = splitIntoChunks(resultText, 200);
   for (const chunk of chunks) {
     if (aborted()) return;
-    emit('delta', { text: chunk });
+    emit('message_delta', { text: chunk });
     await delay(30); // eslint-disable-line no-await-in-loop
   }
 
   if (aborted()) return;
+  emit('final', { text: resultText });
   emit('done', { status: 'done', message: { role: 'assistant', content: resultText } });
 }
 

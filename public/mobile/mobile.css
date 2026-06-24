@@ -974,6 +974,29 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   background: var(--card);
   border-color: var(--border);
 }
+.chat-row-agent {
+  width: 100%;
+  max-width: min(820px, 100%);
+  margin: 0 auto;
+  gap: 0;
+}
+.chat-row-agent .chat-avatar {
+  display: none;
+}
+.chat-row-agent .chat-bubble {
+  max-width: 100%;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  border-radius: 0;
+  white-space: normal;
+  line-height: 1.65;
+}
+.chat-row-agent .chat-bubble-running::after {
+  content: none;
+  display: none;
+}
 .chat-bubble-system {
   background: transparent;
   border: 1px dashed var(--border);
@@ -2401,242 +2424,31 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 }
 
 /* =========================================================
-   Phase UI-A8-6 · Stream Steps (agent execution trace)
-   - 步骤列表在 assistant 气泡内，正文上方
-   - running 用 pulse 动画
-   - done 用 check
-   - failed 用红点
-   - 正文和步骤分开
+   Phase UI-A8-11 · Codex-like realtime transcript
    ========================================================= */
-.stream-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  margin-bottom: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border-soft);
-}
-.stream-step {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 20px;
-  color: var(--fg-2);
-  font-size: 12px;
-  line-height: 1.35;
-}
-.stream-step-icon {
-  width: 16px;
-  height: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  font-size: 10px;
-  font-weight: 700;
-  flex-shrink: 0;
-  color: var(--fg-3);
-  background: var(--bg-2);
-}
-.stream-step.is-done .stream-step-icon {
-  background: var(--ok);
-  color: #fff;
-}
-.stream-step.is-running .stream-step-icon {
-  background: var(--accent);
-  color: #fff;
-  animation: pulse 1.4s ease-in-out infinite;
-}
-.stream-step.is-failed .stream-step-icon {
-  background: var(--err);
-  color: #fff;
-}
-.stream-step.is-failed .stream-step-icon.is-failed {
-  background: var(--err);
-}
-.stream-step-spinner {
-  /* extra pulse for running spinner */
-}
-.stream-step-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.stream-step-text {
-  color: var(--fg-3);
-  font-size: 11px;
-  margin-left: 4px;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-}
-.stream-delta {
-  word-wrap: break-word;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-  min-height: 0;
-}
-
-/* =========================================================
-   Phase UI-A8-7 P2 · Codex-like Run Timeline
-   - 白底极简，有层级
-   - thought / skill / tool / command / final 分区
-   - 不像黑色终端
-   - 可折叠 output
-   ========================================================= */
-.run-thinking {
-  margin-bottom: 10px;
-  padding: 8px 10px;
-  background: var(--bg-2);
-  border-radius: 8px;
-}
-.run-thinking-label {
-  display: block;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--fg-3);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: 4px;
-}
-.run-thinking-text {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--fg-2);
-}
-
-.run-skill {
-  margin-bottom: 10px;
-}
-.run-skill-label {
-  display: block;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--fg-3);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: 4px;
-}
-.run-skill-card {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px 12px;
-  background: var(--bg-2);
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-}
-.run-skill-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--fg);
-}
-.run-skill-desc {
-  font-size: 12px;
-  color: var(--fg-3);
-}
-
-.run-tools {
-  margin-bottom: 10px;
-}
-.run-tools-label {
-  display: block;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--fg-3);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: 6px;
-}
-.run-command {
-  padding: 6px 10px;
-  border-left: 3px solid var(--border-soft);
-  margin-bottom: 4px;
-  border-radius: 0 6px 6px 0;
-  background: var(--bg-2);
-}
-.run-command.is-done {
-  border-left-color: var(--ok);
-}
-.run-command.is-running {
-  border-left-color: var(--accent);
-}
-.run-command.is-failed {
-  border-left-color: var(--err);
-}
-.run-command-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  color: var(--fg-2);
-}
-.run-command-icon {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--fg-3);
-}
-.run-command.is-done .run-command-icon { color: var(--ok); }
-.run-command.is-failed .run-command-icon { color: var(--err); }
-.run-command-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.run-command-spinner {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--accent);
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: pulse 1s linear infinite;
-}
-.run-command-output {
-  margin-top: 4px;
-  padding: 6px 8px;
-  background: var(--bg);
-  border-radius: 4px;
-  font-size: 11px;
-  line-height: 1.4;
-  max-height: 200px;
-  overflow-y: auto;
-}
-.run-command-output.is-collapsed {
-  max-height: 60px;
-  overflow: hidden;
-}
-.run-command-output code {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 11px;
-  color: var(--fg-3);
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-.run-command-toggle {
-  display: block;
-  margin-top: 2px;
-  padding: 2px 8px;
-  font-size: 11px;
-  color: var(--accent);
-  background: none;
-  border: none;
-  cursor: pointer;
-}
-
-.run-final {
-  word-wrap: break-word;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-  min-height: 0;
-  padding-top: 6px;
-}
-
-/* Phase UI-A8-7 P0: Project card actions */
+.stream-transcript{display:flex;flex-direction:column;gap:10px;min-width:0;color:var(--fg)}
+.stream-head{display:flex;align-items:center;gap:8px;color:var(--fg-3);font-size:12px;line-height:1.3}
+.stream-status{font-weight:500}
+.stream-elapsed{color:var(--fg-3)}
+.stream-skill-inline{align-self:flex-start;color:var(--fg-2);font-size:12px;line-height:1.35;background:var(--bg-2);border:1px solid var(--border-soft);border-radius:999px;padding:3px 8px}
+.stream-body{display:flex;flex-direction:column;gap:10px;min-width:0}
+.stream-prose{font-size:14px;line-height:1.68;color:var(--fg);overflow-wrap:break-word;word-break:normal}
+.stream-prose p{margin:0 0 10px}
+.stream-prose p:last-child{margin-bottom:0}
+.stream-prose ul{margin:0 0 10px 18px;padding:0}
+.stream-prose li{margin:3px 0}
+.stream-prose code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.92em;background:var(--bg-2);border-radius:4px;padding:1px 4px}
+.stream-prose pre{margin:8px 0;padding:9px 10px;border-radius:6px;background:var(--bg-2);overflow:auto}
+.stream-prose pre code{background:transparent;padding:0}
+.stream-prose table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px}
+.stream-prose th,.stream-prose td{border:1px solid var(--border-soft);padding:5px 6px;text-align:left;vertical-align:top}
+.stream-command-summary{color:var(--fg-3);font-size:12px;line-height:1.35}
+.stream-commands{display:flex;flex-direction:column;gap:6px}
+.stream-command{display:flex;align-items:baseline;gap:8px;padding:2px 0;border:0;background:transparent}
+.stream-command.is-running,.stream-command.is-success,.stream-command.is-failed,.stream-command.is-canceled{border:0}
+.stream-command-title{font-size:13px;line-height:1.35;color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stream-command-meta{display:none}
+.stream-cursor{display:inline-block;margin-left:1px;color:var(--fg-3);animation:pulse 1s ease-in-out infinite}
 .project-card-actions {
   display: flex;
   gap: 8px;

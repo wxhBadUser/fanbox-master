@@ -896,3 +896,248 @@ The verifier (`scripts/verify-mobile-backend-contract.js`) additionally checks:
 - Second input within 1 second returns `rate_limited`.
 - Success/error responses do not contain raw terminal id, pid, tokenHash, or resumeToken.
 
+---
+
+## Phase B3A — Phone Project Selection + New Agent Session Draft
+
+Phase B3A adds the backend capability for a mobile device to **prepare** a new agent session without actually spawning Claude Code/Codex. The phone can: (1) list startable projects; (2) choose a cwd and agentId; (3) create a draft session with optional title and initial message; (4) receive a sessionId that renders a `session_created` timeline event. B3A does **not** spawn any process, allocate a PTY, call the runner, or execute commands — it only writes to the local session store.
+
+### Scope note
+
+- B3A draft creation requires **no new scope**. A device paired with default read scopes (`read:status`, `read:files`) can create a draft. This is safe because the draft is inert metadata; no code runs.
+- B3B (real agent spawn) will require a new scope (e.g. `session:start`) that is **not** granted by default.
+
+### `MobileStartableProject` type
+
+Returned by `GET /api/mobile/projects` (hardened in B3A):
+
+```ts
+type MobileStartableProject = {
+  id: string;                   // opaque stable string (lowercased normalized cwd for backward compat); clients must treat as opaque
+  name: string;                 // basename / human label
+  cwd: string;                  // absolute project path (already scoped to allowed roots)
+  cwdLabel: string;             // same as name, for UI rendering
+  source: "root" | "session-index" | "desktop-project";
+  agents: string[];             // agentIds seen in past sessions at this cwd
+  agentIds: string[];           // alias for agents, preferred field going forward
+  lastActiveAt: number;         // epoch ms; 0 for root-only entries with no sessions
+  sessionCount: number;
+  latestSessionId: string | null;
+  latestSessionTitle: string | null;
+  latestMessagePreview: string | null;
+  statusSummary: { running: number; done: number; failed: number };
+  canCreateSession: boolean;    // true iff cwd is allowed/non-forbidden/dir exists
+  reason: string;               // "ready" | "directory not found" | "cwd not in allowed roots"
+  riskFlags: string[];          // e.g. ["cwd_missing"]; empty when canCreateSession=true
+};
+```
+
+Hard rules:
+
+- Every project's `cwd` MUST pass `isForbiddenPath() === false` AND `pathInAllowed() === true` or the project is filtered out (not returned).
+- Root directories listed in `mobileAllowedRoots()` are defensively re-validated before being included.
+- `fsp.stat(cwd)` failures (directory missing / permission denied) do not crash the endpoint; they set `canCreateSession=false` with `riskFlags: ["cwd_missing"]`.
+- Forbidden basenames (`.env`, `.git`, `node_modules`, etc.) never appear.
+- If no projects exist the endpoint returns `{ ok: true, items: [], groups: {...} }` — never 404/500.
+
+### `POST /api/mobile/sessions/draft`
+
+Request:
+
+```json
+{
+  "cwd": "I:/AI_weflow/fanbox-master",
+  "agentId": "claude",
+  "title": "帮我实现 mobile 新任务",
+  "initialMessage": "可选，B3A 只保存为 draft，不启动",
+  "mode": "draft"
+}
+```
+
+Request constraints (enforced before writing):
+
+- `cwd` required, must be a string; after `path.resolve()` must pass `isForbiddenPath() === false` and `pathInAllowed() === true`.
+- `agentId` required, must be one of the allowlist (`claude` | `codex` | `opencode` | `qoder`).
+- `title` optional; if present must be a string with length ≤ 80.
+- `initialMessage` optional; if present must be a string with length ≤ 2000. It is stored as a user message with `status: "draft-pending"` but is NEVER sent to an agent in B3A.
+- `mode` optional; if present MUST equal `"draft"` (other values reserved for future phases).
+- Request body size is capped at 32 KB by the HTTP layer.
+
+Success response (HTTP 200):
+
+```json
+{
+  "ok": true,
+  "session": {
+    "id": "mobile-claude-...",
+    "agentId": "claude",
+    "cwd": "I:/AI_weflow/fanbox-master",
+    "cwdLabel": "fanbox-master",
+    "title": "帮我实现 mobile 新任务",
+    "status": "draft",
+    "createdAt": 1710000000000,
+    "source": "mobile-draft",
+    "canStart": false
+  },
+  "timeline": {
+    "events": [
+      {
+        "id": "evt-session-created-...",
+        "type": "session_created",
+        "timestamp": 1710000000000,
+        "sessionId": "mobile-claude-...",
+        "agentId": "claude",
+        "source": "mobile-draft",
+        "title": "Session created",
+        "text": "Mobile session draft created",
+        "meta": { "initialMessageLength": 21, "titleLength": 14 }
+      }
+    ],
+    "eventCount": 1
+  },
+  "meta": {
+    "willSpawnAgent": false,
+    "phase": "B3A",
+    "initialMessageLength": 21
+  }
+}
+```
+
+Success response must **not** contain: the raw `initialMessage` text, `internalId`, token, tokenHash, pid, raw terminal id, PTY handle, resume token, or any secrets. `initialMessageLength` is reported in meta; the text is never echoed back.
+
+Error responses (stable envelope):
+
+```json
+{ "ok": false, "error": { "code": "<errorCode>", "message": "Human-readable reason." } }
+```
+
+Error codes:
+
+| Code | HTTP status | Meaning |
+| --- | --- | --- |
+| `unauthorized` | 401 | Missing/invalid bearer token. |
+| `cwd_required` | 400 | `cwd` missing or not a string. |
+| `cwd_not_allowed` | 403 | cwd is forbidden or outside allowed roots. |
+| `agent_not_allowed` | 400 | `agentId` is missing or not in the allowlist. |
+| `title_too_long` | 400 | `title.length > 80`. |
+| `initial_message_too_long` | 400 | `initialMessage.length > 2000`. |
+| `invalid_mode` | 400 | `mode` is present and not equal to `"draft"`. |
+
+### Draft session lifecycle
+
+- Session is written to the existing mobile sessions store with `status: "draft"`, `source: "mobile-draft"`, `canStart: false`.
+- If `initialMessage` is provided, it is appended as a user message with `status: "draft-pending"`. It is NOT delivered to any runner.
+- A session created by B3A never spawns a process, never touches node-pty, never calls `mobile-agent-runner`, and never calls the desktop write provider.
+- B3B will later add `POST /api/mobile/sessions/:id/start` (requiring the `session:start` scope) to transition a draft into `running` and actually spawn the agent.
+
+### Session timeline: `session_created` event
+
+When a session has `status === "draft"`, `GET /api/mobile/sessions/:id/timeline` prepends a synthetic `session_created` event to the event array:
+
+```json
+{
+  "id": "evt-session-created-<sessionId>",
+  "type": "session_created",
+  "timestamp": <sess.createdAt>,
+  "sessionId": "<sessionId>",
+  "agentId": "<agentId>",
+  "source": "mobile-draft",
+  "title": "Session created",
+  "text": "Mobile session draft created",
+  "meta": {
+    "initialMessageLength": <number>,
+    "titleLength": <number>
+  }
+}
+```
+
+Hard rules:
+
+- `text` is the fixed literal `"Mobile session draft created"`. It never echoes the title or initial message.
+- `meta.initialMessageLength` is numeric (0 if no initialMessage).
+- `meta.deviceId` must NOT be present.
+- `meta` must NOT contain the raw initial message text.
+- Non-draft sessions (running/done/failed/error/waiting_approval/idle) are unaffected — no synthetic event is prepended, preserving B1/B2A backward compatibility.
+
+Draft-pending messages (from the stored initialMessage) are projected by `timelineEventFromMessage` with a safe title/text indicating they have not been sent to the agent yet (e.g. `"Draft message prepared (not sent)"`).
+
+### Audit entries
+
+Draft creation writes one append-only audit entry:
+
+- `action: "mobile_session.draft.created"`
+
+Audit fields (safe subset only):
+
+```ts
+{
+  action: "mobile_session.draft.created";
+  ts: number;
+  deviceId: string;
+  sessionId: string;
+  agentId: string;
+  cwd: string;                 // the resolved project cwd (already in allowed roots)
+  titleLength: number;
+  initialMessageLength: number;
+  result: "created";
+}
+```
+
+Audit entries must **never** contain:
+
+- raw `initialMessage` text
+- raw `title` text (length only is safe)
+- token, tokenHash
+- secret, API key, resume token
+- pid, PTY fd, raw terminal id, internal handle
+
+### Out of scope for B3A
+
+- Actually spawning Claude Code / Codex / OpenCode / Qoder (B3B).
+- Interrupt (Ctrl+C) for mobile-started sessions.
+- Approval UI for session creation.
+- Project file browsing beyond what `/api/mobile/roots`, `/api/mobile/file`, `/api/mobile/search` already provide.
+- Public network, relay, WebSocket, E2EE.
+- New scope grants — B3A does not grant `session:start`.
+
+### Why this does not start an agent
+
+1. **No spawn, no PTY, no runner.** `createMobileDraftSession` only writes to `sessions.json`; it never calls `child_process.spawn`, node-pty, or `mobile-agent-runner`.
+2. **No write provider call.** The B2C input path is not invoked.
+3. **initialMessage is inert.** It is stored with status `"draft-pending"` and no runner consumes it.
+4. **canStart=false.** The response explicitly signals the session cannot be started from mobile yet.
+5. **willSpawnAgent=false** in response meta, for client-side guard rails.
+6. **cwd is still scoped** by `isForbiddenPath` + `pathInAllowed`.
+7. **agentId is allowlisted** to claude/codex/opencode/qoder; no arbitrary commands.
+8. **Length caps** (title 80, initialMessage 2000, body 32 KB) prevent resource abuse.
+9. **Audit only records lengths**, never raw text.
+10. **No new scope granted** — B3B will be the permission gate for real execution.
+
+### B3A verification additions
+
+The verifier (`scripts/verify-mobile-backend-contract.js`) additionally checks:
+
+- B1/B2A/B2B/B2C assertions continue to pass unchanged.
+- `GET /api/mobile/projects` returns 200 with `items: []` or array of `MobileStartableProject` shapes.
+- Each project item has: id, name, cwd, source, canCreateSession, reason, riskFlags, agentIds, sessionCount, lastActiveAt.
+- Projects do not include forbidden paths.
+- POST `/api/mobile/sessions/draft` without token → 401 `unauthorized`.
+- Missing/empty `cwd` → `cwd_required`.
+- cwd outside allowed roots → `cwd_not_allowed`.
+- agentId outside allowlist → `agent_not_allowed`.
+- title longer than 80 → `title_too_long`.
+- initialMessage longer than 2000 → `initial_message_too_long`.
+- mode present but not `"draft"` → `invalid_mode`.
+- Valid request returns `ok: true` with `session.status === "draft"`, `session.canStart === false`, `meta.willSpawnAgent === false`, `meta.phase === "B3A"`.
+- Response contains a `session.id` and `timeline.events` containing a `session_created` event.
+- The B2C mock write provider is NOT called (no PTY writes).
+- Audit contains `mobile_session.draft.created` entry; audit does NOT contain the raw initialMessage string.
+- Subsequent `GET /api/mobile/sessions/:id/timeline` contains the `session_created` event.
+- Timeline/audit responses do not contain secrets, tokens, pids, tokenHash.
+- `GET /api/mobile/sessions` lists the newly created draft session.
+- Final verifier run: PASS / FAIL: 0.
+
+### Paseo reference
+
+B3A does not copy Paseo source code. It extends the existing FanBox mobile architecture symmetrically with prior phases (providers, scrubbed responses, append-only audit), matching the architecture of B2C and prior phases.
+

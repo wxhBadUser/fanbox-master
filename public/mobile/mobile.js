@@ -305,6 +305,7 @@ const S = {
   currentSkill: null,
   filesPreview: null,
   _streamAbort: null,  // Phase UI-A8-6: AbortController for current stream
+  _streamSeq:   0,
 };
 
 /** 映射 UI agent id → 后端 agent id（mobile-sessions 期望短名）
@@ -911,20 +912,22 @@ async function doSend (prompt) {
   S.messages.push({ role: "user", content: prompt });
   const selectedSkill = S.currentSkill || null;
 
-  // Create assistant bubble with initial trace
+  // Create assistant bubble with transient realtime transcript state.
   const pendingAssistant = {
     role: "assistant",
     status: "running",
     content: "",
-    trace: [
-      { label: "准备工作区上下文", state: "done" }
-    ],
-    _streamDelta: ""  // Phase UI-A8-6: accumulated delta text
+    _streamId: "stream-" + (++S._streamSeq) + "-" + Date.now(),
+    _streamStartedAt: Date.now(),
+    _streamStatus: "正在处理…",
+    _streamText: "",
+    _streamCommands: [],
+    _commandCount: 0,
+    _finalText: ""
   };
   if (selectedSkill && selectedSkill.title) {
-    pendingAssistant.trace.push({ label: "使用 Skill: " + selectedSkill.title, state: "done" });
+    pendingAssistant._streamSkill = selectedSkill.title;
   }
-  pendingAssistant.trace.push({ label: "调用 " + agentIdForDisplay(mapAgentId(S.currentAgent)), state: "running" });
   S.messages.push(pendingAssistant);
   renderMessages();
   scrollMessages();
@@ -947,14 +950,13 @@ async function doSend (prompt) {
     if (e && e.name === 'AbortError') {
       // User aborted — mark as stopped
       pendingAssistant.status = "stopped";
-      pendingAssistant.content = pendingAssistant._streamDelta || "已停止";
-      pendingAssistant.trace = (pendingAssistant.trace || []).map(t =>
-        t.state === "running" ? Object.assign({}, t, { state: "failed" }) : t
-      );
+      pendingAssistant.content = pendingAssistant._streamText || "已停止";
+      pendingAssistant._streamStatus = "已停止";
+      markRunningCommands(pendingAssistant, "canceled");
       setRunning(false);
       $("home-status-pill").textContent = "已停止";
       $("home-status-pill").className = "home-status-pill is-failed";
-      renderMessages();
+      updateStreamTranscriptDom(pendingAssistant);
       scrollMessages();
       return;
     }
@@ -967,7 +969,8 @@ async function doSend (prompt) {
       if (last && last.role === "assistant" && last.status === "running") {
         last.status = "failed";
         last.content = friendlyFetchError(e2);
-        last.trace = (last.trace || []).map(t => t.state === "running" ? Object.assign({}, t, { state: "failed" }) : t);
+        last._streamStatus = "失败";
+        markRunningCommands(last, "failed");
       }
       $("home-status-pill").textContent = "失败";
       $("home-status-pill").className = "home-status-pill is-failed";
@@ -1051,10 +1054,9 @@ async function doSendStream (prompt, pendingAssistant, selectedSkill) {
   // If still running after stream ends, mark as done
   if (pendingAssistant.status === "running") {
     pendingAssistant.status = "done";
-    pendingAssistant.content = pendingAssistant._streamDelta || pendingAssistant.content || "";
-    pendingAssistant.trace = (pendingAssistant.trace || []).map(t =>
-      t.state === "running" ? Object.assign({}, t, { state: "done" }) : t
-    );
+    pendingAssistant.content = pendingAssistant._finalText || pendingAssistant._streamText || pendingAssistant.content || "";
+    pendingAssistant._streamStatus = "已完成";
+    markRunningCommands(pendingAssistant, "success");
   }
 
   setRunning(false);
@@ -1063,7 +1065,7 @@ async function doSendStream (prompt, pendingAssistant, selectedSkill) {
     pill.textContent = "完成";
     pill.className = "home-status-pill is-ready";
   }
-  renderMessages();
+  updateStreamTranscriptDom(pendingAssistant);
   scrollMessages();
   S._streamAbort = null;
 }
@@ -1089,12 +1091,72 @@ function parseSSEEvent (block) {
   }
 }
 
+function ensureStreamState (msg) {
+  if (!msg._streamId) msg._streamId = "stream-" + (++S._streamSeq) + "-" + Date.now();
+  if (!msg._streamStartedAt) msg._streamStartedAt = Date.now();
+  if (!Array.isArray(msg._streamCommands)) msg._streamCommands = [];
+  if (typeof msg._streamText !== "string") msg._streamText = msg._streamDelta || msg.content || "";
+  if (typeof msg._commandCount !== "number") msg._commandCount = msg._streamCommands.length;
+  if (!msg._streamStatus) msg._streamStatus = msg.status === "running" ? "正在处理…" : streamStatusLabel(msg.status);
+  return msg;
+}
+
+function streamStatusLabel (status) {
+  if (status === "failed") return "失败";
+  if (status === "stopped") return "已停止";
+  if (status === "done") return "已完成";
+  return "正在处理…";
+}
+
+function streamElapsedText (msg) {
+  const started = Number(msg && msg._streamStartedAt) || Date.now();
+  const sec = Math.max(0, Math.round((Date.now() - started) / 1000));
+  return sec > 0 ? sec + "s" : "";
+}
+
+function findStreamCommand (msg, id) {
+  ensureStreamState(msg);
+  return msg._streamCommands.find((x) => x.id === id);
+}
+
+function upsertStreamCommand (msg, data, fallbackStatus) {
+  ensureStreamState(msg);
+  const id = String((data && data.id) || ("cmd-" + (msg._streamCommands.length + 1)));
+  let command = findStreamCommand(msg, id);
+  if (!command) {
+    command = { id, label: id, status: "running" };
+    msg._streamCommands.push(command);
+  }
+  command.label = String((data && (data.label || data.name)) || command.label || id).slice(0, 160);
+  command.status = String((data && (data.status || data.state)) || fallbackStatus || command.status || "running");
+  if (data && data.cwd) command.cwd = String(data.cwd).slice(0, 180);
+  if (data && data.text) command.text = String(data.text).slice(0, 180);
+  msg._commandCount = Math.max(Number(msg._commandCount) || 0, msg._streamCommands.length);
+  return command;
+}
+
+function markRunningCommands (msg, status) {
+  ensureStreamState(msg);
+  msg._streamCommands.forEach((cmd) => {
+    if (cmd.status === "running") cmd.status = status || "success";
+  });
+}
+
 /** Handle a single stream event, update pendingAssistant in place */
 function handleStreamEvent (event, pendingAssistant) {
   const d = event.data;
+  ensureStreamState(pendingAssistant);
   switch (event.type) {
     case 'start':
-      // Initial event — nothing special to do
+      pendingAssistant._streamStatus = "正在处理…";
+      if (d && d.startedAt) pendingAssistant._streamStartedAt = Number(d.startedAt) || pendingAssistant._streamStartedAt;
+      updateStreamTranscriptDom(pendingAssistant);
+      break;
+
+    case 'meta':
+      pendingAssistant._streamMeta = Object.assign({}, pendingAssistant._streamMeta || {}, d || {});
+      if (d && (d.skillName || d.skillId)) pendingAssistant._streamSkill = d.skillName || d.skillId;
+      updateStreamTranscriptDom(pendingAssistant);
       break;
 
     case 'session':
@@ -1105,118 +1167,127 @@ function handleStreamEvent (event, pendingAssistant) {
       }
       break;
 
+    case 'status':
+      pendingAssistant._streamStatus = (d && (d.text || d.label || d.status)) ? String(d.text || d.label || d.status) : streamStatusLabel(pendingAssistant.status);
+      updateStreamTranscriptDom(pendingAssistant);
+      scrollMessages();
+      break;
+
     case 'step':
-      // Update trace steps
       if (d && d.label) {
-        const trace = pendingAssistant.trace || [];
-        const existing = trace.find(t => t.label === d.label);
-        if (existing) {
-          existing.state = d.status || d.state || 'running';
-          if (d.text) existing.text = d.text;
-        } else {
-          trace.push({ label: d.label, state: d.status || d.state || 'running', text: d.text || '' });
-        }
-        pendingAssistant.trace = trace;
+        upsertStreamCommand(pendingAssistant, { id: d.id || d.label, label: d.label, status: d.status || d.state || "running", text: d.text }, d.status || d.state);
       }
-      renderMessages();
+      updateStreamTranscriptDom(pendingAssistant);
       scrollMessages();
       break;
 
     case 'thought':
-      // Phase UI-A8-7 P2: Natural language reasoning
       if (d && d.text) {
-        pendingAssistant._thought = (pendingAssistant._thought || '') + d.text;
-        renderMessages();
+        pendingAssistant._streamText = (pendingAssistant._streamText || "") + d.text + (/\s$/.test(d.text) ? "" : "\n\n");
+        pendingAssistant.content = pendingAssistant._streamText;
+        updateStreamTranscriptDom(pendingAssistant);
         scrollMessages();
       }
       break;
 
     case 'skill':
-      // Phase UI-A8-7 P2: Skill card
       if (d && d.skillId) {
-        pendingAssistant._skill = { skillId: d.skillId, skillName: d.skillName || d.skillId, description: d.description || '' };
-        renderMessages();
+        pendingAssistant._streamSkill = d.skillName || d.skillId;
+        updateStreamTranscriptDom(pendingAssistant);
         scrollMessages();
       }
       break;
 
     case 'tool':
-      // Phase UI-A8-7 P2: Tool/command step
       if (d && d.id) {
-        const tools = pendingAssistant._tools || [];
-        const existing = tools.find(t => t.id === d.id);
-        if (existing) {
-          existing.status = d.status || existing.status;
-          if (d.label) existing.label = d.label;
-        } else {
-          tools.push({ id: d.id, label: d.label || d.id, status: d.status || 'running', safe: !!d.safe });
-        }
-        pendingAssistant._tools = tools;
-        renderMessages();
+        upsertStreamCommand(pendingAssistant, d, d.status || "running");
+        updateStreamTranscriptDom(pendingAssistant);
         scrollMessages();
       }
+      break;
+
+    case 'command_start':
+      upsertStreamCommand(pendingAssistant, d, "running");
+      updateStreamTranscriptDom(pendingAssistant);
+      scrollMessages();
+      break;
+
+    case 'command_update':
+      upsertStreamCommand(pendingAssistant, d, d && d.status ? d.status : "running");
+      updateStreamTranscriptDom(pendingAssistant);
+      scrollMessages();
+      break;
+
+    case 'command_end':
+      upsertStreamCommand(pendingAssistant, d, d && d.status ? d.status : "success");
+      updateStreamTranscriptDom(pendingAssistant);
+      scrollMessages();
+      break;
+
+    case 'command_count':
+      pendingAssistant._commandCount = Math.max(0, Number(d && d.count) || pendingAssistant._streamCommands.length);
+      updateStreamTranscriptDom(pendingAssistant);
+      scrollMessages();
       break;
 
     case 'command_output':
-      // Phase UI-A8-7 P2: Tool/command output
       if (d && d.id) {
-        const tools = pendingAssistant._tools || [];
-        const tool = tools.find(t => t.id === d.id);
-        if (tool) {
-          tool.status = d.status || 'done';
-          if (d.output) tool.output = d.output;
-        }
-        pendingAssistant._tools = tools;
-        renderMessages();
+        upsertStreamCommand(pendingAssistant, d, d.status || "success");
+        updateStreamTranscriptDom(pendingAssistant);
         scrollMessages();
       }
       break;
 
+    case 'message_delta':
     case 'delta':
-      // Append incremental text
       if (d && d.text) {
-        pendingAssistant._streamDelta = (pendingAssistant._streamDelta || '') + d.text;
-        pendingAssistant.content = pendingAssistant._streamDelta;
-        renderMessages();
+        pendingAssistant._streamText = (pendingAssistant._streamText || '') + d.text;
+        pendingAssistant._streamDelta = pendingAssistant._streamText;
+        pendingAssistant.content = pendingAssistant._streamText;
+        updateStreamTranscriptDom(pendingAssistant);
+        scrollMessages();
+      }
+      break;
+
+    case 'final':
+      if (d && (d.text || d.content)) {
+        pendingAssistant._finalText = String(d.text || d.content);
+        pendingAssistant.content = pendingAssistant._finalText;
+        updateStreamTranscriptDom(pendingAssistant);
         scrollMessages();
       }
       break;
 
     case 'done':
-      // Final event
       if (d && d.message && d.message.content) {
+        pendingAssistant._streamText = d.message.content;
         pendingAssistant._streamDelta = d.message.content;
+        pendingAssistant._finalText = d.message.content;
         pendingAssistant.content = d.message.content;
       }
       pendingAssistant.status = "done";
-      pendingAssistant.trace = (pendingAssistant.trace || []).map(t =>
-        t.state === "running" ? Object.assign({}, t, { state: "done" }) : t
-      );
-      // Mark all tools as done
-      if (pendingAssistant._tools) {
-        pendingAssistant._tools.forEach(t => { if (t.status === 'running') t.status = 'done'; });
-      }
+      pendingAssistant._streamStatus = "已完成";
+      markRunningCommands(pendingAssistant, "success");
       if (d && d.status === 'failed') {
         pendingAssistant.status = "failed";
+        pendingAssistant._streamStatus = "失败";
       }
-      renderMessages();
+      loadRecentSessions();
+      loadAllProjects();
+      updateStreamTranscriptDom(pendingAssistant);
       scrollMessages();
       break;
 
     case 'error':
-      // Error event — show friendly message
       pendingAssistant.status = "failed";
       const errMsg = (d && d.message) ? d.message :
                      (d && d.error) ? friendlySendError(mapAgentId(S.currentAgent), d.error) :
                      'Agent 暂不可用，请稍后再试。';
       pendingAssistant.content = errMsg;
-      pendingAssistant.trace = (pendingAssistant.trace || []).map(t =>
-        t.state === "running" ? Object.assign({}, t, { state: "failed" }) : t
-      );
-      if (pendingAssistant._tools) {
-        pendingAssistant._tools.forEach(t => { if (t.status === 'running') t.status = 'failed'; });
-      }
-      renderMessages();
+      pendingAssistant._streamText = errMsg;
+      pendingAssistant._streamStatus = "失败";
+      markRunningCommands(pendingAssistant, "failed");
+      updateStreamTranscriptDom(pendingAssistant);
       scrollMessages();
       break;
 
@@ -1252,15 +1323,20 @@ async function doSendFallback (prompt, pendingAssistant, selectedSkill) {
       : friendlySendError(data.agentId, data.error);
     pendingAssistant.status = "failed";
     pendingAssistant.content = friendly;
-    pendingAssistant.trace = (pendingAssistant.trace || []).map(t => t.state === "running" ? Object.assign({}, t, { state: "failed" }) : t);
+    pendingAssistant._streamText = friendly;
+    pendingAssistant._streamStatus = "失败";
+    markRunningCommands(pendingAssistant, "failed");
     $("home-status-pill").textContent = "失败";
     $("home-status-pill").className = "home-status-pill is-failed";
   } else {
     const text = (data.message && data.message.content) || data.reply || data.text || "";
     pendingAssistant.status = "done";
     pendingAssistant.content = text;
+    pendingAssistant._streamText = text;
     pendingAssistant._streamDelta = text;
-    pendingAssistant.trace = data.trace || (pendingAssistant.trace || []).map(t => t.state === "running" ? Object.assign({}, t, { state: "done" }) : t);
+    pendingAssistant._finalText = text;
+    pendingAssistant._streamStatus = "已完成";
+    markRunningCommands(pendingAssistant, "success");
     if (data.sessionId && data.sessionId !== S.sessionId) {
       S.sessionId = data.sessionId;
       try { localStorage.setItem(SESSION_KEY, data.sessionId); } catch (_) {}
@@ -1279,7 +1355,7 @@ async function doSendFallback (prompt, pendingAssistant, selectedSkill) {
     }
   }
 
-  renderMessages();
+  updateStreamTranscriptDom(pendingAssistant);
   scrollMessages();
 }
 
@@ -1345,76 +1421,11 @@ function renderMessages () {
       (msg.role === "user" ? " chat-bubble-user" : msg.role === "system" ? " chat-bubble-system" : " chat-bubble-agent"));
     if (msg.status === "running") bubble.classList.add("chat-bubble-running");
 
-    // Phase UI-A8-7 P2: Codex-like Run Timeline
     if (msg.role !== "user") {
-      // Thought (natural language reasoning)
-      if (msg._thought) {
-        const thoughtEl = el("div", "run-thinking");
-        thoughtEl.innerHTML = '<span class="run-thinking-label">正在思考</span><p class="run-thinking-text">' + htmlEscape(msg._thought) + '</p>';
-        bubble.appendChild(thoughtEl);
-      }
-      // Skill card
-      if (msg._skill) {
-        const skillEl = el("div", "run-skill");
-        skillEl.innerHTML =
-          '<span class="run-skill-label">使用 Skill</span>' +
-          '<div class="run-skill-card">' +
-            '<span class="run-skill-name">' + htmlEscape(msg._skill.skillName || msg._skill.skillId) + '</span>' +
-            (msg._skill.description ? '<span class="run-skill-desc">' + htmlEscape(msg._skill.description) + '</span>' : '') +
-          '</div>';
-        bubble.appendChild(skillEl);
-      }
-      // Tools/commands
-      if (msg._tools && msg._tools.length) {
-        const toolsEl = el("div", "run-tools");
-        toolsEl.innerHTML = '<span class="run-tools-label">工具 / 命令</span>';
-        for (const tool of msg._tools) {
-          const toolEl = el("div", "run-command is-" + (tool.status || 'running'));
-          const statusIcon = tool.status === 'done' ? '&#10003;' : (tool.status === 'failed' ? '&#10007;' : '<span class="run-command-spinner"></span>');
-          toolEl.innerHTML =
-            '<div class="run-command-head">' +
-              '<span class="run-command-icon">' + statusIcon + '</span>' +
-              '<span class="run-command-label">$ ' + htmlEscape(tool.label || tool.id) + '</span>' +
-            '</div>';
-          if (tool.output) {
-            const outputEl = el("div", "run-command-output");
-            const truncated = tool.output.length > 200 ? tool.output.slice(0, 200) + '…' : tool.output;
-            outputEl.innerHTML = '<code>' + htmlEscape(truncated) + '</code>';
-            if (tool.output.length > 200) {
-              outputEl.classList.add('is-collapsed');
-              const toggle = el("button", "run-command-toggle");
-              toggle.textContent = "展开";
-              toggle.addEventListener("click", function () {
-                const c = outputEl.classList.contains('is-collapsed');
-                outputEl.classList.toggle('is-collapsed');
-                toggle.textContent = c ? "收起" : "展开";
-                if (c) {
-                  outputEl.innerHTML = '<code>' + htmlEscape(tool.output) + '</code>';
-                } else {
-                  outputEl.innerHTML = '<code>' + htmlEscape(truncated) + '</code>';
-                }
-              });
-              toolEl.appendChild(outputEl);
-              toolEl.appendChild(toggle);
-            } else {
-              toolEl.appendChild(outputEl);
-            }
-          }
-          toolsEl.appendChild(toolEl);
-        }
-        bubble.appendChild(toolsEl);
-      }
-      // Legacy trace steps (backward compat)
-      if (msg.trace && msg.trace.length && !msg._tools && !msg._thought) {
-        bubble.appendChild(renderStreamSteps(msg.trace));
-      }
-    }
-
-    // Content area (final text)
-    const contentEl = el("div", "run-final");
-    const displayText = msg.status === "running" && !msg.content && !(msg._streamDelta) && !msg._thought ? "思考中…" : (msg.content || msg._streamDelta || "");
-    if (displayText) {
-      contentEl.innerHTML = escapeHtmlForDisplay(displayText);
+      bubble.appendChild(renderStreamTranscript(msg));
+    } else {
+      const contentEl = el("div", "chat-user-text");
+      contentEl.innerHTML = escapeHtmlForDisplay(msg.content || "");
       bubble.appendChild(contentEl);
     }
 
@@ -1422,6 +1433,124 @@ function renderMessages () {
     row.appendChild(bubble);
     container.appendChild(row);
   });
+}
+
+function streamCommandStatusText (status) {
+  if (status === "failed") return "失败";
+  if (status === "canceled" || status === "cancelled") return "已停止";
+  if (status === "success" || status === "done") return "成功";
+  return "进行中";
+}
+
+function streamCommandStatusClass (status) {
+  if (status === "failed") return "failed";
+  if (status === "canceled" || status === "cancelled") return "canceled";
+  if (status === "success" || status === "done") return "success";
+  return "running";
+}
+
+function streamDisplayText (msg) {
+  ensureStreamState(msg);
+  if (msg.status === "running") return msg._streamText || msg.content || "";
+  return msg.content || msg._finalText || msg._streamText || "";
+}
+
+function renderStreamCommandsHtml (msg) {
+  ensureStreamState(msg);
+  return msg._streamCommands.map((cmd) => {
+    const status = streamCommandStatusClass(cmd.status);
+    return '<div class="stream-command is-' + status + '" data-command-id="' + htmlEscape(cmd.id || '') + '">' +
+      '<div class="stream-command-title">' + htmlEscape(cmd.label || cmd.id || '运行命令') + '</div>' +
+      '<div class="stream-command-meta">' + streamCommandStatusText(cmd.status) +
+        (cmd.cwd ? ' · ' + htmlEscape(cmd.cwd) : '') +
+        (cmd.text ? ' · ' + htmlEscape(cmd.text) : '') +
+      '</div>' +
+    '</div>';
+  }).join("");
+}
+
+function renderStreamTranscript (msg) {
+  ensureStreamState(msg);
+  const box = el("div", "stream-transcript" + (msg.status === "running" ? " is-streaming" : ""));
+  box.setAttribute("data-stream-id", msg._streamId);
+
+  const head = el("div", "stream-head");
+  const status = el("span", "stream-status");
+  status.textContent = msg.status === "running" ? (msg._streamStatus || "正在处理…") : (msg.status === "stopped" ? "已停止" : "已处理");
+  const elapsed = el("span", "stream-elapsed");
+  elapsed.textContent = streamElapsedText(msg);
+  head.appendChild(status);
+  head.appendChild(elapsed);
+  box.appendChild(head);
+
+  if (msg._streamSkill) {
+    const skill = el("div", "stream-skill-inline");
+    skill.textContent = "使用 skill：" + msg._streamSkill;
+    box.appendChild(skill);
+  }
+
+  const body = el("div", "stream-body");
+  const prose = el("div", "stream-prose");
+  const text = streamDisplayText(msg);
+  prose.innerHTML = msg.status === "running"
+    ? escapeHtmlForDisplay(text || "正在处理…") + '<span class="stream-cursor">▌</span>'
+    : renderMarkdownSafe(text);
+  body.appendChild(prose);
+
+  const count = Number(msg._commandCount) || (msg._streamCommands ? msg._streamCommands.length : 0);
+  const summary = el("div", "stream-command-summary");
+  summary.textContent = count > 0 ? "已运行 " + count + " 条命令" : "";
+  summary.hidden = count <= 0;
+  body.appendChild(summary);
+
+  const commands = el("div", "stream-commands");
+  commands.innerHTML = renderStreamCommandsHtml(msg);
+  body.appendChild(commands);
+  box.appendChild(body);
+  return box;
+}
+
+function updateStreamTranscriptDom (msg) {
+  ensureStreamState(msg);
+  const root = document.querySelector('[data-stream-id="' + msg._streamId + '"]');
+  if (!root) {
+    renderMessages();
+    return;
+  }
+  root.classList.toggle("is-streaming", msg.status === "running");
+  const status = root.querySelector(".stream-status");
+  if (status) status.textContent = msg.status === "running" ? (msg._streamStatus || "正在处理…") : (msg.status === "stopped" ? "已停止" : "已处理");
+  const elapsed = root.querySelector(".stream-elapsed");
+  if (elapsed) elapsed.textContent = streamElapsedText(msg);
+
+  let skill = root.querySelector(".stream-skill-inline");
+  if (msg._streamSkill) {
+    if (!skill) {
+      skill = el("div", "stream-skill-inline");
+      const body = root.querySelector(".stream-body");
+      root.insertBefore(skill, body || null);
+    }
+    skill.textContent = "使用 skill：" + msg._streamSkill;
+  } else if (skill) {
+    skill.remove();
+  }
+
+  const prose = root.querySelector(".stream-prose");
+  const text = streamDisplayText(msg);
+  if (prose) {
+    prose.innerHTML = msg.status === "running"
+      ? escapeHtmlForDisplay(text || "正在处理…") + '<span class="stream-cursor">▌</span>'
+      : renderMarkdownSafe(text);
+  }
+
+  const count = Number(msg._commandCount) || (msg._streamCommands ? msg._streamCommands.length : 0);
+  const summary = root.querySelector(".stream-command-summary");
+  if (summary) {
+    summary.textContent = count > 0 ? "已运行 " + count + " 条命令" : "";
+    summary.hidden = count <= 0;
+  }
+  const commands = root.querySelector(".stream-commands");
+  if (commands) commands.innerHTML = renderStreamCommandsHtml(msg);
 }
 
 function renderAgentTrace (trace) {
@@ -1457,6 +1586,98 @@ function escapeHtmlForDisplay (text) {
   if (!text) return "";
   return htmlEscape(text)
     .replace(/\n/g, "<br>");
+}
+
+function renderInlineMarkdownSafe (text) {
+  return htmlEscape(text)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+}
+
+function renderMarkdownTableSafe (lines) {
+  if (lines.length < 2 || !/^\s*\|?[\s:-]+\|[\s|:-]*$/.test(lines[1])) return null;
+  const split = (line) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((x) => x.trim());
+  const head = split(lines[0]);
+  const rows = lines.slice(2).filter((line) => /\|/.test(line)).map(split);
+  if (!head.length || !rows.length) return null;
+  return "<table><thead><tr>" + head.map((c) => "<th>" + renderInlineMarkdownSafe(c) + "</th>").join("") +
+    "</tr></thead><tbody>" + rows.map((row) => "<tr>" + head.map((_, i) => "<td>" + renderInlineMarkdownSafe(row[i] || "") + "</td>").join("") + "</tr>").join("") +
+    "</tbody></table>";
+}
+
+function renderMarkdownSafe (text) {
+  const src = String(text || "");
+  const out = [];
+  const lines = src.replace(/\r\n/g, "\n").split("\n");
+  let inCode = false;
+  let code = [];
+  let list = [];
+
+  function flushList () {
+    if (!list.length) return;
+    out.push("<ul>" + list.map((x) => "<li>" + renderInlineMarkdownSafe(x) + "</li>").join("") + "</ul>");
+    list = [];
+  }
+  function flushCode () {
+    if (!code.length) return;
+    out.push("<pre><code>" + htmlEscape(code.join("\n")) + "</code></pre>");
+    code = [];
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^```/.test(line.trim())) {
+      if (inCode) {
+        flushCode();
+        inCode = false;
+      } else {
+        flushList();
+        inCode = true;
+      }
+      continue;
+    }
+    if (inCode) {
+      code.push(line);
+      continue;
+    }
+    if (line.includes("|") && i + 1 < lines.length) {
+      const tableLines = [];
+      let j = i;
+      while (j < lines.length && lines[j].includes("|")) {
+        tableLines.push(lines[j]);
+        j++;
+      }
+      const tableHtml = renderMarkdownTableSafe(tableLines);
+      if (tableHtml) {
+        flushList();
+        out.push(tableHtml);
+        i = j - 1;
+        continue;
+      }
+    }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushList();
+      const level = heading[1].length + 2;
+      out.push("<h" + level + ">" + renderInlineMarkdownSafe(heading[2]) + "</h" + level + ">");
+      continue;
+    }
+    const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+    if (bullet) {
+      list.push(bullet[1]);
+      continue;
+    }
+    flushList();
+    if (!line.trim()) {
+      out.push("");
+    } else {
+      out.push("<p>" + renderInlineMarkdownSafe(line) + "</p>");
+    }
+  }
+  flushCode();
+  flushList();
+  return out.filter((x, idx, arr) => x || (arr[idx - 1] && arr[idx + 1])).join("");
 }
 
 function scrollMessages () {
@@ -1580,11 +1801,13 @@ async function loadFilesRoots () {
   try {
     const data = await api("/api/mobile/roots");
     if (!data) return;
-    const items = (data.roots || []).map(r => ({
+    const raw = data.items || data.roots || data.drives || data.list || [];
+    const items = raw.map(r => ({
+      type: r.type || (r.drive ? "drive" : "folder"),
       name: r.name,
       path: r.path,
       isDir: true,
-      kind: 'drive',
+      kind: r.type === "this-pc" ? "this-pc" : (r.type === "drive" || r.drive ? "drive" : "folder"),
       size: 0,
       mtime: 0,
     }));
@@ -1599,12 +1822,13 @@ async function loadFilesRoots () {
 function normalizeFiles (arr) {
   if (!Array.isArray(arr)) return [];
   return arr.map(it => {
-    const isDir = !!(it.isDir || it.isFolder || it.is_directory || it.kind === 'dir');
+    const isDir = !!(it.isDir || it.isFolder || it.is_directory || it.kind === 'dir' || it.kind === 'drive' || it.kind === 'folder' || it.kind === 'this-pc');
     return {
       name: it.name || '',
       path: it.path || '',
       isDir,
-      kind: isDir ? 'folder' : (it.kind || 'file'),
+      type: it.type || '',
+      kind: isDir ? (it.kind || it.type || 'folder') : (it.kind || 'file'),
       size: Number.isFinite(it.size) ? it.size : 0,
       mtime: Number.isFinite(it.mtime) ? it.mtime : 0,
     };
@@ -1635,18 +1859,18 @@ function renderFiles (files, opts = {}) {
   }
   // 排序：dir 优先 + 名称
   const sorted = files.slice().sort((a, b) => {
-    const aDir = !!(a.isDir || a.kind === 'dir' || a.kind === 'drive');
-    const bDir = !!(b.isDir || b.kind === 'dir' || b.kind === 'drive');
+    const aDir = !!(a.isDir || a.kind === 'dir' || a.kind === 'drive' || a.kind === 'folder' || a.kind === 'this-pc');
+    const bDir = !!(b.isDir || b.kind === 'dir' || b.kind === 'drive' || b.kind === 'folder' || b.kind === 'this-pc');
     if (aDir !== bDir) return aDir ? -1 : 1;
     return (a.name || "").localeCompare(b.name || "");
   });
 
   sorted.forEach((item, idx) => {
-    const isFolder = !!(item.isDir || item.kind === 'dir' || item.kind === 'drive' || opts.isRoots);
-    const type = isFolder ? 'folder' : fileTypeFor(item);
+    const isFolder = !!(item.isDir || item.kind === 'dir' || item.kind === 'drive' || item.kind === 'folder' || item.kind === 'this-pc' || opts.isRoots);
+    const type = item.kind === 'drive' ? 'drive' : (isFolder ? 'folder' : fileTypeFor(item));
     const icon = FILE_ICONS[type] || FILE_ICONS.unknown;
     const meta = isFolder
-      ? "文件夹"
+      ? (item.kind === 'drive' ? '磁盘' : (item.kind === 'this-pc' ? '电脑上的磁盘和常用目录' : '文件夹'))
       : (item.size > 0 ? fmtSize(item.size) : "文件") + (item.mtime ? " · " + timeAgo(item.mtime) : "");
 
     const row = el("button", "file-row" + (isFolder ? " is-folder" : " is-file"));
@@ -1669,7 +1893,16 @@ function renderFiles (files, opts = {}) {
 
 /** 点击/双击：folder 进去，file 预览 */
 function handleFileClick (item, opts = {}) {
-  const isFolder = !!(item.isDir || item.kind === 'dir' || item.kind === 'drive' || opts.isRoots);
+  if (item && (item.kind === 'this-pc' || item.path === '__fanbox_this_pc__')) {
+    S.cwd = null;
+    S.cwdLabel = null;
+    S.fileHistory = [];
+    try { localStorage.setItem(CWD_KEY, ""); } catch (_) {}
+    updateTopbarCwd();
+    loadFilesRoots();
+    return;
+  }
+  const isFolder = !!(item.isDir || item.kind === 'dir' || item.kind === 'drive' || item.kind === 'folder' || opts.isRoots);
   if (isFolder) {
     const next = item.path || (S.cwd ? S.cwd + "/" + item.name : item.name);
     loadFiles(next);
@@ -2045,15 +2278,19 @@ async function loadSkills () {
 
   // 1) 拉 skills (后端返回 { ok:true, items: [...] })
   let rawSkills = [];
+  let scannedRoots = [];
   try {
     const data = await api("/api/mobile/skills");
     if (Array.isArray(data)) rawSkills = data;
     else if (data && Array.isArray(data.items)) rawSkills = data.items;
     else if (data && Array.isArray(data.skills)) rawSkills = data.skills;
+    else if (data && Array.isArray(data.list)) rawSkills = data.list;
+    if (data && Array.isArray(data.scannedRoots)) scannedRoots = data.scannedRoots;
   } catch (e) {
     listEl.innerHTML = `<div class="skills-empty"><div class="skills-empty-strong">加载失败</div>${htmlEscape(e.message || String(e))}</div>`;
     return;
   }
+  S.skillsScannedRoots = scannedRoots;
 
   // 2) 拉 skills-state (mobile 端 enabled/disabled)
   let skillState = {};
@@ -2093,7 +2330,11 @@ function renderSkills (skills) {
   listEl.innerHTML = "";
 
   if (!skills || skills.length === 0) {
-    listEl.innerHTML = `<div class="skills-empty"><div class="skills-empty-strong">没有找到匹配的技能</div>请尝试其他关键词或筛选</div>`;
+    const scannedRoots = S.skillsScannedRoots || [];
+    const diag = scannedRoots.length
+      ? `<div class="skills-empty-roots">${scannedRoots.map(r => `<span>${htmlEscape(r.label || 'root')} · ${r.exists ? htmlEscape(String(r.count || 0)) : 'missing'}</span>`).join("")}</div>`
+      : "";
+    listEl.innerHTML = `<div class="skills-empty"><div class="skills-empty-strong">没有找到匹配的技能</div>${diag || "请尝试其他关键词或筛选"}</div>`;
     return;
   }
 

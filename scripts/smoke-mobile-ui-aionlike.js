@@ -1039,18 +1039,25 @@ function req(opts, body) {
     /function\s+continueSession[\s\S]{0,2000}S\.sessionId\s*=\s*sid/.test(js));
 
   // ============================================================
-  // [N] Phase UI-A8-6: Stream UI 断言
+  // [N] Phase UI-A8-11: Codex-like realtime stream UI 断言
   // ============================================================
-  section('N) Stream UI (UI-A8-6)');
-  ok('N.1: CSS .stream-steps 存在', /\.stream-steps\s*\{/.test(css));
-  ok('N.2: CSS .stream-step.is-running 有 pulse 动画',
-    /\.stream-step\.is-running[\s\S]{0,300}animation:\s*pulse/.test(css));
-  ok('N.3: CSS .stream-step.is-done 有绿色背景',
-    /\.stream-step\.is-done[\s\S]{0,300}background:\s*var\(--ok\)/.test(css));
-  ok('N.4: CSS .stream-step.is-failed 有红色背景',
-    /\.stream-step\.is-failed[\s\S]{0,300}background:\s*var\(--err\)/.test(css));
-  ok('N.5: CSS .stream-delta 有 pre-wrap',
-    /\.stream-delta[\s\S]{0,200}white-space:\s*pre-wrap/.test(css));
+  section('N) Stream UI (UI-A8-11)');
+  ok('N.1: CSS .stream-transcript 存在', /\.stream-transcript\s*\{/.test(css));
+  ok('N.2: CSS .stream-head 存在', /\.stream-head\s*\{/.test(css));
+  ok('N.3: CSS .stream-prose 存在', /\.stream-prose\s*\{/.test(css));
+  ok('N.4: CSS .stream-command-summary 存在', /\.stream-command-summary\s*\{/.test(css));
+  ok('N.5: CSS .stream-commands 存在', /\.stream-commands\s*\{/.test(css));
+  ok('N.5a: CSS 旧四分区 run 卡片已移除',
+    !/\.(run-thinking|run-skill|run-tools|run-command)\s*\{/.test(css));
+  ok('N.5b: CSS assistant transcript 外层无气泡框',
+    /\.chat-row-agent\s+\.chat-bubble\s*\{[\s\S]{0,260}background:\s*transparent[\s\S]{0,260}border:\s*0[\s\S]{0,260}padding:\s*0/.test(css));
+  ok('N.5c: CSS assistant running 不显示气泡尾部蓝点',
+    /\.chat-row-agent\s+\.chat-bubble-running::after\s*\{[\s\S]{0,100}content:\s*none/.test(css));
+  ok('N.5d: CSS assistant 不显示头像占位',
+    /\.chat-row-agent\s+\.chat-avatar\s*\{[\s\S]{0,140}display:\s*none/.test(css));
+  ok('N.5e: CSS command 行不是卡片/左色条',
+    /\.stream-command\s*\{[\s\S]{0,220}border:\s*0[\s\S]{0,220}background:\s*transparent/.test(css) &&
+    !/\.stream-command\s*\{[\s\S]{0,220}border-left/.test(css));
   ok('N.6: CSS body overflow-x: hidden (不横向滚动)',
     /html[\s,]*body[\s\S]{0,400}overflow-x:\s*hidden/.test(css));
   ok('N.7: JS doSendStream 函数存在',
@@ -1061,8 +1068,12 @@ function req(opts, body) {
     /function\s+parseSSEEvent\s*\(/.test(js));
   ok('N.10: JS handleStreamEvent 函数存在',
     /function\s+handleStreamEvent\s*\(/.test(js));
-  ok('N.11: JS renderStreamSteps 函数存在',
-    /function\s+renderStreamSteps\s*\(/.test(js));
+  ok('N.11: JS renderStreamTranscript 函数存在',
+    /function\s+renderStreamTranscript\s*\(/.test(js));
+  ok('N.11a: JS handleStreamEvent 处理 message_delta',
+    /handleStreamEvent[\s\S]{0,5000}case\s+'message_delta'/.test(js));
+  ok('N.11b: JS handleStreamEvent 处理 command_start',
+    /handleStreamEvent[\s\S]{0,2500}case\s+'command_start'/.test(js));
   ok('N.12: JS doSend 优先调 doSendStream',
     /doSend[\s\S]{0,2000}await\s+doSendStream\(/.test(js));
   ok('N.13: JS doSend fallback 调 doSendFallback',

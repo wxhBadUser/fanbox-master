@@ -26,6 +26,7 @@
 const os = require('os');
 const path = require('path');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 
 // ---------- Phase 2A-2.2：claude/codex 真实 runner（安全适配） ----------
 const mobileRunner = require('./mobile-agent-runner');
@@ -370,7 +371,7 @@ function scrubSessionSummary(s, fallbackSource) {
   const cwd = (typeof s.cwd === 'string') ? s.cwd : '';
   const cwdLabel = (typeof s.cwdLabel === 'string') ? s.cwdLabel : relPath(cwd);
   const title = safeStr(s.title, MAX_TITLE_CHARS);
-  const source = (s.source === 'desktop' || s.source === 'mobile' || s.source === 'wechat') ? s.source : fallbackSource;
+  const source = (s.source === 'desktop' || s.source === 'mobile' || s.source === 'wechat' || s.source === 'mobile-draft') ? s.source : fallbackSource;
   const kind = (s.kind === 'agent' || s.kind === 'shell' || s.kind === 'recording') ? s.kind : 'agent';
   const status = (s.status && typeof s.status === 'string') ? s.status : 'unknown';
   const createdAt = (typeof s.createdAt === 'number' && s.createdAt > 0) ? s.createdAt : nowMs();
@@ -380,6 +381,8 @@ function scrubSessionSummary(s, fallbackSource) {
   const tokenEstimate = (typeof s.tokenEstimate === 'number') ? Math.max(0, Math.floor(s.tokenEstimate)) : 0;
   const unread = !!s.unread;
   const canContinue = !!s.canContinue;
+  const canStart = s.canStart === false ? false : undefined;
+  const initialMessageLength = (typeof s.initialMessageLength === 'number') ? s.initialMessageLength : 0;
   const approvalState = (s.approvalState && typeof s.approvalState === 'string') ? s.approvalState : 'none';
 
   // summary
@@ -393,8 +396,15 @@ function scrubSessionSummary(s, fallbackSource) {
   const files = Array.isArray(ctx.files) ? ctx.files.slice(0, 5).map(p => (typeof p === 'string' ? p : '')).filter(Boolean) : [];
   const skills = Array.isArray(ctx.skills) ? ctx.skills.slice(0, 5).map(p => (typeof p === 'string' ? p : '')).filter(Boolean) : [];
 
-  // sessionId 强制重写为安全格式
-  const sessionId = makeId(source, agentId, cwd, createdAt);
+  // sessionId 强制重写为安全格式（mobile-draft 仍使用 mobile 前缀保持 ID 稳定）
+  // 注意：如果 s 已有合法 sessionId，保留它（避免 ID 在 agentId/cwd 修改后变化导致 session 找不到）
+  let sessionId;
+  if (s.sessionId && typeof s.sessionId === 'string' && /^[A-Za-z0-9._\-+:]+$/.test(s.sessionId) && s.sessionId.length <= 200) {
+    sessionId = s.sessionId;
+  } else {
+    const idPrefix = (source === 'mobile-draft') ? 'mobile' : source;
+    sessionId = makeId(idPrefix, agentId, cwd, createdAt);
+  }
 
   return {
     sessionId,
@@ -410,6 +420,8 @@ function scrubSessionSummary(s, fallbackSource) {
     lastActiveAt,
     unread,
     canContinue,
+    canStart,
+    initialMessageLength,
     messageCount,
     tokenEstimate,
     approvalState,
@@ -550,6 +562,9 @@ async function writeMobileSessions(sessionsObj) {
     // 只接受 session 对象（必须包含 sessionId/agentId/cwd 至少一个）
     if (!s.sessionId && !s.agentId && !s.cwd) continue;
     const scrub = scrubSessionSummary(s, 'mobile');
+    // 保留内部授权字段（这些字段以 _ 开头，不会通过 scrubSessionDetail 暴露给 API）
+    if (s._deviceId) scrub._deviceId = s._deviceId;
+    if (s.internalId) scrub.internalId = s.internalId;
     clean.sessions[scrub.sessionId] = scrub;
   }
   await fsp.writeFile(MOBILE_SESSIONS_FILE, JSON.stringify(clean, null, 2), 'utf8');
@@ -643,7 +658,8 @@ function _safeKey(s) {
 function _auditObjectForLog(o) {
   // 深度过滤 audit 字段；任何不在白名单的字段都会被丢弃
   const allow = new Set(['ts', 'action', 'approvalId', 'sessionId', 'deviceId', 'deviceName',
-    'agentId', 'cwd', 'cwdLabel', 'inputHash', 'inputLen', 'inputPreview',
+    'agentId', 'cwd', 'cwdLabel', 'inputHash', 'inputLen', 'inputLength', 'inputPreview',
+    'initialMessageLength', 'titleLength', 'result',
     'decision', 'actor', 'reason', 'error',
     'reasons'  // Phase UI-A1：redline 触发时记录 reason 列表便于安全审计；不含 input 原文
   ]);
@@ -665,6 +681,20 @@ async function appendAudit(entry) {
   } catch (e) {
     try { console.warn('[mobile-sessions] appendAudit failed:', e && e.message || e); } catch (_) {}
     return { ok: false, error: 'audit_failed' };
+  }
+}
+
+async function readAuditMobile() {
+  try {
+    const txt = await fs.readFile(AUDIT_FILE, 'utf8');
+    const lines = txt.split(/\r?\n/).filter(Boolean);
+    const entries = [];
+    for (const line of lines) {
+      try { entries.push(JSON.parse(line)); } catch (_) {}
+    }
+    return { ok: true, entries };
+  } catch (_) {
+    return { ok: true, entries: [] };
   }
 }
 
@@ -782,18 +812,30 @@ async function createMobileDraftSession(opts) {
   const cwd = String(opts.cwd || '');
   const agentId = normalizeAgentId(opts.agentId);
   const deviceId = _safeKey(opts.deviceId || 'unknown');
+  const mode = opts.mode === 'draft' ? 'draft' : (opts.mode || 'legacy');
+  const titleInput = (opts.title && typeof opts.title === 'string') ? opts.title : '';
+  const initialMessage = (opts.initialMessage && typeof opts.initialMessage === 'string') ? opts.initialMessage : '';
   if (!cwd) {
     return { ok: false, error: 'missing_cwd' };
   }
   if (!ALLOWED_AGENT_IDS.has(agentId)) {
     return { ok: false, error: 'invalid_agent' };
   }
-  // 写入 mobile/sessions.json
+  if (mode === 'draft' && titleInput.length > MAX_TITLE_CHARS) {
+    return { ok: false, error: 'title_too_long' };
+  }
+  if (mode === 'draft' && initialMessage.length > MAX_MESSAGE_TEXT_CHARS) {
+    return { ok: false, error: 'initial_message_too_long' };
+  }
   const data = await readMobileSessionsObj();
   const internalId = 'mobile-' + Date.now().toString(36) + '-' + Math.floor(Math.random() * 0xfff).toString(16);
   const now = Date.now();
-  // sessionId 必须与 scrubSessionSummary 内部 makeId('mobile', agentId, cwd, createdAt) 形式一致
   const sessionId = makeId('mobile', agentId, cwd, now);
+  const isDraft = mode === 'draft';
+  const resolvedTitle = safeStr(
+    titleInput || ('Agent ' + agentId),
+    MAX_TITLE_CHARS
+  );
   const obj = {
     sessionId: sessionId,
     internalId: internalId,
@@ -801,8 +843,11 @@ async function createMobileDraftSession(opts) {
     kind: 'agent',
     cwd: cwd,
     cwdLabel: _normalizeCwdLabel(cwd),
-    title: safeStr('Agent ' + agentId, MAX_TITLE_CHARS),
-    status: 'idle',
+    title: resolvedTitle,
+    status: isDraft ? 'draft' : 'idle',
+    source: isDraft ? 'mobile-draft' : undefined,
+    canStart: isDraft ? false : undefined,
+    initialMessageLength: isDraft ? initialMessage.length : 0,
     createdAt: now,
     updatedAt: now,
     lastActiveAt: now,
@@ -815,10 +860,223 @@ async function createMobileDraftSession(opts) {
   };
   data.sessions[internalId] = obj;
   await writeMobileSessions(data);
-  // Phase 2B：同步统一 session index
   await upsertUnifiedSessionIndex(obj).catch(() => ({ ok: false }));
-  await appendAudit({ action: 'mobile_draft_created', sessionId, deviceId, agentId, cwd });
+  if (isDraft && initialMessage) {
+    await appendMessageToMobileSession(sessionId, {
+      role: 'user',
+      text: initialMessage,
+      status: 'draft-pending',
+      ts: now,
+    });
+  }
+  if (isDraft) {
+    await appendAudit({
+      action: 'mobile_session.draft.created',
+      sessionId, deviceId, agentId, cwd,
+      titleLength: resolvedTitle.length,
+      initialMessageLength: initialMessage.length,
+      result: 'created'
+    });
+    if (initialMessage) {
+      await appendMessageToMobileSession(sessionId, {
+        role: 'user',
+        text: safeStr(initialMessage, MAX_MESSAGE_TEXT_CHARS),
+        status: 'draft-pending',
+        ts: now,
+        agentId
+      });
+    }
+  } else {
+    await appendAudit({ action: 'mobile_draft_created', sessionId, deviceId, agentId, cwd });
+  }
   return { ok: true, sessionId, internalId };
+}
+
+// ---------- Mobile B3B: Start draft session runner ----------
+
+async function _updateMessageStatus(sessionId, matchFn, newStatus) {
+  const store = await readMobileMessagesStore();
+  const msgs = Array.isArray(store.messages[sessionId]) ? store.messages[sessionId] : [];
+  let changed = false;
+  for (let i = 0; i < msgs.length; i++) {
+    if (matchFn(msgs[i], i)) {
+      msgs[i] = Object.assign({}, msgs[i], { status: newStatus });
+      changed = true;
+    }
+  }
+  if (changed) {
+    store.messages[sessionId] = msgs;
+    await writeMobileMessagesStore(store);
+  }
+  return { ok: changed };
+}
+
+async function startMobileDraftSession(opts) {
+  opts = opts || {};
+  const sessionId = _safeKey(opts.sessionId);
+  const deviceId = _safeKey(opts.deviceId || 'unknown');
+
+  if (!sessionId) {
+    return { ok: false, error: 'session_not_found', status: 404 };
+  }
+
+  const data = await readMobileSessionsObj();
+  const entries = Object.entries(data.sessions || {});
+  const entry = entries.find(([, v]) => v && v.sessionId === sessionId);
+  if (!entry) {
+    return { ok: false, error: 'session_not_found', status: 404 };
+  }
+  const [internalId, sess] = entry;
+
+  if (sess.status !== 'draft') {
+    return { ok: false, error: 'session_not_draft', status: 409 };
+  }
+  if (sess.source !== 'mobile-draft') {
+    return { ok: false, error: 'session_not_draft', status: 409 };
+  }
+  if (sess._deviceId && sess._deviceId !== deviceId) {
+    return { ok: false, error: 'forbidden', status: 403 };
+  }
+
+  const cwd = String(sess.cwd || '');
+  const agentId = normalizeAgentId(sess.agentId);
+  if (!cwd) {
+    return { ok: false, error: 'cwd_not_allowed', status: 403 };
+  }
+  if (!ALLOWED_AGENT_IDS.has(agentId)) {
+    return { ok: false, error: 'agent_not_allowed', status: 400 };
+  }
+
+  let cwdExists = false;
+  try {
+    cwdExists = fsSync.statSync(cwd).isDirectory();
+  } catch (_) { cwdExists = false; }
+  if (!cwdExists) {
+    return { ok: false, error: 'cwd_not_allowed', status: 403 };
+  }
+
+  const store = await readMobileMessagesStore();
+  const msgs = Array.isArray(store.messages[sessionId]) ? store.messages[sessionId].slice() : [];
+  const draftMsgIdx = msgs.findIndex(m => m && m.role === 'user' && m.status === 'draft-pending');
+  let initialMessage = '';
+  if (draftMsgIdx >= 0) {
+    initialMessage = String(msgs[draftMsgIdx].text || '');
+    msgs[draftMsgIdx] = Object.assign({}, msgs[draftMsgIdx], { status: 'sent' });
+  }
+  const expectedLen = typeof sess.initialMessageLength === 'number' ? sess.initialMessageLength : 0;
+  if (expectedLen > 0 && !initialMessage) {
+    return { ok: false, error: 'initial_message_missing', status: 400 };
+  }
+  store.messages[sessionId] = msgs;
+  await writeMobileMessagesStore(store);
+
+  const now = Date.now();
+  await setSessionStatus(sessionId, 'running', {
+    canStart: false,
+    lastRunStartedAt: now,
+    source: 'mobile-draft'
+  });
+
+  await appendAudit({
+    action: 'mobile_session.start.accepted',
+    sessionId,
+    deviceId,
+    agentId,
+    cwd,
+    initialMessageLength: initialMessage.length,
+    result: 'accepted'
+  });
+
+  const t0 = Date.now();
+  let runResult;
+  try {
+    runResult = await mobileRunner.runMobileAgent({
+      agentId: agentId,
+      cwd: cwd,
+      text: initialMessage,
+      sessionId: sessionId
+    });
+  } catch (e) {
+    runResult = { ok: false, text: 'Agent runner threw an exception.', error: 'runner_failed', usedStub: false };
+  }
+  const t1 = Date.now();
+  const durationMs = t1 - t0;
+
+  await appendMessageToMobileSession(sessionId, {
+    role: 'agent',
+    text: (runResult && runResult.text) ? runResult.text : 'Agent failed to produce a response.',
+    status: (runResult && runResult.ok) ? 'done' : 'failed',
+    ts: t1,
+    approvalId: '',
+    agentId: agentId
+  });
+
+  const finalStatus = (runResult && runResult.ok) ? 'done' : 'failed';
+  const runnerError = (runResult && runResult.error) || (finalStatus === 'failed' ? 'runner_failed' : '');
+
+  await setSessionStatus(sessionId, finalStatus, {
+    lastRunDurationMs: durationMs,
+    lastRunAgent: agentId,
+    canStart: false
+  });
+
+  try {
+    const d = await readMobileSessionsObj();
+    const found = Object.entries(d.sessions || {}).find(([, v]) => v && v.sessionId === sessionId);
+    if (found) await upsertUnifiedSessionIndex(found[1]);
+  } catch (_) {}
+
+  const usageInputChars = initialMessage.length;
+  const usageOutputChars = (runResult && typeof runResult.text === 'string') ? runResult.text.length : 0;
+  await recordMobileUsage({
+    sessionId: sessionId,
+    agentId: agentId,
+    cwd: cwd,
+    cwdLabel: (function () { try { return path.basename(String(cwd)); } catch (_e) { return String(cwd).slice(0, 80); } })(),
+    startedAt: t0,
+    endedAt: t1,
+    durationMs: durationMs,
+    inputChars: usageInputChars,
+    outputChars: usageOutputChars,
+    status: (runResult && runResult.timedOut) ? 'timed_out' : finalStatus
+  }).catch(() => ({ ok: false }));
+
+  if (finalStatus === 'done') {
+    await appendAudit({
+      action: 'mobile_session.start.completed',
+      sessionId,
+      deviceId,
+      agentId,
+      cwd,
+      initialMessageLength: initialMessage.length,
+      durationMs: durationMs,
+      result: 'completed'
+    });
+  } else {
+    await appendAudit({
+      action: 'mobile_session.start.failed',
+      sessionId,
+      deviceId,
+      agentId,
+      cwd,
+      initialMessageLength: initialMessage.length,
+      durationMs: durationMs,
+      reason: runnerError,
+      result: 'failed'
+    });
+  }
+
+  const finalSess = await getSessionById(sessionId);
+  return {
+    ok: true,
+    status: 200,
+    session: finalSess,
+    runnerError: runnerError,
+    runnerOk: !!(runResult && runResult.ok),
+    usedStub: !!(runResult && runResult.usedStub),
+    durationMs: durationMs,
+    initialMessageLength: initialMessage.length
+  };
 }
 
 async function appendMessageToMobileSession(sessionId, msg) {
@@ -1320,6 +1578,7 @@ module.exports = {
   setContextSelect,
   // Phase 2A-2.1
   createMobileDraftSession,
+  startMobileDraftSession,
   appendMessageToMobileSession,
   setSessionStatus,
   getSessionMessages,
@@ -1338,6 +1597,7 @@ module.exports = {
   cancelApproval,
   expireApprovals,
   readApprovals,
+  readAuditMobile,
   appendAudit,
   // Phase 2B（R2 第一部分）：统一 session index + mobile runner usage
   recordMobileUsage,

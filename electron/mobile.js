@@ -67,6 +67,14 @@ const DESKTOP_INPUT_MAX_LEN = 4096;              // 单条输入最大字符数
 const DESKTOP_INPUT_RATE_LIMIT_MS = 1000;        // 每个 device+agent 最小输入间隔
 const MOBILE_INPUT_BODY_MAX = 8 * 1024;          // 请求 body 上限 8KB
 
+// Phase B3A：Draft session 常量
+const MAX_DRAFT_TITLE_LEN = 80;
+const MAX_DRAFT_INITIAL_MSG_LEN = 2000;
+const DRAFT_BODY_MAX = 32 * 1024;
+
+// Phase B3B：Start draft session 常量
+const START_RATE_LIMIT_MS = 5000;                 // 每个 device 5 秒内只能 start 1 次
+
 // Phase 1：Mobile Web UI 静态资源（公开访问，文件落盘，不进 token 校验）
 const MOBILE_PUBLIC_DIR = path.join(__dirname, '..', 'public', 'mobile');
 const MOBILE_STATIC_MIME = {
@@ -1525,9 +1533,14 @@ async function readAuditMobile(limitRaw) {
       sessionId: String(row.sessionId || '').slice(0, 128),
       deviceId: String(row.deviceId || '').slice(0, 128),
       agentId: mobileSessions.normalizeAgentId(row.agentId || ''),
-      cwdLabel: row.cwd ? path.basename(String(row.cwd)) || String(row.cwd).slice(0, 80) : '',
+      cwd: String(row.cwd || '').slice(0, 256),
+      cwdLabel: row.cwd ? (() => { try { return path.basename(String(row.cwd)); } catch (_e) { return String(row.cwd).slice(0, 80); } })() : '',
       inputHash: String(row.inputHash || '').slice(0, 80),
       inputLen: Number.isFinite(row.inputLen) ? row.inputLen : 0,
+      inputLength: Number.isFinite(row.inputLength) ? row.inputLength : (Number.isFinite(row.inputLen) ? row.inputLen : 0),
+      initialMessageLength: Number.isFinite(row.initialMessageLength) ? row.initialMessageLength : 0,
+      titleLength: Number.isFinite(row.titleLength) ? row.titleLength : 0,
+      result: String(row.result || '').slice(0, 32),
       decision: String(row.decision || '').slice(0, 32),
       actor: String(row.actor || '').slice(0, 80),
       reasons: Array.isArray(row.reasons) ? row.reasons.map((r) => String(r).slice(0, 80)).slice(0, 10) : []
@@ -1608,24 +1621,32 @@ function timelineEventFromMessage(sessionId, message, index) {
   const role = rawRole === 'agent' ? 'assistant' : rawRole;
   const ts = Number(message && message.ts) || 0;
   const rawStatus = String((message && message.status) || 'sent');
-  const status = rawStatus === 'sent' || rawStatus === 'done' ? 'completed'
+  const isDraftPending = rawStatus === 'draft-pending';
+  const status = isDraftPending ? 'draft-pending'
+    : rawStatus === 'sent' || rawStatus === 'done' ? 'completed'
     : rawStatus === 'failed' ? 'failed'
     : rawStatus === 'running' ? 'running'
     : rawStatus === 'blocked' ? 'blocked'
     : rawStatus === 'pending' ? 'pending'
     : 'completed';
+  const safeText = isDraftPending
+    ? 'Draft message prepared (not sent to agent yet)'
+    : mobileSessions.safeStr((message && message.text) || '', 2000);
+  const safeTitle = isDraftPending
+    ? 'Draft message (not sent)'
+    : (role === 'user' ? 'User message' : role === 'assistant' ? 'Agent response' : 'System message');
   return {
     id: 'tl-' + sha256([sessionId, index, role, ts, status].join('|')).slice(0, 16),
     type: 'message',
     role,
-    title: role === 'user' ? 'User message' : role === 'assistant' ? 'Agent response' : 'System message',
-    text: mobileSessions.safeStr((message && message.text) || '', 2000),
+    title: safeTitle,
+    text: safeText,
     status,
     timestamp: ts,
     createdAt: ts,
     agentId: mobileSessions.normalizeAgentId((message && message.agentId) || ''),
     approvalId: String((message && message.approvalId) || '').slice(0, 128),
-    redacted: false,
+    redacted: isDraftPending,
     source: 'session-message'
   };
 }
@@ -1637,6 +1658,88 @@ async function readSessionTimelineMobile(sessionId, limitRaw) {
   const msgs = await mobileSessions.getSessionMessages(sessionId, limit).catch(() => ({ messages: [] }));
   const messages = Array.isArray(msgs.messages) ? msgs.messages : [];
   const events = messages.map((m, idx) => timelineEventFromMessage(sess.sessionId, m, idx));
+  if (sess.source === 'mobile-draft') {
+    const titleLen = typeof sess.title === 'string' ? sess.title.length : 0;
+    const initLen = typeof sess.initialMessageLength === 'number' ? sess.initialMessageLength : 0;
+    if (sess.status === 'draft') {
+      const draftReadyEvt = {
+        id: 'evt-draft-ready-' + sess.sessionId,
+        type: 'draft_ready',
+        timestamp: (Number(sess.createdAt) || Date.now()) + 1,
+        sessionId: sess.sessionId,
+        agentId: sess.agentId,
+        source: 'mobile-draft',
+        title: 'Draft ready',
+        text: 'Draft is ready to start',
+        meta: { canStart: false }
+      };
+      events.unshift(draftReadyEvt);
+    } else {
+      const startedAt = Number(sess.lastRunStartedAt) || Number(sess.createdAt) || Date.now();
+      const startedEvt = {
+        id: 'evt-agent-started-' + sess.sessionId,
+        type: 'agent_started',
+        timestamp: startedAt + 1,
+        sessionId: sess.sessionId,
+        agentId: sess.agentId,
+        source: 'mobile-draft',
+        title: 'Agent started',
+        text: 'Agent started'
+      };
+      events.unshift(startedEvt);
+      const reqEvt = {
+        id: 'evt-agent-start-requested-' + sess.sessionId,
+        type: 'agent_start_requested',
+        timestamp: startedAt,
+        sessionId: sess.sessionId,
+        agentId: sess.agentId,
+        source: 'mobile-draft',
+        title: 'Agent start requested',
+        text: 'Agent start requested'
+      };
+      events.unshift(reqEvt);
+      if (sess.status === 'done') {
+        const doneAt = startedAt + (Number(sess.lastRunDurationMs) || 1000);
+        const doneEvt = {
+          id: 'evt-agent-completed-' + sess.sessionId,
+          type: 'agent_completed',
+          timestamp: doneAt,
+          sessionId: sess.sessionId,
+          agentId: sess.agentId,
+          source: 'mobile-draft',
+          title: 'Agent completed',
+          text: 'Agent completed successfully',
+          meta: { durationMs: Number(sess.lastRunDurationMs) || 0 }
+        };
+        events.push(doneEvt);
+      } else if (sess.status === 'failed') {
+        const failAt = startedAt + (Number(sess.lastRunDurationMs) || 1000);
+        const failEvt = {
+          id: 'evt-agent-start-failed-' + sess.sessionId,
+          type: 'agent_start_failed',
+          timestamp: failAt,
+          sessionId: sess.sessionId,
+          agentId: sess.agentId,
+          source: 'mobile-draft',
+          title: 'Agent start failed',
+          text: 'Agent failed to start or run'
+        };
+        events.push(failEvt);
+      }
+    }
+    const createdEvt = {
+      id: 'evt-session-created-' + sess.sessionId,
+      type: 'session_created',
+      timestamp: Number(sess.createdAt) || Date.now(),
+      sessionId: sess.sessionId,
+      agentId: sess.agentId,
+      source: 'mobile-draft',
+      title: 'Session created',
+      text: 'Mobile session draft created',
+      meta: { initialMessageLength: initLen, titleLength: titleLen }
+    };
+    events.unshift(createdEvt);
+  }
   return {
     ok: true,
     sessionId: sess.sessionId,
@@ -1644,13 +1747,14 @@ async function readSessionTimelineMobile(sessionId, limitRaw) {
     agentId: sess.agentId,
     cwd: sess.cwd,
     cwdLabel: sess.cwdLabel,
+    canStart: sess.canStart === false ? false : undefined,
     events,
     nextCursor: null,
     hasMore: false,
     meta: mobileContractMeta('messages-projection', {
       limit,
       eventCount: events.length,
-      extensibleTypes: ['message', 'tool', 'approval', 'file', 'status', 'system']
+      extensibleTypes: ['message', 'tool', 'approval', 'file', 'status', 'system', 'session_created', 'draft_ready', 'agent_start_requested', 'agent_started', 'agent_completed', 'agent_start_failed']
     })
   };
 }
@@ -2023,6 +2127,7 @@ async function getDesktopAgentTimeline(safeAgentId, opts) {
 
 let _desktopTerminalWriteProvider = null;
 const _inputRateLimit = new Map(); // key: `${deviceId}:${desktopAgentId}` -> lastAcceptedAt (ms)
+const _startRateLimit = new Map(); // key: deviceId -> lastStartedAt (ms)
 
 function setDesktopTerminalWriteProvider(provider) {
   if (provider === null || (provider && typeof provider.sendInput === 'function')) {
@@ -2033,6 +2138,11 @@ function setDesktopTerminalWriteProvider(provider) {
 function deviceHasDesktopControlScope(device) {
   if (!device || !Array.isArray(device.scopes)) return false;
   return device.scopes.includes('desktop_control');
+}
+
+function deviceHasSessionStartScope(device) {
+  if (!device || !Array.isArray(device.scopes)) return false;
+  return device.scopes.includes('session:start');
 }
 
 function validateInputText(text) {
@@ -2198,6 +2308,109 @@ async function sendDesktopAgentInput(t, desktopAgentId, body) {
         inputLength: v.cleanText.length,
         appendNewline: !!appendNewline,
         auditWritten,
+      }
+    }
+  };
+}
+
+// ============================================================
+// Phase B3A：Mobile session draft creation helpers
+// ============================================================
+
+const MOBILE_DRAFT_AGENT_IDS = mobileSessions.ALLOWED_AGENT_IDS;
+
+function validateDraftInput(body) {
+  if (!body || typeof body !== 'object') {
+    return { ok: false, status: 400, errorCode: 'cwd_required', message: 'Request body must be a JSON object.' };
+  }
+  const cwdRaw = body.cwd;
+  if (typeof cwdRaw !== 'string' || cwdRaw.trim().length === 0) {
+    return { ok: false, status: 400, errorCode: 'cwd_required', message: 'cwd is required.' };
+  }
+  const cwdNorm = path.resolve(String(cwdRaw));
+  if (isForbiddenPath(cwdNorm) || !pathInAllowed(cwdNorm)) {
+    return { ok: false, status: 403, errorCode: 'cwd_not_allowed', message: 'cwd is outside allowed roots or is forbidden.' };
+  }
+  const agentId = body.agentId;
+  const normAgentId = mobileSessions.normalizeAgentId(agentId);
+  if (typeof agentId !== 'string' || !MOBILE_DRAFT_AGENT_IDS.has(normAgentId)) {
+    return { ok: false, status: 400, errorCode: 'agent_not_allowed', message: 'agentId must be one of: ' + Array.from(MOBILE_DRAFT_AGENT_IDS).join(', ') + '.' };
+  }
+  const title = (typeof body.title === 'string') ? body.title : '';
+  if (title.length > MAX_DRAFT_TITLE_LEN) {
+    return { ok: false, status: 400, errorCode: 'title_too_long', message: 'title must be at most ' + MAX_DRAFT_TITLE_LEN + ' characters.' };
+  }
+  const initialMessage = (typeof body.initialMessage === 'string') ? body.initialMessage : '';
+  if (initialMessage.length > MAX_DRAFT_INITIAL_MSG_LEN) {
+    return { ok: false, status: 400, errorCode: 'initial_message_too_long', message: 'initialMessage must be at most ' + MAX_DRAFT_INITIAL_MSG_LEN + ' characters.' };
+  }
+  const mode = (typeof body.mode === 'string') ? body.mode : 'draft';
+  if (mode !== 'draft') {
+    return { ok: false, status: 400, errorCode: 'invalid_mode', message: 'mode must be "draft" (other modes are reserved for future phases).' };
+  }
+  return {
+    ok: true,
+    cwdNorm,
+    agentId: normAgentId,
+    title,
+    initialMessage,
+    mode
+  };
+}
+
+async function createMobileSessionDraft(t, body) {
+  if (!t || !t.device) {
+    return { status: 401, body: { ok: false, error: { code: 'unauthorized', message: 'Authentication required.' } } };
+  }
+  const v = validateDraftInput(body);
+  if (!v.ok) {
+    return { status: v.status, body: { ok: false, error: { code: v.errorCode, message: v.message } } };
+  }
+  const createRes = await mobileSessions.createMobileDraftSession({
+    cwd: v.cwdNorm,
+    agentId: v.agentId,
+    deviceId: t.device && t.device.id,
+    title: v.title,
+    initialMessage: v.initialMessage,
+    mode: 'draft'
+  });
+  if (!createRes.ok) {
+    const code = createRes.error || 'draft_create_failed';
+    const httpStatus = code === 'cwd_not_allowed' ? 403
+      : code === 'agent_not_allowed' ? 400
+      : code === 'title_too_long' ? 400
+      : code === 'initial_message_too_long' ? 400
+      : code === 'invalid_mode' ? 400
+      : 400;
+    return { status: httpStatus, body: { ok: false, error: { code, message: 'Failed to create draft session.' } } };
+  }
+  const sess = await mobileSessions.getSessionById(createRes.sessionId);
+  const tl = await readSessionTimelineMobile(createRes.sessionId, 50);
+  const safeSess = {
+    id: createRes.sessionId,
+    agentId: sess.agentId,
+    cwd: sess.cwd,
+    cwdLabel: sess.cwdLabel || (sess.cwd ? path.basename(sess.cwd) : ''),
+    title: sess.title,
+    status: sess.status,
+    createdAt: sess.createdAt,
+    source: sess.source || 'mobile-draft',
+    canStart: sess.canStart === false ? false : false
+  };
+  const initialMsgLen = v.initialMessage ? v.initialMessage.length : 0;
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      session: safeSess,
+      timeline: {
+        events: tl.events || [],
+        eventCount: (tl.events || []).length
+      },
+      meta: {
+        willSpawnAgent: false,
+        phase: 'B3A',
+        initialMessageLength: initialMsgLen
       }
     }
   };
@@ -2551,7 +2764,7 @@ async function handleMobileApiV2(req, res, url) {
     return sendJson(res, r.ok === false ? 500 : 200, r);
   }
 
-  // /api/mobile/projects —— unified project list grouped by cwd
+  // /api/mobile/projects —— unified project list grouped by cwd (Phase B3A hardened)
   if (pathOnly === '/api/mobile/projects') {
     const t = await requireMobileAuth(req, res); if (!t) return;
     try {
@@ -2559,21 +2772,54 @@ async function handleMobileApiV2(req, res, url) {
       const DAY7 = 7 * 24 * 60 * 60 * 1000;
       const DAY30 = 30 * 24 * 60 * 60 * 1000;
 
+      function assessProjectCwd(cwdAbs) {
+        if (!cwdAbs || typeof cwdAbs !== 'string') {
+          return { canCreateSession: false, reason: 'invalid cwd', riskFlags: ['cwd_invalid'] };
+        }
+        const norm = path.resolve(cwdAbs);
+        if (isForbiddenPath(norm)) {
+          return { canCreateSession: false, reason: 'forbidden path', riskFlags: ['cwd_forbidden'] };
+        }
+        if (!pathInAllowed(norm)) {
+          return { canCreateSession: false, reason: 'path not allowed', riskFlags: ['cwd_not_allowed'] };
+        }
+        try {
+          const st = fs.statSync(norm);
+          if (!st.isDirectory()) {
+            return { canCreateSession: false, reason: 'not a directory', riskFlags: ['cwd_not_directory'] };
+          }
+        } catch (_e) {
+          return { canCreateSession: false, reason: 'directory not found', riskFlags: ['cwd_missing'] };
+        }
+        return { canCreateSession: true, reason: 'ready', riskFlags: [] };
+      }
+
+      function safeProjectId(cwdAbs, source) {
+        try {
+          return 'p_' + crypto.createHash('sha1').update(String(source || 'x') + ':' + String(cwdAbs || '')).digest('hex').slice(0, 16);
+        } catch (_e) {
+          return 'p_' + String(cwdAbs || '').replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40);
+        }
+      }
+
       // 1) Gather sessions
       const sessionResult = await mobileSessions.listSessions({ limit: 200 });
       const sessions = Array.isArray(sessionResult.items) ? sessionResult.items : [];
 
-      // 2) Group by normalized cwd
-      const cwdMap = new Map(); // normalizedCwd -> { sessions: [], agents: Set, ... }
+      // 2) Group by normalized cwd, filtering forbidden paths defensively
+      const cwdMap = new Map();
       for (const s of sessions) {
-        if (!s.cwd) continue;
+        if (!s || !s.cwd) continue;
+        if (isForbiddenPath(s.cwd)) continue;
         const key = s.cwd.replace(/\\/g, '/').toLowerCase();
         if (!cwdMap.has(key)) {
-          cwdMap.set(key, { cwd: s.cwd, cwdLabel: s.cwdLabel || path.basename(s.cwd) || s.cwd, sessions: [], agents: new Set() });
+          let label;
+          try { label = s.cwdLabel || path.basename(s.cwd); } catch (_e) { label = s.cwdLabel || s.cwd; }
+          cwdMap.set(key, { cwd: s.cwd, cwdLabel: label, sessions: [], agents: new Set() });
         }
         const g = cwdMap.get(key);
         g.sessions.push(s);
-        if (s.agentId) g.agents.add(s.agentId);
+        if (s.agentId && mobileSessions.ALLOWED_AGENT_IDS.has(s.agentId)) g.agents.add(s.agentId);
       }
 
       // 3) Build project items from session groups
@@ -2584,24 +2830,30 @@ async function handleMobileApiV2(req, res, url) {
         const latest = sorted[0];
         let running = 0, done = 0, failed = 0;
         for (const s of g.sessions) {
-          if (s.status === 'running') running++;
+          if (s.status === 'running' || s.status === 'idle' || s.status === 'draft') running++;
           else if (s.status === 'done' || s.status === 'completed') done++;
           else if (s.status === 'failed' || s.status === 'error') failed++;
         }
         const source = g.sessions.some(s => s.source === 'desktop') ? 'desktop-project' : 'session-index';
+        const assessment = assessProjectCwd(g.cwd);
+        const agentArr = [...g.agents];
         items.push({
-          id: key,
-          name: g.cwdLabel || path.basename(g.cwd) || g.cwd,
+          id: safeProjectId(g.cwd, source),
+          name: g.cwdLabel,
           cwd: g.cwd,
-          cwdLabel: g.cwdLabel || path.basename(g.cwd) || g.cwd,
+          cwdLabel: g.cwdLabel,
           source,
-          agents: [...g.agents],
-          lastActiveAt: latest ? (latest.lastActiveAt || 0) : 0,
+          agents: agentArr,
+          agentIds: agentArr,
+          lastActiveAt: latest ? (latest.lastActiveAt || latest.createdAt || 0) : 0,
           sessionCount: g.sessions.length,
           latestSessionId: latest ? latest.sessionId : null,
           latestSessionTitle: latest ? (latest.title || null) : null,
-          latestMessagePreview: latest && latest.summary ? (latest.summary.lastMessagePreview || null) : null,
-          statusSummary: { running, done, failed }
+          latestMessagePreview: latest && latest.summary ? mobileSessions.safeStr(latest.summary.lastMessagePreview || '', 140) : null,
+          statusSummary: { running, done, failed },
+          canCreateSession: assessment.canCreateSession,
+          reason: assessment.reason,
+          riskFlags: assessment.riskFlags
         });
         seenCwds.add(key);
       }
@@ -2610,39 +2862,53 @@ async function handleMobileApiV2(req, res, url) {
       const roots = mobileAllowedRoots();
       const fallback = [];
       for (const r of roots) {
-        const rPath = (r.path || r || '');
+        let rPath, rName;
+        if (r && typeof r === 'object') { rPath = r.path || ''; rName = r.name || ''; }
+        else { rPath = String(r || ''); rName = ''; }
         if (!rPath) continue;
+        if (isForbiddenPath(rPath)) continue;
         const key = rPath.replace(/\\/g, '/').toLowerCase();
         if (seenCwds.has(key)) continue;
         seenCwds.add(key);
+        let label;
+        try { label = rName || path.basename(rPath); } catch (_e) { label = rName || rPath; }
+        const assessment = assessProjectCwd(rPath);
         const item = {
-          id: key,
-          name: r.name || path.basename(rPath) || rPath,
+          id: safeProjectId(rPath, 'root'),
+          name: label,
           cwd: rPath,
-          cwdLabel: r.name || path.basename(rPath) || rPath,
+          cwdLabel: label,
           source: 'root',
           agents: [],
+          agentIds: [],
           lastActiveAt: 0,
           sessionCount: 0,
           latestSessionId: null,
           latestSessionTitle: null,
           latestMessagePreview: null,
-          statusSummary: { running: 0, done: 0, failed: 0 }
+          statusSummary: { running: 0, done: 0, failed: 0 },
+          canCreateSession: assessment.canCreateSession,
+          reason: assessment.reason,
+          riskFlags: assessment.riskFlags
         };
         items.push(item);
         fallback.push(item);
       }
 
-      // 5) Sort by lastActiveAt desc
-      items.sort((a, b) => b.lastActiveAt - a.lastActiveAt);
+      // 5) Sort: creatable first, then by lastActiveAt desc
+      items.sort((a, b) => {
+        if (a.canCreateSession !== b.canCreateSession) return a.canCreateSession ? -1 : 1;
+        return (b.lastActiveAt || 0) - (a.lastActiveAt || 0);
+      });
 
-      // 6) Group into 7d / 30d
+      // 6) Groups
       const recent7d = items.filter(i => i.lastActiveAt > 0 && (now - i.lastActiveAt) <= DAY7);
       const recent30d = items.filter(i => i.lastActiveAt > 0 && (now - i.lastActiveAt) <= DAY30);
+      const startable = items.filter(i => i.canCreateSession);
 
-      return sendJson(res, 200, { ok: true, items, groups: { recent7d, recent30d, fallback } });
+      return sendJson(res, 200, { ok: true, items, groups: { recent7d, recent30d, fallback }, startableCount: startable.length, total: items.length });
     } catch (e) {
-      return sendJson(res, 500, { ok: false, error: 'internal_error' });
+      return sendJson(res, 200, { ok: true, items: [], groups: { recent7d: [], recent30d: [], fallback: [] }, startableCount: 0, total: 0 });
     }
   }
 
@@ -2775,24 +3041,194 @@ async function handleMobileApiV2A(req, res, url) {
   }
 
   // -------- POST /api/mobile/sessions/draft --------
-  // body: { cwd, agentId } —— 只创建 mobile session shell，不启动 agent
+  // Phase B3A：创建 mobile session draft，不启动 agent，不 spawn PTY。
   // 必须在 :id 之前匹配
   if (req.method === 'POST' && pathOnly === '/api/mobile/sessions/draft') {
     const t = await requireMobileAuth(req, res); if (!t) return true;
     let body;
-    try { body = await readJsonBody(req); } catch { return badReq(res, 400, 'bad_body'), true; }
-    const cwd = (body && typeof body.cwd === 'string') ? body.cwd : '';
-    if (!cwd) return badReq(res, 400, 'missing_cwd'), true;
-    const norm = path.resolve(cwd);
-    if (isForbiddenPath(norm)) return sendJson(res, 403, { ok: false, error: 'forbidden_path' }), true;
-    if (!pathInAllowed(norm)) return sendJson(res, 403, { ok: false, error: 'path_not_allowed' }), true;
-    const r = await mobileSessions.createMobileDraftSession({
-      cwd: norm,
-      agentId: body.agentId,
-      deviceId: t.device && t.device.id
+    try { body = await readJsonBody(req, DRAFT_BODY_MAX); } catch { return badReq(res, 400, 'bad_body'), true; }
+    const result = await createMobileSessionDraft(t, body || {});
+    return sendJson(res, result.status, result.body), true;
+  }
+
+  // -------- POST /api/mobile/sessions/:id/start --------
+  // Phase B3B：启动一个已存在的 mobile draft session。
+  // 必须 session:start scope，必须 confirm:true，只能启动自己的 draft session。
+  if (req.method === 'POST' && /^\/api\/mobile\/sessions\/[A-Za-z0-9._\-+]{1,128}\/start$/.test(pathOnly)) {
+    const t = await requireMobileAuth(req, res); if (!t) return true;
+    const m = pathOnly.match(/^\/api\/mobile\/sessions\/([A-Za-z0-9._\-+]{1,128})\/start$/);
+    const sessionId = m ? m[1] : '';
+
+    if (!deviceHasSessionStartScope(t.device)) {
+      try {
+        await mobileSessions.appendAudit({
+          action: 'mobile_session.start.rejected',
+          ts: Date.now(),
+          sessionId,
+          deviceId: t.device && t.device.id,
+          reason: 'session_start_scope_required',
+          result: 'rejected'
+        });
+      } catch (_) {}
+      return sendJson(res, 403, { ok: false, error: { code: 'session_start_scope_required', message: 'This device does not have session:start scope.' } }), true;
+    }
+
+    let body;
+    try { body = await readJsonBody(req, 4 * 1024); } catch { return badReq(res, 400, 'bad_body'), true; }
+    if (!body || body.confirm !== true) {
+      try {
+        await mobileSessions.appendAudit({
+          action: 'mobile_session.start.rejected',
+          ts: Date.now(),
+          sessionId,
+          deviceId: t.device && t.device.id,
+          reason: 'confirm_required',
+          result: 'rejected'
+        });
+      } catch (_) {}
+      return sendJson(res, 400, { ok: false, error: { code: 'confirm_required', message: 'Request must include "confirm": true.' } }), true;
+    }
+
+    const deviceId = t.device && t.device.id;
+    const rlKey = String(deviceId || 'unknown');
+    const now = Date.now();
+    const lastStart = _startRateLimit.get(rlKey) || 0;
+    if (now - lastStart < START_RATE_LIMIT_MS) {
+      try {
+        await mobileSessions.appendAudit({
+          action: 'mobile_session.start.rejected',
+          ts: now,
+          sessionId,
+          deviceId,
+          reason: 'rate_limited',
+          result: 'rejected'
+        });
+      } catch (_) {}
+      return sendJson(res, 429, { ok: false, error: { code: 'rate_limited', message: 'Please wait before starting another session.', retryAfterMs: START_RATE_LIMIT_MS - (now - lastStart) } }), true;
+    }
+
+    const sessBefore = await mobileSessions.getSessionById(sessionId);
+    if (!sessBefore) {
+      return sendJson(res, 404, { ok: false, error: { code: 'session_not_found', message: 'Session not found.' } }), true;
+    }
+    if (sessBefore.status !== 'draft') {
+      try {
+        await mobileSessions.appendAudit({
+          action: 'mobile_session.start.rejected',
+          ts: Date.now(),
+          sessionId,
+          deviceId,
+          reason: 'session_not_draft',
+          result: 'rejected'
+        });
+      } catch (_) {}
+      return sendJson(res, 409, { ok: false, error: { code: 'session_not_draft', message: 'Session is not in draft status.' } }), true;
+    }
+
+    const rawSessions = await mobileSessions.readMobileSessionsObj();
+    const rawEntry = Object.entries(rawSessions.sessions || {}).find(([, v]) => v && v.sessionId === sessionId);
+    if (!rawEntry || !rawEntry[1]) {
+      return sendJson(res, 404, { ok: false, error: { code: 'session_not_found', message: 'Session not found.' } }), true;
+    }
+    const rawSess = rawEntry[1];
+    if (rawSess._deviceId && rawSess._deviceId !== deviceId) {
+      try {
+        await mobileSessions.appendAudit({
+          action: 'mobile_session.start.rejected',
+          ts: Date.now(),
+          sessionId,
+          deviceId,
+          reason: 'forbidden',
+          result: 'rejected'
+        });
+      } catch (_) {}
+      return sendJson(res, 403, { ok: false, error: { code: 'forbidden', message: 'Not your session.' } }), true;
+    }
+
+    const draftCwd = String(rawSess.cwd || '');
+    const draftAgentId = String(rawSess.agentId || '').toLowerCase();
+    const normCwd = path.resolve(draftCwd);
+    if (isForbiddenPath(normCwd) || !pathInAllowed(normCwd)) {
+      try {
+        await mobileSessions.appendAudit({
+          action: 'mobile_session.start.rejected',
+          ts: Date.now(),
+          sessionId,
+          deviceId,
+          agentId: draftAgentId,
+          cwd: draftCwd,
+          reason: 'cwd_not_allowed',
+          result: 'rejected'
+        });
+      } catch (_) {}
+      return sendJson(res, 403, { ok: false, error: { code: 'cwd_not_allowed', message: 'Project directory is not allowed.' } }), true;
+    }
+    const allowedAgents = new Set(['claude', 'codex', 'opencode', 'qoder']);
+    if (!allowedAgents.has(draftAgentId)) {
+      try {
+        await mobileSessions.appendAudit({
+          action: 'mobile_session.start.rejected',
+          ts: Date.now(),
+          sessionId,
+          deviceId,
+          agentId: draftAgentId,
+          cwd: draftCwd,
+          reason: 'agent_not_allowed',
+          result: 'rejected'
+        });
+      } catch (_) {}
+      return sendJson(res, 403, { ok: false, error: { code: 'agent_not_allowed', message: 'Agent is not allowed.' } }), true;
+    }
+
+    _startRateLimit.set(rlKey, now);
+
+    const runResult = await mobileSessions.startMobileDraftSession({
+      sessionId: sessionId,
+      deviceId: deviceId
     });
-    if (!r.ok) return badReq(res, 400, r.error || 'bad_draft'), true;
-    return sendJson(res, 200, { ok: true, sessionId: r.sessionId, internalId: r.internalId }), true;
+
+    if (!runResult.ok) {
+      let errCode = runResult.error || 'runner_failed';
+      let errMsg = 'Session start failed.';
+      let statusCode = runResult.status || 500;
+      if (errCode === 'session_not_found') { errMsg = 'Session not found.'; statusCode = 404; }
+      else if (errCode === 'session_not_draft') { errMsg = 'Session is not in draft status.'; statusCode = 409; }
+      else if (errCode === 'cwd_not_allowed') { errMsg = 'Project directory is not allowed.'; statusCode = 403; }
+      else if (errCode === 'agent_not_allowed') { errMsg = 'Agent is not allowed.'; statusCode = 403; }
+      else if (errCode === 'initial_message_missing') { errMsg = 'Initial message is missing.'; statusCode = 400; }
+      else if (errCode === 'forbidden') { errMsg = 'Not your session.'; statusCode = 403; }
+      else { errCode = 'runner_failed'; errMsg = 'Agent runner failed.'; statusCode = 500; }
+      return sendJson(res, statusCode, { ok: false, error: { code: errCode, message: errMsg } }), true;
+    }
+
+    const finalSess = await mobileSessions.getSessionById(sessionId);
+    const finalTl = await readSessionTimelineMobile(sessionId, 100);
+    const respEvents = Array.isArray(finalTl.events) ? finalTl.events.map(function (e) {
+      return { type: e.type, text: e.text || e.title || '', ts: e.timestamp };
+    }).filter(function (e) {
+      return e.type === 'session_created' || e.type === 'agent_start_requested' || e.type === 'agent_started' || e.type === 'agent_completed' || e.type === 'agent_start_failed';
+    }) : [];
+
+    return sendJson(res, 200, {
+      ok: true,
+      session: {
+        id: finalSess.sessionId,
+        status: finalSess.status,
+        agentId: finalSess.agentId,
+        cwd: finalSess.cwd,
+        source: finalSess.source,
+        canStart: finalSess.canStart === true
+      },
+      timeline: { events: respEvents },
+      meta: {
+        willSpawnAgent: true,
+        phase: 'B3B',
+        initialMessageLength: runResult.initialMessageLength || 0,
+        auditWritten: true,
+        usedStub: !!runResult.usedStub,
+        durationMs: runResult.durationMs || 0
+      }
+    }), true;
   }
 
   // -------- POST /api/mobile/sessions/:id/messages --------

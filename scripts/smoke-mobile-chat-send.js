@@ -359,18 +359,31 @@ function req(opts, body) {
     /function\s+parseSSEEvent\s*\(/.test(js));
   ok('frontend: handleStreamEvent 存在',
     /function\s+handleStreamEvent\s*\(/.test(js));
-  ok('frontend: renderStreamSteps 存在',
-    /function\s+renderStreamSteps\s*\(/.test(js));
-  ok('CSS: .stream-steps 存在',
-    /\.stream-steps\s*\{/.test(css));
-  ok('CSS: .stream-step.is-running 存在',
-    /\.stream-step\.is-running/.test(css));
-  ok('CSS: .stream-step.is-done 存在',
-    /\.stream-step\.is-done/.test(css));
-  ok('CSS: .stream-step.is-failed 存在',
-    /\.stream-step\.is-failed/.test(css));
-  ok('CSS: .stream-delta 存在',
-    /\.stream-delta\s*\{/.test(css));
+  ok('frontend: renderStreamTranscript 存在',
+    /function\s+renderStreamTranscript\s*\(/.test(js));
+  ok('frontend: handleStreamEvent 支持 message_delta',
+    /case\s+'message_delta'[\s\S]{0,800}pendingAssistant\._streamText/.test(js));
+  ok('frontend: handleStreamEvent 支持 command_start',
+    /case\s+'command_start'[\s\S]{0,800}pendingAssistant\._streamCommands/.test(js));
+  ok('CSS: .stream-transcript 存在',
+    /\.stream-transcript\s*\{/.test(css));
+  ok('CSS: .stream-prose 存在',
+    /\.stream-prose\s*\{/.test(css));
+  ok('CSS: .stream-command-summary 存在',
+    /\.stream-command-summary\s*\{/.test(css));
+  ok('CSS: .stream-commands 存在',
+    /\.stream-commands\s*\{/.test(css));
+  ok('CSS: 不再保护旧 run 卡片',
+    !/\.(run-thinking|run-skill|run-tools|run-command)\s*\{/.test(css));
+  ok('CSS: assistant transcript 外层无气泡框',
+    /\.chat-row-agent\s+\.chat-bubble\s*\{[\s\S]{0,260}background:\s*transparent[\s\S]{0,260}border:\s*0[\s\S]{0,260}padding:\s*0/.test(css));
+  ok('CSS: assistant running 不显示气泡尾部蓝点',
+    /\.chat-row-agent\s+\.chat-bubble-running::after\s*\{[\s\S]{0,100}content:\s*none/.test(css));
+  ok('CSS: assistant 不显示头像占位',
+    /\.chat-row-agent\s+\.chat-avatar\s*\{[\s\S]{0,140}display:\s*none/.test(css));
+  ok('CSS: command 行不是卡片/左色条',
+    /\.stream-command\s*\{[\s\S]{0,220}border:\s*0[\s\S]{0,220}background:\s*transparent/.test(css) &&
+    !/\.stream-command\s*\{[\s\S]{0,220}border-left/.test(css));
 
   section('DONE');
   console.log(`\nResult: ${passed} passed, ${failed} failed`);
