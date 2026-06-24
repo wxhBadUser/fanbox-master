@@ -62,25 +62,33 @@
           <span class="sidebar-item-icon" data-i="home"></span>
           <span>Home</span>
         </button>
+        <button class="sidebar-item" data-go="safety" type="button" title="Safety">
+          <span class="sidebar-item-icon" data-i="shield"></span>
+          <span>Safety</span>
+        </button>
+        <button class="sidebar-item" data-go="projects" type="button" title="Projects">
+          <span class="sidebar-item-icon" data-i="project"></span>
+          <span>Projects</span>
+        </button>
+        <button class="sidebar-item" data-go="files" type="button" title="Files">
+          <span class="sidebar-item-icon" data-i="files"></span>
+          <span>Files</span>
+        </button>
         <button class="sidebar-item" data-go="home" type="button" title="Legacy Chat">
           <span class="sidebar-item-icon" data-i="chat"></span>
           <span>Legacy Chat</span>
         </button>
-        <button class="sidebar-item" data-go="project" type="button" title="Project">
+        <button class="sidebar-item" data-go="project" type="button" title="Legacy Project">
           <span class="sidebar-item-icon" data-i="project"></span>
-          <span>Project</span>
-        </button>
-        <button class="sidebar-item" data-go="files" type="button" title="Files">
-          <span class="sidebar-item-icon" data-i="files"></span>
-          <span>File</span>
+          <span>Legacy Project</span>
         </button>
         <button class="sidebar-item" data-go="skills" type="button" title="Skills">
           <span class="sidebar-item-icon" data-i="skills"></span>
-          <span>Skill</span>
+          <span>Skills</span>
         </button>
         <button class="sidebar-item" data-go="settings" type="button" title="Settings">
           <span class="sidebar-item-icon" data-i="settings"></span>
-          <span>Setting</span>
+          <span>Settings</span>
         </button>
       </nav>
 
@@ -239,6 +247,75 @@
         </section>
 
         <!-- =========================================================
+             UI1B: Safety · 设备 / Scopes / Audit / Pairing
+             ---------------------------------------------------------
+             消费: app-state, devices, audit, pair/status, info
+             不显示 token/tokenHash/initialMessage 原文
+             ========================================================= -->
+        <section class="view" data-view="safety" hidden>
+          <header class="view-header">
+            <h2 class="view-title">Safety</h2>
+            <button class="view-icon-btn" id="safety-refresh" type="button" aria-label="Refresh">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><polyline points="21 4 21 9 16 9"/></svg>
+            </button>
+          </header>
+
+          <div class="safety" id="safety-root">
+            <!-- 当前设备 + Scopes -->
+            <div class="safety-card">
+              <div class="safety-card-h">当前设备 · Current Device</div>
+              <div id="safety-current-device" class="safety-current-device"></div>
+            </div>
+
+            <div class="safety-card">
+              <div class="safety-card-h">权限 · Scopes</div>
+              <div id="safety-scopes" class="safety-scopes"></div>
+            </div>
+
+            <!-- 配对状态 + LAN URL -->
+            <div class="safety-card">
+              <div class="safety-card-h">配对状态 · Pairing</div>
+              <div id="safety-pairing" class="safety-pairing"></div>
+            </div>
+
+            <!-- 已配对设备列表 -->
+            <div class="safety-card">
+              <div class="safety-card-h">已配对设备 · Paired Devices</div>
+              <div id="safety-devices" class="safety-devices" role="list" aria-label="Paired devices"></div>
+            </div>
+
+            <!-- 最近 Audit 记录 -->
+            <div class="safety-card">
+              <div class="safety-card-h">最近操作 · Audit Log</div>
+              <div id="safety-audit" class="safety-audit" role="list" aria-label="Recent audit entries"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =========================================================
+             UI1B: Projects · Contract-based 项目控制台
+             ---------------------------------------------------------
+             消费: /api/mobile/projects, /api/mobile/sessions/draft
+             展示: canCreateSession, riskFlags, agentIds, sessionCount
+             从项目卡片直接新建任务 → draft → Detail
+             ========================================================= -->
+        <section class="view" data-view="projects" hidden>
+          <header class="view-header">
+            <h2 class="view-title">Projects</h2>
+            <button class="view-icon-btn" id="projects-refresh" type="button" aria-label="Refresh">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><polyline points="21 4 21 9 16 9"/></svg>
+            </button>
+          </header>
+
+          <div class="view-subhead">
+            <div class="view-subhead-h">项目控制台 · Project Console</div>
+            <div class="view-subhead-p">点击项目卡片新建任务，或查看项目会话</div>
+          </div>
+
+          <div id="projects-list" class="projects-list" role="list" aria-label="Project list"></div>
+        </section>
+
+        <!-- =========================================================
              Legacy Home Tab · Manus-like Agent Chat Workspace (preserved)
              ========================================================= -->
         <section class="view" data-view="home" hidden>
@@ -343,6 +420,11 @@
               <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2L4 13h6l-1 7 7-11h-6l1-7z"/></svg>
               <span>从当前文件夹与 AI 对话</span>
             </button>
+          </div>
+
+          <div id="files-recent" class="files-recent" hidden>
+            <div class="files-recent-h">最近文件 · Recent</div>
+            <div id="files-recent-list" class="files-recent-list" role="list" aria-label="Recent files"></div>
           </div>
 
           <div class="files-list" id="files-list" role="list" aria-label="File list"></div>

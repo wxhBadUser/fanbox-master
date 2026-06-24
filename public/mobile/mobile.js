@@ -3082,6 +3082,273 @@ const UI1A = (() => {
     } catch (e) { /* non-fatal */ }
   }
 
+  /* ---- UI1B: Safety page data loaders ---- */
+  async function loadSafetyDevices () {
+    try {
+      const d = await cApi("/api/mobile/devices");
+      CS.safetyDevices = d.items || [];
+      CS.safetyCurrentDeviceId = d.currentDeviceId || null;
+      CS.errors.safetyDevices = null;
+    } catch (e) { CS.errors.safetyDevices = e.message; }
+  }
+
+  async function loadSafetyAudit () {
+    try {
+      const d = await cApi("/api/mobile/audit?limit=30");
+      CS.safetyAudit = d.items || [];
+      CS.errors.safetyAudit = null;
+    } catch (e) { CS.errors.safetyAudit = e.message; }
+  }
+
+  async function loadSafetyPairStatus () {
+    try {
+      const d = await cApi("/api/mobile/pair/status");
+      CS.safetyPairStatus = d;
+      CS.errors.safetyPairStatus = null;
+    } catch (e) { CS.errors.safetyPairStatus = e.message; }
+  }
+
+  async function loadSafetyInfo () {
+    try {
+      const d = await cApi("/api/mobile/info");
+      CS.safetyInfo = d;
+      CS.errors.safetyInfo = null;
+    } catch (e) { CS.errors.safetyInfo = e.message; }
+  }
+
+  /* ---- UI1B: Safety page renderer ---- */
+  function renderSafety () {
+    const st = CS.appState || {};
+    const auth = st.auth || {};
+    const scopes = auth.scopes || [];
+    const server = st.server || {};
+    const conn = st.connection || {};
+
+    // Current device
+    const curEl = $c("safety-current-device");
+    if (curEl) {
+      const cur = (CS.safetyDevices || []).find(d => d.isCurrent) || (CS.safetyDevices || [])[0];
+      if (cur) {
+        curEl.innerHTML = "";
+        curEl.appendChild(el("div", { class: "safety-row" }, [
+          el("span", { class: "safety-row-label" }, { text: "设备名" }),
+          el("span", { class: "safety-row-val" }, { text: cur.deviceName || "—" }),
+        ]));
+        curEl.appendChild(el("div", { class: "safety-row" }, [
+          el("span", { class: "safety-row-label" }, { text: "设备 ID" }),
+          el("span", { class: "safety-row-val safety-mono" }, { text: (cur.deviceId || "").substring(0, 12) + "…" }),
+        ]));
+        curEl.appendChild(el("div", { class: "safety-row" }, [
+          el("span", { class: "safety-row-label" }, { text: "最后活跃" }),
+          el("span", { class: "safety-row-val" }, { text: cur.lastActiveAt ? shortTime(cur.lastActiveAt) : "—" }),
+        ]));
+        curEl.appendChild(el("div", { class: "safety-row" }, [
+          el("span", { class: "safety-row-label" }, { text: "IP" }),
+          el("span", { class: "safety-row-val safety-mono" }, { text: cur.lastIp || "—" }),
+        ]));
+      } else {
+        curEl.innerHTML = `<div class="safety-empty">无设备信息</div>`;
+      }
+    }
+
+    // Scopes
+    const scopesEl = $c("safety-scopes");
+    if (scopesEl) {
+      scopesEl.innerHTML = "";
+      const allScopes = [
+        { id: "read:status", label: "读取状态", desc: "查看 Home/Dashboard" },
+        { id: "read:files", label: "读取文件", desc: "浏览 Files" },
+        { id: "desktop_control", label: "桌面控制", desc: "向桌面 Agent 发送 follow-up" },
+        { id: "session:start", label: "启动会话", desc: "启动 draft Agent" },
+      ];
+      for (const sc of allScopes) {
+        const has = scopes.includes(sc.id);
+        const pill = el("div", { class: "scope-pill" + (has ? " scope-pill-on" : " scope-pill-off") }, [
+          el("span", { class: "scope-pill-dot" }),
+          el("span", { class: "scope-pill-label" }, { text: sc.label }),
+          el("span", { class: "scope-pill-id safety-mono" }, { text: sc.id }),
+          el("span", { class: "scope-pill-desc" }, { text: has ? "已授权" : "未授权 · " + sc.desc }),
+        ]);
+        scopesEl.appendChild(pill);
+      }
+      if (!scopes.includes("desktop_control")) {
+        scopesEl.appendChild(el("div", { class: "safety-warn" }, { text: "⚠ 没有 desktop_control 权限，无法发送 follow-up" }));
+      }
+      if (!scopes.includes("session:start")) {
+        scopesEl.appendChild(el("div", { class: "safety-warn" }, { text: "⚠ 没有 session:start 权限，无法启动 draft" }));
+      }
+    }
+
+    // Pairing + LAN URL
+    const pairEl = $c("safety-pairing");
+    if (pairEl) {
+      pairEl.innerHTML = "";
+      const ps = CS.safetyPairStatus || {};
+      const info = CS.safetyInfo || {};
+      const sInfo = info.server || {};
+      const cInfo = info.connection || {};
+      pairEl.appendChild(el("div", { class: "safety-row" }, [
+        el("span", { class: "safety-row-label" }, { text: "配对码状态" }),
+        el("span", { class: "safety-row-val" + (ps.pairing ? " safety-ok" : " safety-muted") }, { text: ps.pairing ? "配对中（可接受新设备）" : "未开放配对" }),
+      ]));
+      pairEl.appendChild(el("div", { class: "safety-row" }, [
+        el("span", { class: "safety-row-label" }, { text: "LAN URL" }),
+        el("span", { class: "safety-row-val safety-mono" }, { text: sInfo.hostname ? `http://${sInfo.hostname}:4580` : "—" }),
+      ]));
+      pairEl.appendChild(el("div", { class: "safety-row" }, [
+        el("span", { class: "safety-row-label" }, { text: "传输方式" }),
+        el("span", { class: "safety-row-val" }, { text: cInfo.transport || "http+sse" }),
+      ]));
+      pairEl.appendChild(el("div", { class: "safety-row" }, [
+        el("span", { class: "safety-row-label" }, { text: "运行时长" }),
+        el("span", { class: "safety-row-val" }, { text: sInfo.uptime ? Math.floor(sInfo.uptime / 60) + " 分钟" : "—" }),
+      ]));
+    }
+
+    // Paired devices list
+    const devEl = $c("safety-devices");
+    if (devEl) {
+      devEl.innerHTML = "";
+      const devs = CS.safetyDevices || [];
+      if (devs.length === 0) {
+        devEl.innerHTML = `<div class="safety-empty">暂无配对设备</div>`;
+      } else {
+        for (const d of devs) {
+          const card = el("div", { class: "safety-device-card" + (d.isCurrent ? " is-current" : ""), role: "listitem" }, [
+            el("div", { class: "safety-device-head" }, [
+              el("span", { class: "safety-device-name" }, { text: d.deviceName || "未知设备" }),
+              d.isCurrent ? el("span", { class: "safety-device-tag" }, { text: "当前" }) : null,
+              d.revoked ? el("span", { class: "safety-device-tag safety-device-tag-off" }, { text: "已撤销" }) : null,
+            ]),
+            el("div", { class: "safety-device-meta safety-mono" }, { text: (d.deviceId || "").substring(0, 16) + "…" }),
+            el("div", { class: "safety-device-meta" }, [
+              el("span", {}, { text: "配对于 " + (d.pairedAt ? shortTime(d.pairedAt) : "—") }),
+              el("span", {}, { text: " · 最后活跃 " + (d.lastActiveAt ? shortTime(d.lastActiveAt) : "—") }),
+            ]),
+            el("div", { class: "safety-device-scopes" }, [
+              el("span", { class: "safety-device-scopes-label" }, { text: "Scopes: " }),
+              el("span", { class: "safety-mono" }, { text: (d.scopes || []).join(", ") || "—" }),
+            ]),
+          ]);
+          devEl.appendChild(card);
+        }
+      }
+    }
+
+    // Audit log
+    const audEl = $c("safety-audit");
+    if (audEl) {
+      audEl.innerHTML = "";
+      const items = CS.safetyAudit || [];
+      if (items.length === 0) {
+        audEl.innerHTML = `<div class="safety-empty">暂无审计记录</div>`;
+      } else {
+        for (const a of items) {
+          const row = el("div", { class: "audit-row", role: "listitem" }, [
+            el("div", { class: "audit-row-head" }, [
+              el("span", { class: "audit-row-action" }, { text: a.action || "—" }),
+              el("span", { class: "audit-row-time" }, { text: a.timestamp ? shortTime(a.timestamp) : "—" }),
+            ]),
+            el("div", { class: "audit-row-meta safety-mono" }, { text: auditMetaSummary(a) }),
+          ]);
+          audEl.appendChild(row);
+        }
+      }
+    }
+  }
+
+  function auditMetaSummary (a) {
+    const parts = [];
+    if (a.deviceId) parts.push("dev:" + String(a.deviceId).substring(0, 8));
+    if (a.agentId) parts.push("agent:" + a.agentId);
+    if (a.sessionId) parts.push("session:" + String(a.sessionId).substring(0, 8));
+    if (a.inputLen != null) parts.push("len:" + a.inputLen);
+    if (a.cwdLabel) parts.push("cwd:" + a.cwdLabel);
+    return parts.join(" · ") || "(no meta)";
+  }
+
+  /* ---- UI1B: Projects page renderer ---- */
+  function renderContractProjects () {
+    const listEl = $c("projects-list");
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    const projects = CS.projects || [];
+    if (projects.length === 0) {
+      listEl.innerHTML = `<div class="projects-empty"><div class="projects-empty-strong">暂无项目</div><div class="projects-empty-p">在电脑端打开一个工作目录，或通过 Files 进入一个文件夹</div></div>`;
+      return;
+    }
+    for (const p of projects) {
+      listEl.appendChild(renderContractProjectCard(p));
+    }
+  }
+
+  function renderContractProjectCard (p) {
+    const canStart = p.canCreateSession === true;
+    const risks = Array.isArray(p.riskFlags) ? p.riskFlags : [];
+    const agents = Array.isArray(p.agentIds) ? p.agentIds : [];
+    const agentLabels = agents.map(a => agentLabelById(a)).filter(Boolean);
+    const summary = [];
+    if (typeof p.sessionCount === "number") summary.push(`${p.sessionCount} sessions`);
+    if (p.lastActiveAt) summary.push(`Last ${shortTime(p.lastActiveAt)}`);
+    if (p.latestSessionTitle) summary.push(p.latestSessionTitle);
+
+    const card = el("div", { class: "proj-card" + (canStart ? "" : " proj-card-locked"), role: "listitem", "data-project-id": p.id || p.cwd }, [
+      el("div", { class: "proj-card-head" }, [
+        el("span", { class: "proj-card-icon" }, { text: "📁" }),
+        el("span", { class: "proj-card-body" }, [
+          el("span", { class: "proj-card-title" }, { text: p.cwdLabel || p.name || "未知项目" }),
+          el("span", { class: "proj-card-cwd safety-mono" }, { text: p.cwd || "" }),
+          el("span", { class: "proj-card-meta" }, { text: summary.join(" · ") }),
+        ]),
+      ]),
+      el("div", { class: "proj-card-tags" }, [
+        el("span", { class: "proj-tag proj-tag-source" }, { text: p.source || "—" }),
+        canStart
+          ? el("span", { class: "proj-tag proj-tag-ok" }, { text: "可创建会话" })
+          : el("span", { class: "proj-tag proj-tag-off" }, { text: "不可创建" }),
+        ...risks.map(r => el("span", { class: "proj-tag proj-tag-risk" }, { text: r })),
+        ...agentLabels.map(l => el("span", { class: "proj-tag proj-tag-agent" }, { text: l })),
+      ]),
+      el("div", { class: "proj-card-actions" }, [
+        canStart
+          ? el("button", { class: "proj-card-btn proj-card-btn-new", type: "button", onclick: () => createDraftFromProject(p) }, { text: "新建任务" })
+          : el("span", { class: "proj-card-btn proj-card-btn-disabled" }, { text: p.reason || "cwd 不在 allowed roots" }),
+      ]),
+    ]);
+    return card;
+  }
+
+  async function createDraftFromProject (project) {
+    try {
+      const agentId = (project.agentIds && project.agentIds[0]) || "claude";
+      const d = await cApi("/api/mobile/sessions/draft", {
+        method: "POST",
+        body: JSON.stringify({ cwd: project.cwd, agentId }),
+      });
+      if (d && d.session && d.session.id) {
+        openMobileSession(d.session.id);
+      }
+    } catch (e) {
+      alert("创建任务失败: " + e.message);
+    }
+  }
+
+  async function refreshSafety () {
+    await Promise.all([
+      loadAppState(),
+      loadSafetyDevices(),
+      loadSafetyAudit(),
+      loadSafetyPairStatus(),
+      loadSafetyInfo(),
+    ]);
+    renderSafety();
+  }
+
+  async function refreshProjects () {
+    await loadProjects();
+    renderContractProjects();
+  }
+
   async function loadDesktopTimeline (agentId) {
     try {
       const d = await cApi(`/api/mobile/desktop-agents/${encodeURIComponent(agentId)}/timeline`);
@@ -3747,7 +4014,7 @@ const UI1A = (() => {
   function setTopbarElements(viewName) {
     const dd = $c("agent-dropdown");
     const cwd = $c("topbar-cwd");
-    const isContract = viewName === "home-cockpit" || viewName === "agent-detail";
+    const isContract = viewName === "home-cockpit" || viewName === "agent-detail" || viewName === "safety" || viewName === "projects" || viewName === "files";
     if (dd) dd.style.display = isContract ? "none" : "";
     if (cwd) cwd.style.display = isContract ? "none" : "";
   }
@@ -3766,6 +4033,9 @@ const UI1A = (() => {
     if (titleEl) {
       if (viewName === "home-cockpit") titleEl.textContent = "FanBox Mobile";
       else if (viewName === "agent-detail") titleEl.textContent = "Detail";
+      else if (viewName === "safety") titleEl.textContent = "Safety";
+      else if (viewName === "projects") titleEl.textContent = "Projects";
+      else if (viewName === "files") titleEl.textContent = "Files";
     }
     setTopbarElements(viewName);
     if (window.innerWidth < 1024) closeSidebar();
@@ -3776,6 +4046,59 @@ const UI1A = (() => {
     switchContractView("home-cockpit");
     refreshAll();
     startHomePoll();
+  }
+
+  function openSafety () {
+    stopHomePoll();
+    stopDetailPoll();
+    switchContractView("safety");
+    refreshSafety();
+  }
+
+  function openProjects () {
+    stopHomePoll();
+    stopDetailPoll();
+    switchContractView("projects");
+    refreshProjects();
+  }
+
+  function openFiles () {
+    stopHomePoll();
+    stopDetailPoll();
+    switchContractView("files");
+    if (typeof loadFiles === "function") loadFiles();
+    loadRecentFiles();
+  }
+
+  async function loadRecentFiles () {
+    const box = $c("files-recent");
+    const listEl = $c("files-recent-list");
+    if (!box || !listEl) return;
+    try {
+      const d = await cApi("/api/mobile/files/recent?limit=15");
+      const items = (d && d.items) || [];
+      if (items.length === 0) {
+        box.hidden = true;
+        return;
+      }
+      box.hidden = false;
+      listEl.innerHTML = "";
+      for (const f of items) {
+        const row = el("div", { class: "files-recent-item", role: "listitem", "data-path": f.path || "" }, [
+          el("span", { class: "files-recent-icon" }, { text: f.kind === "directory" ? "📁" : "📄" }),
+          el("span", { class: "files-recent-name" }, { text: f.name || f.path || "" }),
+          el("span", { class: "files-recent-source" }, { text: f.source || "" }),
+        ]);
+        if (f.path) {
+          row.addEventListener("click", () => {
+            if (typeof loadFiles === "function") loadFiles(f.path);
+          });
+        }
+        listEl.appendChild(row);
+      }
+    } catch (e) {
+      box.hidden = true;
+    }
   }
 
   function openDesktopAgent (agentId) {
@@ -3879,15 +4202,22 @@ const UI1A = (() => {
         } else {
           loadMobileTimeline(CS.selected.id).then(() => renderMobileDetail(CS.selected.id));
         }
-      }
+      } else if (S.currentTab === "safety") refreshSafety();
+      else if (S.currentTab === "projects") refreshProjects();
+      else if (S.currentTab === "files" && typeof loadFiles === "function") loadFiles();
     });
+    const safetyRefresh = $c("safety-refresh");
+    if (safetyRefresh) safetyRefresh.addEventListener("click", refreshSafety);
+    const projectsRefresh = $c("projects-refresh");
+    if (projectsRefresh) projectsRefresh.addEventListener("click", refreshProjects);
   }
 
   /* ---- Wire all legacy sidebar tabs to stop polls ---- */
   function wireLegacySidebarTabs () {
+    const contractTabs = ["home-cockpit", "safety", "projects", "files"];
     qsa(".sidebar-item").forEach(btn => {
       const tab = btn.getAttribute("data-go");
-      if (tab && tab !== "home-cockpit") {
+      if (tab && !contractTabs.includes(tab)) {
         btn.addEventListener("click", () => {
           stopHomePoll();
           stopDetailPoll();
@@ -3899,7 +4229,7 @@ const UI1A = (() => {
     });
   }
 
-  /* ---- Override sidebar for contract home ---- */
+  /* ---- Override sidebar for contract views ---- */
   function wireContractSidebar () {
     qsa(".sidebar-item").forEach(btn => {
       const tab = btn.getAttribute("data-go");
@@ -3907,6 +4237,21 @@ const UI1A = (() => {
         btn.addEventListener("click", (e) => {
           e.stopImmediatePropagation();
           openHome();
+        });
+      } else if (tab === "safety") {
+        btn.addEventListener("click", (e) => {
+          e.stopImmediatePropagation();
+          openSafety();
+        });
+      } else if (tab === "projects") {
+        btn.addEventListener("click", (e) => {
+          e.stopImmediatePropagation();
+          openProjects();
+        });
+      } else if (tab === "files") {
+        btn.addEventListener("click", (e) => {
+          e.stopImmediatePropagation();
+          openFiles();
         });
       }
     });
@@ -3943,5 +4288,5 @@ const UI1A = (() => {
   };
 
   /* ---- Expose minimal API ---- */
-  return { start: startContractMode, openHome, openDesktopAgent, openMobileSession };
+  return { start: startContractMode, openHome, openDesktopAgent, openMobileSession, openSafety, openProjects, openFiles };
 })();

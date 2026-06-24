@@ -54,6 +54,20 @@ function request(opts, body) {
 
 function asJson(r) { try { return JSON.parse(r.body); } catch { return null; } }
 
+function containsForbiddenPath(value) {
+  const text = JSON.stringify(value || {});
+  return (
+    text.includes('.fanbox' + path.sep + 'mobile') ||
+    text.includes('.claude' + path.sep + 'projects') ||
+    text.includes('.codex' + path.sep + 'sessions') ||
+    /\.env(?:\.|["\\/]|$)/i.test(text)
+  );
+}
+
+function containsSensitiveAuditData(value) {
+  return /(rawPrompt|prompt|rawStdout|stdout|pty|tokenHash|Bearer\s|apiKey|password|secret|inputPreview)/i.test(JSON.stringify(value || {}));
+}
+
 async function main() {
   console.log('FanBox Mobile UI Smoke Test');
   console.log('TMP_HOME=' + TMP_HOME);
@@ -404,6 +418,106 @@ async function main() {
   const cssContent = fs.readFileSync(path.join(__dirname, '..', 'public', 'mobile', 'mobile.css'), 'utf8');
   ok('mobile.css is non-empty', cssContent.length > 1000, 'length=' + cssContent.length);
   ok('mobile.css has cockpit styles', cssContent.includes('.cockpit') && cssContent.includes('.detail') && cssContent.includes('.tl-event'));
+
+  // ============================================================
+  section('B1B-Safety: Safety page contract');
+  // ============================================================
+  ok('HTML contains safety view', htmlRes.body.includes('data-view="safety"'), 'missing safety view');
+  ok('HTML contains safety sidebar item', htmlRes.body.includes('data-go="safety"'), 'missing safety sidebar item');
+  ok('HTML contains safety-devices container', htmlRes.body.includes('id="safety-devices"'), 'missing safety-devices');
+  ok('HTML contains safety-scopes container', htmlRes.body.includes('id="safety-scopes"'), 'missing safety-scopes');
+  ok('HTML contains safety-audit container', htmlRes.body.includes('id="safety-audit"'), 'missing safety-audit');
+  ok('HTML contains safety-pairing container', htmlRes.body.includes('id="safety-pairing"'), 'missing safety-pairing');
+  ok('JS contains renderSafety', jsContent.includes('function renderSafety'), 'missing renderSafety');
+  ok('JS contains openSafety', jsContent.includes('function openSafety'), 'missing openSafety');
+  ok('JS Safety fetches /api/mobile/devices', jsContent.includes('/api/mobile/devices'), 'missing devices fetch in JS');
+  ok('JS Safety fetches /api/mobile/audit', jsContent.includes('/api/mobile/audit'), 'missing audit fetch in JS');
+  ok('JS Safety fetches /api/mobile/pair/status', jsContent.includes('/api/mobile/pair/status'), 'missing pair/status fetch in JS');
+  ok('JS Safety does not render token/tokenHash', !/safety.*tokenHash|safety.*Bearer/i.test(jsContent), 'safety leaks token');
+  ok('JS Safety renders scopes with desktop_control check', jsContent.includes('desktop_control') && jsContent.includes('session:start'), 'safety missing scope checks');
+
+  // Verify Safety API data is available
+  const devicesData = asJson(await request({ path: '/api/mobile/devices', headers: auth }));
+  ok('Safety: devices API returns ok', devicesData && devicesData.ok === true);
+  ok('Safety: devices has items array', Array.isArray(devicesData.items));
+  ok('Safety: devices does not leak token', !/tokenHash|Bearer\s|"token"\s*:/i.test(JSON.stringify(devicesData)), JSON.stringify(devicesData).substring(0, 200));
+
+  const auditData = asJson(await request({ path: '/api/mobile/audit?limit=20', headers: auth }));
+  ok('Safety: audit API returns ok', auditData && auditData.ok === true);
+  ok('Safety: audit has items array', Array.isArray(auditData.items));
+  ok('Safety: audit does not leak raw input', !containsSensitiveAuditData(auditData), 'audit leaks sensitive data');
+
+  const pairStatusData = asJson(await request({ path: '/api/mobile/pair/status' }));
+  ok('Safety: pair/status API returns ok', pairStatusData && pairStatusData.ok === true);
+  ok('Safety: pair/status has pairing boolean', pairStatusData && typeof pairStatusData.pairing === 'boolean');
+
+  const infoData = asJson(await request({ path: '/api/mobile/info' }));
+  ok('Safety: info API returns ok', infoData && infoData.ok === true);
+  ok('Safety: info has server.hostname', infoData && infoData.server && typeof infoData.server.hostname === 'string');
+  ok('Safety: info does not leak token', !/tokenHash|Bearer\s|"token"\s*:/i.test(JSON.stringify(infoData)));
+
+  // ============================================================
+  section('B1B-Projects: Projects page contract');
+  // ============================================================
+  ok('HTML contains projects view', htmlRes.body.includes('data-view="projects"'), 'missing projects view');
+  ok('HTML contains projects sidebar item', htmlRes.body.includes('data-go="projects"'), 'missing projects sidebar item');
+  ok('HTML contains projects-list container', htmlRes.body.includes('id="projects-list"'), 'missing projects-list');
+  ok('JS contains renderContractProjects', jsContent.includes('function renderContractProjects'), 'missing renderContractProjects');
+  ok('JS contains openProjects', jsContent.includes('function openProjects'), 'missing openProjects');
+  ok('JS Projects uses /api/mobile/projects', jsContent.includes('/api/mobile/projects'), 'missing projects fetch');
+  ok('JS Projects renders canCreateSession', jsContent.includes('canCreateSession'), 'missing canCreateSession render');
+  ok('JS Projects renders riskFlags', jsContent.includes('riskFlags'), 'missing riskFlags render');
+  ok('JS Projects renders agentIds', jsContent.includes('agentIds'), 'missing agentIds render');
+  ok('JS Projects creates draft via /api/mobile/sessions/draft', jsContent.includes('/api/mobile/sessions/draft'), 'missing draft creation');
+
+  // Verify Projects API data shape
+  const projectsData = asJson(await request({ path: '/api/mobile/projects', headers: auth }));
+  ok('Projects: API returns ok', projectsData && projectsData.ok === true);
+  ok('Projects: items is array', Array.isArray(projectsData.items));
+  if (projectsData.items && projectsData.items.length > 0) {
+    const p = projectsData.items[0];
+    ok('Projects: item has canCreateSession (bool)', typeof p.canCreateSession === 'boolean');
+    ok('Projects: item has riskFlags (array)', Array.isArray(p.riskFlags));
+    ok('Projects: item has agentIds (array)', Array.isArray(p.agentIds));
+    ok('Projects: item has sessionCount (number)', typeof p.sessionCount === 'number');
+    ok('Projects: item has lastActiveAt (number)', typeof p.lastActiveAt === 'number');
+    ok('Projects: item has source (string)', typeof p.source === 'string');
+  }
+
+  // ============================================================
+  section('B1B-Files: Files page contract');
+  // ============================================================
+  ok('HTML contains files view', htmlRes.body.includes('data-view="files"'), 'missing files view');
+  ok('HTML contains files sidebar item', htmlRes.body.includes('data-go="files"'), 'missing files sidebar item');
+  ok('HTML contains files-list container', htmlRes.body.includes('id="files-list"'), 'missing files-list');
+  ok('HTML contains files-search input', htmlRes.body.includes('id="files-q"'), 'missing files-q');
+  ok('HTML contains files-preview container', htmlRes.body.includes('id="files-preview"'), 'missing files-preview');
+  ok('JS contains loadFiles', jsContent.includes('function loadFiles'), 'missing loadFiles');
+  ok('JS Files uses /api/mobile/roots', jsContent.includes('/api/mobile/roots'), 'missing roots fetch');
+  ok('JS Files uses /api/mobile/files', jsContent.includes('/api/mobile/files'), 'missing files fetch');
+  ok('JS Files uses /api/mobile/search', jsContent.includes('/api/mobile/search'), 'missing search fetch');
+  ok('JS Files uses /api/mobile/file', jsContent.includes('/api/mobile/file'), 'missing file preview fetch');
+  ok('JS Files uses /api/mobile/files/recent', jsContent.includes('/api/mobile/files/recent'), 'missing recent files fetch');
+
+  // Verify Files API data
+  const rootsData = asJson(await request({ path: '/api/mobile/roots', headers: auth }));
+  ok('Files: roots API returns ok', rootsData && rootsData.ok === true);
+  ok('Files: roots has items array', Array.isArray(rootsData.items));
+
+  const recentFilesData = asJson(await request({ path: '/api/mobile/files/recent?limit=20', headers: auth }));
+  ok('Files: recent API returns ok', recentFilesData && recentFilesData.ok === true);
+  ok('Files: recent has items array', Array.isArray(recentFilesData.items));
+  ok('Files: recent does not include forbidden paths', !containsForbiddenPath(recentFilesData.items), 'recent has forbidden paths');
+
+  // ============================================================
+  section('B1B-Nav: Navigation consistency');
+  // ============================================================
+  ok('JS has switchContractView', jsContent.includes('function switchContractView'), 'missing switchContractView');
+  ok('JS handles 401 with pairing redirect', jsContent.includes('pair-screen') && /401|unauthorized/i.test(jsContent), 'missing 401 handling');
+  ok('JS has 5 main nav entries (home/detail/safety/projects/files)', jsContent.includes('safety') && jsContent.includes('projects') && jsContent.includes('files'), 'missing nav entries');
+  ok('CSS has safety styles', cssContent.includes('.safety') || cssContent.includes('[data-view="safety"]'), 'missing safety CSS');
+  ok('CSS has projects styles', cssContent.includes('.projects') || cssContent.includes('[data-view="projects"]'), 'missing projects CSS');
+
 
   // ============================================================
   console.log('\n===== Mobile UI Smoke Test =====');
