@@ -3541,8 +3541,8 @@ const term = {
     },
     soft: {
       background: '#fbfbfa', foreground: '#2f312d', cursor: '#849178', cursorAccent: '#fbfbfa', selectionBackground: 'rgba(132, 145, 124, 0.18)',
-      black: '#3f413d', red: '#b45b52', green: '#5f8f69', yellow: '#9a783f', blue: '#5f7798', magenta: '#806d8c', cyan: '#5d8582', white: '#f7f8f5',
-      brightBlack: '#7d8279', brightRed: '#c66b61', brightGreen: '#6fa77a', brightYellow: '#ad894a', brightBlue: '#728bab', brightMagenta: '#927d9b', brightCyan: '#6e9995', brightWhite: '#ffffff',
+      black: '#3f413d', red: '#b23b30', green: '#2a8a48', yellow: '#8f6218', blue: '#2f5fa8', magenta: '#8a3f9a', cyan: '#1f7a85', white: '#f7f8f5',
+      brightBlack: '#6a6f67', brightRed: '#d4453a', brightGreen: '#3a9a52', brightYellow: '#b8821a', brightBlue: '#3f7fc8', brightMagenta: '#a04db0', brightCyan: '#2f9aa6', brightWhite: '#ffffff',
     },
   },
   theme() { return this.themes[state.theme] || this.themes.terminal; },
