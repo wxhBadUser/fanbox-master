@@ -658,7 +658,7 @@ function _safeKey(s) {
 function _auditObjectForLog(o) {
   // 深度过滤 audit 字段；任何不在白名单的字段都会被丢弃
   const allow = new Set(['ts', 'action', 'approvalId', 'sessionId', 'deviceId', 'deviceName',
-    'agentId', 'cwd', 'cwdLabel', 'inputHash', 'inputLen', 'inputLength', 'inputPreview',
+    'agentId', 'cwd', 'cwdLabel', 'inputHash', 'inputLen', 'inputLength',
     'initialMessageLength', 'titleLength', 'result',
     'decision', 'actor', 'reason', 'error',
     'reasons'  // Phase UI-A1：redline 触发时记录 reason 列表便于安全审计；不含 input 原文

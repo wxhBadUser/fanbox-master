@@ -169,7 +169,7 @@ Purpose: stable append-only projection for the session detail page.
 
 Query:
 
-- `limit`: optional integer, default `100`, max `500`.
+- `limit`: optional integer, default `100`, max `200`.
 - `cursor`: reserved for B2; currently `null`.
 
 Response:
@@ -668,6 +668,12 @@ B1 keeps the existing REST plus SSE shape. B2 can make the stream more explicit 
 - Security-sensitive fields such as tokens, token hashes, raw prompts, secrets, and private full message bodies must not be added to `devices` or `audit`.
 - Future stream events should be append-only: add new event names instead of changing existing semantics.
 
+### TODO: Legacy flat-string error envelope
+
+> Legacy mobile endpoints still include flat-string error responses (`{ ok: false, error: "xxx" }`) instead of the unified envelope (`{ ok: false, error: { code, message } }`) declared in this contract. This is a pre-B1 inconsistency affecting roughly 40+ call sites (LAN-only guard, method_not_allowed, not_found, legacy status/files 401, session_not_found on older routes, thumb/file errors, etc.). It is not a security leak (no tokens/secrets are exposed), but it violates the declared contract shape and forces clients to handle two error formats.
+>
+> **Do not change before UI1A unless a verifier test requires it.** A bulk rewrite risks destabilizing legacy routes that UI1A does not yet touch. The B1-B3B contract endpoints (app-state, dashboard, timeline, files/recent, devices, audit, desktop-agents, sessions/draft, sessions/:id/start) already use the stable envelope; the flat-string sites are confined to legacy/edge routes.
+
 ## Verification
 
 B1 verification is encoded in:
@@ -1140,4 +1146,201 @@ The verifier (`scripts/verify-mobile-backend-contract.js`) additionally checks:
 ### Paseo reference
 
 B3A does not copy Paseo source code. It extends the existing FanBox mobile architecture symmetrically with prior phases (providers, scrubbed responses, append-only audit), matching the architecture of B2C and prior phases.
+
+---
+
+## Phase B3B — Start Mobile Draft Session Runner
+
+Phase B3B adds the capability for a mobile device to **start** a previously created draft session (from B3A), transitioning it from `draft` to `running` and actually spawning the agent via the safe runner. B3B is the permission gate for real execution: it requires a new `session:start` scope that is **not** granted by default pairing.
+
+### Scope note
+
+- B3B start requires the `session:start` scope. Default pairing only grants `['read:status', 'read:files']`; `session:start` must be granted explicitly via a future desktop-side approval UI.
+- A device without `session:start` receives `session_start_scope_required` (403) and the start is rejected before any runner invocation.
+
+### `POST /api/mobile/sessions/:id/start`
+
+Purpose: start a draft session's agent runner. The session must have been created via `POST /api/mobile/sessions/draft` (B3A) and still be in `draft` status.
+
+Auth: bearer token with `session:start` scope.
+
+Request:
+
+```json
+{
+  "confirm": true
+}
+```
+
+Request constraints:
+
+- `confirm` MUST equal `true` (strict boolean). Any other value (including missing, `false`, `1`, or string `"true"`) is rejected with `confirm_required`. This is a deliberate guardrail against accidental starts.
+- The request body MUST NOT include `command`, `args`, `binary`, `cwd`, or `agentId`. These fields are **ignored** if present — the start always uses the `cwd` and `agentId` stored on the draft session at creation time. Clients cannot inject executable parameters.
+- Request body size is capped at 8 KB by the HTTP layer.
+
+Success response (HTTP 200):
+
+```json
+{
+  "ok": true,
+  "session": {
+    "id": "mobile-claude-...",
+    "status": "done",
+    "agentId": "claude",
+    "cwd": "I:/AI_weflow/fanbox-master",
+    "source": "mobile-draft",
+    "canStart": false
+  },
+  "timeline": {
+    "events": [
+      { "type": "session_created", "text": "Mobile session draft created", "ts": 1710000000000 },
+      { "type": "agent_start_requested", "text": "Agent start requested", "ts": 1710000001000 },
+      { "type": "agent_started", "text": "Agent started", "ts": 1710000001100 },
+      { "type": "agent_completed", "text": "Agent completed successfully", "ts": 1710000002000 }
+    ]
+  },
+  "meta": {
+    "willSpawnAgent": true,
+    "phase": "B3B",
+    "initialMessageLength": 21,
+    "auditWritten": true,
+    "usedStub": true,
+    "durationMs": 900
+  }
+}
+```
+
+Success response must **not** contain: `pid`, `tokenHash`, `resumeToken`, `_internalSessionId`, raw stdout/stderr, raw process handle, or any session-internal identifier other than the safe `session.id`.
+
+Error responses (stable envelope `{ ok: false, error: { code, message } }`):
+
+| Code | HTTP status | Meaning |
+| --- | --- | --- |
+| `unauthorized` | 401 | Missing/invalid bearer token. |
+| `session_start_scope_required` | 403 | Device token is valid but lacks `session:start` scope. |
+| `session_not_found` | 404 | No session with that id, or session belongs to another device. |
+| `session_not_draft` | 409 | Session exists but is not in `draft` status (already started or completed). |
+| `confirm_required` | 400 | `body.confirm !== true`. |
+| `cwd_not_allowed` | 403 | Stored cwd is forbidden or outside allowed roots (defense-in-depth re-check). |
+| `agent_not_allowed` | 403 | Stored agentId is not in the allowlist. |
+| `initial_message_missing` | 400 | Draft has no initialMessage to send to the runner. |
+| `runner_failed` | 500 | Safe runner returned an error (includes spawn failure, timeout, non-zero exit). |
+| `rate_limited` | 429 | Too many starts from this device within the rate-limit window. |
+
+### Session state machine
+
+```
+draft  --POST /start (confirm:true, session:start scope)-->  running  --runner ok-->  done
+                                                            running  --runner fail-->  failed
+```
+
+- `draft → running`: set when the runner is invoked (`setSessionStatus(sessionId, 'running', ...)`).
+- `running → done`: set when the runner returns `ok: true` (`finalStatus = 'done'`).
+- `running → failed`: set when the runner returns `ok: false` (`finalStatus = 'failed'`).
+- A second `POST /start` on a `done` or `failed` session returns `session_not_draft` (409).
+- `canStart` is `false` on the response (the session has already been started; it cannot be re-started from mobile).
+
+### Audit entries
+
+Each start attempt writes an append-only audit entry via `mobileSessions.appendAudit(...)`:
+
+- `mobile_session.start.accepted` — scope/confirm/session checks passed, runner invoked.
+- `mobile_session.start.rejected` — rejected at scope/confirm/session/cwd/agentId check (one entry per rejection reason).
+- `mobile_session.start.failed` — runner returned `ok: false`.
+- `mobile_session.start.completed` — runner returned `ok: true`, session set to `done`.
+
+Audit fields (safe subset only):
+
+```ts
+{
+  action: "mobile_session.start.accepted" | "mobile_session.start.rejected" | "mobile_session.start.failed" | "mobile_session.start.completed";
+  ts: number;
+  deviceId: string;
+  sessionId: string;
+  agentId: string;
+  cwd: string;                 // stored project cwd (already in allowed roots)
+  reason?: string;             // errorCode on rejected/failed
+  result?: "accepted" | "rejected" | "failed" | "completed";
+  initialMessageLength?: number;
+  durationMs?: number;
+}
+```
+
+Audit entries must **never** contain:
+
+- raw `initialMessage` text
+- raw runner stdout/stderr
+- `pid`, `tokenHash`, `resumeToken`, `_internalSessionId`
+- PTY file descriptor or internal handle
+
+### Timeline events
+
+`GET /api/mobile/sessions/:id/timeline` for a started session includes (in addition to `session_created` from B3A):
+
+- `agent_start_requested` — text: `"Agent start requested"`.
+- `agent_started` — text: `"Agent started"`.
+- `agent_completed` (status === `done`) — text: `"Agent completed successfully"`, meta: `{ durationMs }`.
+- `agent_start_failed` (status === `failed`) — text: `"Agent failed to start or run"`.
+
+The start response's `timeline.events` is filtered to these five types (`session_created`, `agent_start_requested`, `agent_started`, `agent_completed`, `agent_start_failed`); other event types are not echoed in the start response but remain available via `GET /timeline`.
+
+### Runner safety
+
+- B3B reuses the existing safe runner (`mobile-agent-runner.js`). The runner enforces: agentId allowlist, hardcoded args, `shell: false`, no PTY, no auto-approval flag, forced timeout, output scrub + truncation.
+- The verifier (`scripts/verify-mobile-backend-contract.js`) sets `process.env.MOBILE_AGENT_FORCE_STUB = '1'` at the top of the file (line 16). In stub mode the runner never spawns a real Claude/Codex/Qoder/OpenCode subprocess; it returns a canned success response with `usedStub: true`. This keeps the verifier hermetic and safe.
+- In production (no `MOBILE_AGENT_FORCE_STUB`), the runner resolves the agent binary via `resolveAgentCommand` and spawns it with hardcoded args. If the binary is not found, the runner returns a friendly missing-agent message with `usedStub: true` (graceful degradation, not a crash).
+
+### Client parameter isolation
+
+The start endpoint **ignores** any client-supplied `command`, `args`, `binary`, `cwd`, or `agentId` in the request body. The runner is invoked with:
+
+- `agentId` — from the stored draft session.
+- `cwd` — from the stored draft session.
+- `text` (initialMessage) — from the stored draft-pending user message.
+- `sessionId` — the URL path parameter.
+
+Clients cannot inject arbitrary commands, arguments, binaries, working directories, or agent ids. The verifier explicitly tests this (B3B-18: extra body fields are ignored).
+
+### Rate limit
+
+- Key: `${deviceId}`.
+- Window: `START_RATE_LIMIT_MS` minimum gap between accepted starts from the same device.
+- When exceeded, respond with `rate_limited` (429) and do **not** invoke the runner.
+- Rate-limit state is held in-memory and resets on process restart.
+
+### Out of scope for B3B
+
+- Interrupt (Ctrl+C) for mobile-started sessions.
+- Approval UI for session start.
+- Re-running a completed session (use B3A to create a new draft).
+- Public network, relay, WebSocket, E2EE.
+- Granting `session:start` scope from mobile (must be done via desktop-side approval UI).
+
+### B3B verification additions
+
+The verifier (`scripts/verify-mobile-backend-contract.js`) additionally checks:
+
+- B1/B2A/B2B/B2C/B3A assertions continue to pass unchanged.
+- `MOBILE_AGENT_FORCE_STUB=1` is set before requiring `mobile.js`, so no real Claude/Codex subprocess is spawned.
+- POST `/api/mobile/sessions/:id/start` without token → 401 `unauthorized`.
+- Token without `session:start` scope → `session_start_scope_required`.
+- Non-existent session id → `session_not_found`.
+- Non-draft session (already started) → `session_not_draft`.
+- Missing `confirm:true` → `confirm_required`.
+- Start for another device's draft → rejected.
+- Bad agentId on stored session → `agent_not_allowed`.
+- Legal start returns `ok:true` with `session.status === "done"` (sync stub runner), `meta.phase === "B3B"`, `meta.willSpawnAgent === true`, `meta.usedStub === true`.
+- Timeline contains `agent_start_requested`, `agent_started`, `agent_completed`.
+- Response does not leak `pid`/`tokenHash`/`resumeToken`/raw process details.
+- Response does not echo `initialMessage` plain text.
+- Audit does not contain `initialMessage` plain text.
+- Audit contains `mobile_session.start.accepted`, `mobile_session.start.completed`, and `mobile_session.start.rejected` (for scope check).
+- Second immediate start is `rate_limited` (429); after window passes, start succeeds.
+- Extra body fields (`cwd`/`agentId`/`command`/`args`) are ignored — start still succeeds with stored values.
+- Second start on completed session returns `session_not_draft`.
+- Final verifier run: PASS / FAIL: 0.
+
+### Paseo reference
+
+B3B does not copy Paseo source code. It reuses the existing FanBox safe runner architecture and adds the `session:start` scope as the permission gate for real execution, matching the security model of B2C (`desktop_control` scope) and prior phases.
 
