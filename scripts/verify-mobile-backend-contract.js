@@ -102,6 +102,8 @@ function containsSensitiveAuditData(value) {
     !!(infoPublic.server && infoPublic.pairing && infoPublic.features && infoPublic.connection)
       && !/tokenHash|Bearer\s|"token"\s*:|secret|password/i.test(JSON.stringify(infoPublic)),
     JSON.stringify(infoPublic));
+  ok('mobile/info server.hostname is non-empty string', typeof infoPublic.server.hostname === 'string' && infoPublic.server.hostname.length > 0, JSON.stringify(infoPublic.server));
+  ok('mobile/info server.uptime is number', typeof infoPublic.server.uptime === 'number', JSON.stringify(infoPublic.server));
 
   const pair = await mobile.startPairCode();
   const pairResponse = await request({
@@ -174,12 +176,18 @@ function containsSensitiveAuditData(value) {
   const appState = asJson(await request({ path: '/api/mobile/app-state', method: 'GET', headers: auth }));
   ok('app-state ok', appState.ok === true);
   ok('app-state has stable top-level keys',
-    hasTopKeys(appState, ['ok', 'server', 'auth', 'features', 'connection', 'currentContext', 'counts', 'meta']),
+    hasTopKeys(appState, ['ok', 'server', 'auth', 'features', 'connection', 'currentContext', 'counts', 'availableAgents', 'meta']),
     JSON.stringify(appState));
   const counts = appState.counts || {};
   ok('app-state counts are numbers',
-    ['sessions', 'activeSessions', 'pendingApprovals', 'devices', 'recentFiles'].every((k) => typeof counts[k] === 'number'),
+    ['sessions', 'activeSessions', 'pendingApprovals', 'devices', 'recentFiles', 'desktopContinuableAgents', 'runningDesktopAgents'].every((k) => typeof counts[k] === 'number'),
     JSON.stringify(counts));
+  ok('app-state server.hostname is non-empty string', typeof appState.server.hostname === 'string' && appState.server.hostname.length > 0, JSON.stringify(appState.server));
+  ok('app-state server.uptime is number', typeof appState.server.uptime === 'number', JSON.stringify(appState.server));
+  ok('app-state availableAgents is array', Array.isArray(appState.availableAgents), JSON.stringify(appState.availableAgents));
+  if (Array.isArray(appState.availableAgents)) {
+    ok('availableAgents items have id and label', appState.availableAgents.every(a => typeof a.id === 'string' && typeof a.label === 'string'), JSON.stringify(appState.availableAgents));
+  }
   ok('app-state does not expose token material', !/tokenHash|Bearer\s|secret|password/i.test(JSON.stringify(appState)), JSON.stringify(appState));
   ok('app-state declares LAN-only no relay/websocket',
     appState.server && appState.server.lanOnly === true
@@ -191,8 +199,14 @@ function containsSensitiveAuditData(value) {
   const dashboard = asJson(await request({ path: '/api/mobile/dashboard', method: 'GET', headers: auth }));
   ok('dashboard ok', dashboard.ok === true);
   ok('dashboard has stable top-level keys',
-    hasTopKeys(dashboard, ['ok', 'activeSessions', 'runningAgents', 'pendingApprovals', 'recentFiles', 'usageSummary', 'recentAuditEntries', 'meta']),
+    hasTopKeys(dashboard, ['ok', 'activeSessions', 'runningAgents', 'mobileSessions', 'desktopContinuableAgents', 'pendingApprovals', 'recentFiles', 'usageSummary', 'recentAuditEntries', 'meta']),
     JSON.stringify(dashboard));
+  ok('dashboard mobileSessions is array', Array.isArray(dashboard.mobileSessions), JSON.stringify(dashboard.mobileSessions));
+  if (Array.isArray(dashboard.mobileSessions) && dashboard.mobileSessions.length > 0) {
+    const ms = dashboard.mobileSessions[0];
+    ok('mobileSessions items have id/sessionId/agentId/status', ms.id && ms.sessionId && ms.agentId && ms.status, JSON.stringify(ms));
+    ok('mobileSessions items have cwd/cwdLabel/title/lastActiveAt', 'cwd' in ms && 'cwdLabel' in ms && 'title' in ms && typeof ms.lastActiveAt === 'number', JSON.stringify(ms));
+  }
   ok('dashboard fixed arrays',
     ['activeSessions', 'runningAgents', 'pendingApprovals', 'recentFiles', 'recentAuditEntries'].every((k) => Array.isArray(dashboard[k])),
     JSON.stringify(dashboard));
@@ -447,6 +461,13 @@ function containsSensitiveAuditData(value) {
     ok('desktop-agent timeline ok', agentTimeline.ok === true, JSON.stringify(agentTimeline));
     ok('desktop-agent timeline canSendFollowup false', agentTimeline.canSendFollowup === false);
     ok('desktop-agent timeline has events array', Array.isArray(agentTimeline.events), 'events not array');
+    ok('desktop-agent timeline has id', typeof agentTimeline.id === 'string' && agentTimeline.id.length > 0, JSON.stringify(agentTimeline));
+    ok('desktop-agent timeline has agentId', typeof agentTimeline.agentId === 'string' && agentTimeline.agentId.length > 0, JSON.stringify(agentTimeline));
+    ok('desktop-agent timeline has label', typeof agentTimeline.label === 'string', JSON.stringify(agentTimeline));
+    ok('desktop-agent timeline has status', typeof agentTimeline.status === 'string', JSON.stringify(agentTimeline));
+    ok('desktop-agent timeline has cwd (string)', typeof agentTimeline.cwd === 'string', JSON.stringify(agentTimeline));
+    ok('desktop-agent timeline has projectName (string)', typeof agentTimeline.projectName === 'string', JSON.stringify(agentTimeline));
+    ok('desktop-agent timeline followupBlockedReason is string', typeof agentTimeline.followupBlockedReason === 'string', JSON.stringify(agentTimeline));
     ok('desktop-agent timeline events do not leak secrets',
       !/sk-|Bearer|mysecrettoken|resumeToken|sessionToken/i.test(JSON.stringify(agentTimeline))
         && !/(?:^|[^a-z])pty(?:$|[^a-z])/i.test(JSON.stringify(agentTimeline)),
@@ -1028,6 +1049,12 @@ function containsSensitiveAuditData(value) {
     headers: auth
   }));
   ok('GET session timeline after draft returns ok:true', fetchedTimeline.ok === true, JSON.stringify(fetchedTimeline).substring(0, 300));
+  ok('GET session timeline has id field', typeof fetchedTimeline.id === 'string' && fetchedTimeline.id.length > 0, JSON.stringify(fetchedTimeline));
+  ok('GET session timeline has sessionId field', typeof fetchedTimeline.sessionId === 'string' && fetchedTimeline.sessionId.length > 0, JSON.stringify(fetchedTimeline));
+  ok('GET session timeline has title field (string)', typeof fetchedTimeline.title === 'string', JSON.stringify(fetchedTimeline));
+  ok('GET session timeline has name field (string)', typeof fetchedTimeline.name === 'string' && fetchedTimeline.name.length > 0, JSON.stringify(fetchedTimeline));
+  ok('GET session timeline has agentId field', typeof fetchedTimeline.agentId === 'string', JSON.stringify(fetchedTimeline));
+  ok('GET session timeline has status field', typeof fetchedTimeline.status === 'string', JSON.stringify(fetchedTimeline));
   ok('GET session timeline contains session_created event',
     Array.isArray(fetchedTimeline.events) && fetchedTimeline.events.some((e) => e && e.type === 'session_created'),
     'events=' + JSON.stringify((fetchedTimeline.events || []).map((e) => e && e.type)));

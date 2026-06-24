@@ -2964,3 +2964,984 @@ if (document.readyState === "loading") {
 } else {
   init();
 }
+
+/* =========================================================
+   UI1A: Contract-Based Mobile Home + Agent/Session Detail
+   ========================================================= */
+const UI1A = (() => {
+  const USE_CONTRACT_HOME = true;
+
+  const CS = {
+    token: null,
+    deviceId: null,
+    appState: null,
+    dashboard: null,
+    projects: null,
+    selected: null,
+    timelines: new Map(),
+    loading: {},
+    errors: {},
+    newTask: { projectId: null, projectCwd: null, agentId: "claude", title: "", initialMessage: "" },
+    pollTimer: null,
+    detailPollTimer: null,
+  };
+
+  const $c = id => document.getElementById(id);
+
+  function el (tag, attrs = {}, children = []) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === "class") e.className = v;
+      else if (k === "html") e.innerHTML = v;
+      else if (k === "text") e.textContent = v;
+      else if (k.startsWith("on") && typeof v === "function") e.addEventListener(k.slice(2), v);
+      else if (v !== null && v !== undefined) e.setAttribute(k, v);
+    }
+    for (const c of (Array.isArray(children) ? children : [children])) {
+      if (c == null) continue;
+      if (typeof c === "string") e.appendChild(document.createTextNode(c));
+      else if (c instanceof Node) e.appendChild(c);
+      else if (c && typeof c.text === "string") e.appendChild(document.createTextNode(c.text));
+      else e.appendChild(c);
+    }
+    return e;
+  }
+
+  function escapeHtml (s) {
+    if (s == null) return "";
+    return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function relTime (ts) {
+    if (!ts) return "";
+    const d = new Date(ts);
+    const diff = (Date.now() - d.getTime()) / 1000;
+    if (diff < 60) return "just now";
+    if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+    if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  function shortTime (ts) {
+    if (!ts) return "";
+    const d = new Date(ts);
+    const now = new Date();
+    if (d.toDateString() === now.toDateString()) {
+      return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    }
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  async function cApi (path, opts = {}) {
+    const r = await fetch(path, {
+      ...opts,
+      headers: {
+        "Authorization": `Bearer ${CS.token || S.token}`,
+        "Content-Type": "application/json",
+        ...(opts.headers || {}),
+      },
+    });
+    if (r.status === 401) {
+      clearToken();
+      showPair();
+      throw new Error("unauthorized");
+    }
+    if (!r.ok) {
+      let msg = `${r.status}`;
+      try { const j = await r.json(); msg = j.error || msg; } catch { try { msg = await r.text() } catch {} }
+      throw new Error(msg);
+    }
+    if (r.status === 204) return null;
+    const data = await r.json();
+    if (data && data.ok === false) throw new Error(data.error || "request failed");
+    return data;
+  }
+
+  async function loadAppState () {
+    try {
+      CS.appState = await cApi("/api/mobile/app-state");
+      CS.errors.appState = null;
+    } catch (e) {
+      CS.errors.appState = e.message;
+    }
+  }
+
+  async function loadDashboard () {
+    try {
+      CS.dashboard = await cApi("/api/mobile/dashboard");
+      CS.errors.dashboard = null;
+    } catch (e) {
+      CS.errors.dashboard = e.message;
+    }
+  }
+
+  async function loadProjects () {
+    try {
+      const d = await cApi("/api/mobile/projects");
+      CS.projects = d.items || [];
+    } catch (e) { /* non-fatal */ }
+  }
+
+  async function loadDesktopTimeline (agentId) {
+    try {
+      const d = await cApi(`/api/mobile/desktop-agents/${encodeURIComponent(agentId)}/timeline`);
+      CS.timelines.set(`desktop:${agentId}`, d);
+      CS.errors[`timeline:desktop:${agentId}`] = null;
+      return d;
+    } catch (e) {
+      CS.errors[`timeline:desktop:${agentId}`] = e.message;
+      return null;
+    }
+  }
+
+  async function loadMobileTimeline (sessionId) {
+    try {
+      const d = await cApi(`/api/mobile/sessions/${encodeURIComponent(sessionId)}/timeline`);
+      CS.timelines.set(`mobile:${sessionId}`, d);
+      CS.errors[`timeline:mobile:${sessionId}`] = null;
+      return d;
+    } catch (e) {
+      CS.errors[`timeline:mobile:${sessionId}`] = e.message;
+      return null;
+    }
+  }
+
+  async function sendDesktopInput (agentId, message) {
+    await cApi(`/api/mobile/desktop-agents/${encodeURIComponent(agentId)}/input`, {
+      method: "POST",
+      body: JSON.stringify({ text: message }),
+    });
+    return loadDesktopTimeline(agentId);
+  }
+
+  async function startMobileSession (sessionId) {
+    await cApi(`/api/mobile/sessions/${encodeURIComponent(sessionId)}/start`, {
+      method: "POST",
+      body: JSON.stringify({ confirm: true }),
+    });
+    return loadMobileTimeline(sessionId);
+  }
+
+  async function createDraftSession (data) {
+    const res = await cApi("/api/mobile/sessions/draft", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return res.session;
+  }
+
+  /* ---- RENDER: Status Pill ---- */
+  function statusPill (status) {
+    const s = (status || "unknown").toLowerCase();
+    return el("span", { class: `status-pill is-${s}` }, { text: status || "unknown" });
+  }
+
+  /* ---- RENDER: Connection Bar ---- */
+  function renderConnection () {
+    const box = $c("c-connection");
+    if (!box) return;
+    box.innerHTML = "";
+    const st = CS.appState;
+    let connClass = "is-offline", connText = "Offline", serverName = "";
+    if (st) {
+      connClass = "is-online";
+      connText = "Connected";
+      serverName = (st.server && st.server.hostname) || "";
+    } else if (CS.errors.appState) {
+      connClass = "is-offline";
+      connText = "Disconnected";
+    } else {
+      connClass = "is-connecting";
+      connText = "Connecting...";
+    }
+    box.appendChild(el("span", { class: `cockpit-status-dot ${connClass}` }));
+    box.appendChild(el("span", { class: "cockpit-status-text", text: connText }));
+    if (serverName) {
+      box.appendChild(el("span", { class: "cockpit-server-name", text: serverName }));
+    }
+  }
+
+  /* ---- RENDER: Desktop Agents Section ---- */
+  function getFollowupBlockedReason (a) {
+    if (a.canSendFollowup) return "";
+    const scopes = (CS.appState && CS.appState.auth && CS.appState.auth.scopes) || [];
+    if (!scopes.includes("desktop_control")) return "需要桌面控制权限";
+    if (!a.canOpen) return "工作目录不可访问";
+    if (a.status === "exited") return "进程已退出";
+    return a.reason || "当前不可用";
+  }
+
+  function renderDesktopAgents () {
+    const box = $c("c-desktop-list");
+    const count = $c("c-desktop-count");
+    if (!box) return;
+    box.innerHTML = "";
+
+    const agents = (CS.dashboard && CS.dashboard.desktopContinuableAgents) || [];
+    if (count) count.textContent = agents.length;
+
+    if (agents.length === 0) {
+      box.appendChild(el("div", { class: "cockpit-empty", style: "width:100%;margin:0;" }, { text: "暂无桌面端 Agent" }));
+      return;
+    }
+
+    agents.forEach(a => {
+      const card = el("div", { class: "desk-card", onclick: () => openDesktopAgent(a.id) });
+      const head = el("div", { class: "desk-card-head" });
+      head.appendChild(el("div", { class: "desk-card-icon", text: "💻" }));
+      head.appendChild(el("div", { class: "desk-card-label", text: a.label || a.agentId }));
+      head.appendChild(statusPill(a.status));
+      card.appendChild(head);
+      card.appendChild(el("div", { class: "desk-card-project", text: a.projectName || a.cwd || "" }));
+      if (a.outputTail) {
+        const preview = a.outputTail.length > 80 ? a.outputTail.slice(-80) + "…" : a.outputTail;
+        card.appendChild(el("div", { class: "desk-card-output", text: preview }));
+      }
+      const blockedReason = getFollowupBlockedReason(a);
+      const followup = a.canSendFollowup
+        ? el("div", { class: "desk-card-followup is-yes", text: "✓ 可发送 follow-up" })
+        : el("div", { class: "desk-card-followup is-no", text: blockedReason || "无 follow-up 权限" });
+      card.appendChild(followup);
+      box.appendChild(card);
+    });
+  }
+
+  /* ---- RENDER: Mobile Sessions Section ---- */
+  function renderMobileSessions () {
+    const box = $c("c-mobile-list");
+    const count = $c("c-mobile-count");
+    if (!box) return;
+    box.innerHTML = "";
+
+    const sessions = (CS.dashboard && CS.dashboard.mobileSessions) || [];
+    if (count) count.textContent = sessions.length;
+
+    if (sessions.length === 0) {
+      box.appendChild(el("div", { class: "cockpit-empty" }, { text: "暂无移动任务，从下方新建" }));
+      return;
+    }
+
+    sessions.forEach(s => {
+      const card = el("div", { class: "mobi-card" });
+      card.appendChild(el("div", { class: "mobi-card-info", onclick: () => openMobileSession(s.sessionId) }, [
+        el("div", { class: "mobi-card-title", text: s.title || s.name || s.sessionId.slice(0, 8) }),
+        el("div", { class: "mobi-card-meta", text: `${s.agentId || "claude"} · ${relTime(s.createdAt || s.updatedAt || s.lastActiveAt)}` }),
+      ]));
+      card.appendChild(el("div", { class: "mobi-card-status" }, [statusPill(s.status)]));
+      const scopes = (CS.appState && CS.appState.auth && CS.appState.auth.scopes) || [];
+      if (s.status === "draft" && scopes.includes("session:start")) {
+        card.appendChild(el("button", {
+          class: "mobi-card-start",
+          onclick: async (ev) => {
+            ev.stopPropagation();
+            if (!confirm("启动此 Agent 任务？")) return;
+            await startMobileSession(s.sessionId);
+            await refreshAll();
+          },
+          text: "启动",
+        }));
+      }
+      box.appendChild(card);
+    });
+  }
+
+  /* ---- RENDER: New Task Form ---- */
+  function renderNewTask () {
+    const projSel = $c("nt-project");
+    const agentsBox = $c("nt-agents");
+    if (!projSel) return;
+
+    if (CS.projects) {
+      const curVal = CS.newTask.projectId || "";
+      projSel.innerHTML = "";
+      projSel.appendChild(el("option", { value: "" }, { text: "选择项目（可选）" }));
+      CS.projects.forEach(p => {
+        const opt = el("option", { value: p.id, "data-cwd": p.cwd || "" }, { text: p.name || p.cwdLabel || p.id });
+        if (p.id === curVal) opt.selected = true;
+        projSel.appendChild(opt);
+      });
+    }
+
+    if (agentsBox) {
+      agentsBox.innerHTML = "";
+      const agents = (CS.appState && CS.appState.availableAgents) || [
+        { id: "claude", label: "Claude Code" },
+        { id: "codex", label: "Codex" },
+        { id: "opencode", label: "OpenCode" },
+        { id: "qoder", label: "Qoder" }
+      ];
+      agents.forEach(a => {
+        const chip = el("button", {
+          class: `nt-agent-chip ${CS.newTask.agentId === a.id ? "is-selected" : ""}`,
+          onclick: () => { CS.newTask.agentId = a.id; renderNewTask(); },
+          text: a.label || a.id,
+        });
+        agentsBox.appendChild(chip);
+      });
+    }
+  }
+
+  function wireNewTaskForm () {
+    const projSel = $c("nt-project");
+    const titleIn = $c("nt-title");
+    const msgIn = $c("nt-message");
+    const submit = $c("nt-create");
+
+    if (projSel) projSel.addEventListener("change", () => {
+      CS.newTask.projectId = projSel.value;
+      const selectedOpt = projSel.options[projSel.selectedIndex];
+      CS.newTask.projectCwd = selectedOpt ? (selectedOpt.getAttribute("data-cwd") || "") : "";
+    });
+    if (titleIn) titleIn.addEventListener("input", () => { CS.newTask.title = titleIn.value; });
+    if (msgIn) msgIn.addEventListener("input", () => { CS.newTask.initialMessage = msgIn.value; });
+
+    if (submit) submit.addEventListener("click", async () => {
+      const title = (titleIn ? titleIn.value : "").trim() || "New Task";
+      const message = (msgIn ? msgIn.value : "").trim();
+      if (!message) { alert("请输入任务消息"); return; }
+      const cwd = CS.newTask.projectCwd || (CS.appState && CS.appState.currentContext && CS.appState.currentContext.cwd) || process_cwd_fallback();
+      if (!cwd) { alert("请先选择一个项目目录"); return; }
+      submit.disabled = true;
+      submit.textContent = "创建中...";
+      try {
+        const session = await createDraftSession({
+          cwd,
+          agentId: CS.newTask.agentId || "claude",
+          title,
+          initialMessage: message,
+        });
+        CS.newTask.title = "";
+        CS.newTask.initialMessage = "";
+        if (titleIn) titleIn.value = "";
+        if (msgIn) msgIn.value = "";
+        await refreshAll();
+        openMobileSession(session.id);
+      } catch (e) {
+        alert("创建失败: " + e.message);
+      } finally {
+        submit.disabled = false;
+        submit.textContent = "Create Draft";
+      }
+    });
+  }
+
+  function process_cwd_fallback () {
+    const m = document.querySelector && document.querySelector('meta[name="fanbox-cwd"]');
+    return m ? m.getAttribute("content") : "";
+  }
+
+  /* ---- RENDER: Recent Files ---- */
+  function renderRecentFiles () {
+    const box = $c("c-recent-files");
+    if (!box) return;
+    box.innerHTML = "";
+    const files = (CS.dashboard && CS.dashboard.recentFiles) || [];
+    if (files.length === 0) {
+      box.appendChild(el("div", { class: "cockpit-empty" }, { text: "暂无最近文件" }));
+      return;
+    }
+    files.slice(0, 6).forEach(f => {
+      const row = el("div", { class: "file-row", onclick: () => {
+        localStorage.setItem(CWD_KEY, f.cwd || "");
+        S.cwd = f.cwd || "";
+        updateTopbarCwd();
+        showTab("files");
+        setTimeout(loadFiles, 50);
+      }});
+      row.appendChild(el("div", { class: "file-row-icon", html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>' }));
+      const body = el("div", { class: "file-row-body" });
+      body.appendChild(el("div", { class: "file-row-name", text: f.name }));
+      if (f.cwd) body.appendChild(el("div", { class: "file-row-path", text: f.cwd }));
+      row.appendChild(body);
+      box.appendChild(row);
+    });
+  }
+
+  /* ---- RENDER: Approvals ---- */
+  function renderApprovals () {
+    const box = $c("c-approvals-list");
+    const wrap = $c("c-section-approvals");
+    const count = $c("c-approvals-count");
+    if (!box || !wrap) return;
+    box.innerHTML = "";
+    const approvals = (CS.dashboard && CS.dashboard.pendingApprovals) || [];
+    if (count) count.textContent = approvals.length;
+    if (count) count.classList.toggle("badge-warn", approvals.length > 0);
+    wrap.hidden = approvals.length === 0;
+    approvals.forEach(a => {
+      box.appendChild(el("div", { class: "approval-row", text: a.title || a.command || "待审批事项" }));
+    });
+  }
+
+  /* ---- RENDER: Usage ---- */
+  function renderUsage () {
+    const box = $c("c-usage");
+    if (!box) return;
+    box.innerHTML = "";
+    const u = (CS.dashboard && CS.dashboard.usageSummary) || {};
+    const stats = [
+      { val: (u.sessionsStarted || 0), label: "Tasks" },
+      { val: (u.commandsRun || 0), label: "Commands" },
+      { val: (u.totalDurationMin || 0) + "m", label: "Duration" },
+    ];
+    stats.forEach(s => {
+      const d = el("div", { class: "usage-stat" });
+      d.appendChild(el("div", { class: "usage-stat-val", text: s.val }));
+      d.appendChild(el("div", { class: "usage-stat-label", text: s.label }));
+      box.appendChild(d);
+    });
+  }
+
+  /* ---- RENDER: Contract Home ---- */
+  function renderContractHome () {
+    renderConnection();
+    renderDesktopAgents();
+    renderMobileSessions();
+    renderNewTask();
+    renderRecentFiles();
+    renderApprovals();
+    renderUsage();
+  }
+
+  /* ---- RENDER: Timeline Events ---- */
+  function renderTimelineEvents (container, events, isDesktop) {
+    container.innerHTML = "";
+    if (!events || events.length === 0) {
+      container.appendChild(el("div", { class: "tl-empty" }, { text: "暂无事件" }));
+      return;
+    }
+
+    events.forEach(ev => {
+      if (ev.redacted) {
+        const e = el("div", { class: "tl-event is-system" });
+        e.appendChild(el("div", { class: "tl-event-meta" }, [
+          el("span", { class: "tl-event-dot" }),
+          el("span", { text: shortTime(ev.timestamp) || "" }),
+        ]));
+        e.appendChild(el("div", { class: "tl-event-body", text: "🔒 此事件内容已安全裁剪" }));
+        container.appendChild(e);
+        return;
+      }
+
+      const type = ev.type || "";
+
+      if (type === "message" || type === "user" || type === "assistant") {
+        const role = ev.role || (type === "user" ? "user" : type === "assistant" ? "assistant" : (ev.fromUser ? "user" : "assistant"));
+        if (role === "user") {
+          const bubble = el("div", { class: "tl-event-msg-user", text: ev.content || ev.text || "" });
+          if (ev.draftPending) bubble.classList.add("is-draft-pending");
+          container.appendChild(bubble);
+        } else {
+          const wrap = el("div", { class: "tl-event-msg-agent" });
+          wrap.appendChild(el("div", { class: "tl-event-msg-agent-icon", text: "🤖" }));
+          wrap.appendChild(el("div", { class: "tl-event-msg-agent-bubble", text: ev.content || ev.text || "" }));
+          container.appendChild(wrap);
+        }
+        return;
+      }
+
+      if (type === "input_sent") {
+        const e = el("div", { class: "tl-event" });
+        e.appendChild(el("div", { class: "tl-event-meta" }, [
+          el("span", { class: "tl-event-dot" }),
+          el("span", { text: "Follow-up sent · " + shortTime(ev.timestamp) }),
+        ]));
+        e.appendChild(el("div", { class: "tl-event-body", text: ev.text || ev.title || "" }));
+        container.appendChild(e);
+        return;
+      }
+
+      if (type === "status_snapshot" || type === "status_change") {
+        const statCls = ev.status === "running" ? "is-running" : ev.status === "exited" ? "is-success" : ev.status === "waiting_input" ? "is-status" : "is-status";
+        const label = type === "status_change" ? `状态: ${ev.from || "?"} → ${ev.to || ev.status}` : `状态: ${ev.status}`;
+        const e = el("div", { class: `tl-event ${statCls}` });
+        e.appendChild(el("div", { class: "tl-event-meta" }, [
+          el("span", { class: "tl-event-dot" }),
+          el("span", { text: label + " · " + shortTime(ev.timestamp) }),
+        ]));
+        if (ev.text) {
+          const preview = ev.text.length > 200 ? ev.text.slice(-200) + "…" : ev.text;
+          e.appendChild(el("div", { class: "tl-event-body", style: "white-space:pre-wrap;font-family:monospace;font-size:11px;max-height:120px;overflow-y:auto;opacity:0.8;" }, { text: preview }));
+        }
+        container.appendChild(e);
+        return;
+      }
+
+      if (type === "output_tail") {
+        const e = el("div", { class: "tl-event is-running" });
+        e.appendChild(el("div", { class: "tl-event-meta" }, [
+          el("span", { class: "tl-event-dot" }),
+          el("span", { text: "Output · " + shortTime(ev.timestamp) }),
+        ]));
+        const body = el("div", { class: "tl-event-body" });
+        const out = el("div", { class: "tl-output", text: ev.text || "" });
+        body.appendChild(out);
+        if (ev.meta && ev.meta.redactionCount > 0) {
+          body.appendChild(el("div", { class: "tl-output-redacted", text: `🔒 ${ev.meta.redactionCount} 条敏感行已裁剪` }));
+        }
+        e.appendChild(body);
+        container.appendChild(e);
+        return;
+      }
+
+      if (type === "process_exit") {
+        const exitCode = (ev.meta && ev.meta.exitCode) || 0;
+        const statCls = exitCode === 0 ? "is-success" : "is-error";
+        const e = el("div", { class: `tl-event ${statCls}` });
+        e.appendChild(el("div", { class: "tl-event-meta" }, [
+          el("span", { class: "tl-event-dot" }),
+          el("span", { text: `进程退出 · code ${exitCode} · ${shortTime(ev.timestamp)}` }),
+        ]));
+        container.appendChild(e);
+        return;
+      }
+
+      if (type === "error") {
+        const e = el("div", { class: "tl-event is-error" });
+        e.appendChild(el("div", { class: "tl-event-meta" }, [
+          el("span", { class: "tl-event-dot" }),
+          el("span", { text: "Error · " + shortTime(ev.timestamp) }),
+        ]));
+        if (ev.text) e.appendChild(el("div", { class: "tl-event-body", text: ev.text }));
+        container.appendChild(e);
+        return;
+      }
+
+      if (type === "waiting_input") {
+        const e = el("div", { class: "tl-event is-status" });
+        e.appendChild(el("div", { class: "tl-event-meta" }, [
+          el("span", { class: "tl-event-dot" }),
+          el("span", { text: "等待输入 · " + shortTime(ev.timestamp) }),
+        ]));
+        container.appendChild(e);
+        return;
+      }
+
+      if (type === "recent_files") {
+        const e = el("div", { class: "tl-event is-status" });
+        e.appendChild(el("div", { class: "tl-event-meta" }, [
+          el("span", { class: "tl-event-dot" }),
+          el("span", { text: "最近文件 · " + shortTime(ev.timestamp) }),
+        ]));
+        const body = el("div", { class: "tl-event-body" });
+        const files = (ev.meta && ev.meta.files) || ev.files || [];
+        if (files.length > 0) {
+          const chips = el("div", { class: "tl-files" });
+          files.forEach(f => {
+            chips.appendChild(el("span", { class: "tl-file-chip", text: f.name || f.path || f }));
+          });
+          body.appendChild(chips);
+        }
+        e.appendChild(body);
+        container.appendChild(e);
+        return;
+      }
+
+      if (type === "session_created") {
+        const e = el("div", { class: "tl-event is-draft" });
+        e.appendChild(el("div", { class: "tl-event-meta" }, [
+          el("span", { class: "tl-event-dot" }),
+          el("span", { text: "会话已创建 · " + shortTime(ev.timestamp) }),
+        ]));
+        e.appendChild(el("div", { class: "tl-event-body", text: "任务 draft 已保存" }));
+        container.appendChild(e);
+        return;
+      }
+
+      if (type === "draft_ready") {
+        const e = el("div", { class: "tl-event is-draft" });
+        e.appendChild(el("div", { class: "tl-event-meta" }, [
+          el("span", { class: "tl-event-dot" }),
+          el("span", { text: "Draft 就绪 · " + shortTime(ev.timestamp) }),
+        ]));
+        e.appendChild(el("div", { class: "tl-event-body", text: "可以启动 Agent 了" }));
+        container.appendChild(e);
+        return;
+      }
+
+      if (type === "agent_start_requested") {
+        const e = el("div", { class: "tl-event is-running" });
+        e.appendChild(el("div", { class: "tl-event-meta" }, [
+          el("span", { class: "tl-event-dot" }),
+          el("span", { text: "启动请求已发送 · " + shortTime(ev.timestamp) }),
+        ]));
+        container.appendChild(e);
+        return;
+      }
+
+      if (type === "agent_started") {
+        const e = el("div", { class: "tl-event is-running" });
+        e.appendChild(el("div", { class: "tl-event-meta" }, [
+          el("span", { class: "tl-event-dot" }),
+          el("span", { text: "Agent 已启动 · " + shortTime(ev.timestamp) }),
+        ]));
+        if (ev.pid) e.appendChild(el("div", { class: "tl-event-body", text: `PID: ${ev.pid}` }));
+        container.appendChild(e);
+        return;
+      }
+
+      if (type === "agent_completed") {
+        const e = el("div", { class: "tl-event is-success" });
+        e.appendChild(el("div", { class: "tl-event-meta" }, [
+          el("span", { class: "tl-event-dot" }),
+          el("span", { text: "Agent 已完成 · " + shortTime(ev.timestamp) }),
+        ]));
+        if (ev.exitCode !== undefined && ev.exitCode !== null) {
+          e.appendChild(el("div", { class: "tl-event-body", text: `退出码: ${ev.exitCode}` }));
+        }
+        container.appendChild(e);
+        return;
+      }
+
+      if (type === "agent_start_failed") {
+        const e = el("div", { class: "tl-event is-error" });
+        e.appendChild(el("div", { class: "tl-event-meta" }, [
+          el("span", { class: "tl-event-dot" }),
+          el("span", { text: "启动失败 · " + shortTime(ev.timestamp) }),
+        ]));
+        e.appendChild(el("div", { class: "tl-event-body", text: ev.reason || ev.error || "unknown error" }));
+        container.appendChild(e);
+        return;
+      }
+
+      // Fallback for unknown event types
+      const e = el("div", { class: "tl-event is-system" });
+      e.appendChild(el("div", { class: "tl-event-meta" }, [
+        el("span", { class: "tl-event-dot" }),
+        el("span", { text: (type || "event") + " · " + shortTime(ev.timestamp) }),
+      ]));
+      container.appendChild(e);
+    });
+  }
+
+  /* ---- RENDER: Desktop Agent Detail ---- */
+  function renderDesktopDetail (agentId) {
+    const data = CS.timelines.get(`desktop:${agentId}`);
+    const titleEl = $c("d-title");
+    const subEl = $c("d-sub");
+    const statusEl = $c("d-status-pill");
+    const iconEl = $c("d-icon");
+    const timeline = $c("d-timeline");
+    const composer = $c("d-composer");
+    const startZone = $c("d-start-zone");
+
+    if (!titleEl) return;
+
+    startZone.hidden = true;
+
+    if (!data) {
+      titleEl.textContent = "Loading...";
+      subEl.textContent = agentId;
+      if (statusEl) statusEl.innerHTML = "";
+      if (iconEl) iconEl.textContent = "💻";
+      if (timeline) timeline.innerHTML = '<div class="tl-empty">加载中...</div>';
+      composer.hidden = true;
+      return;
+    }
+
+    const info = data || {};
+    titleEl.textContent = info.label || agentId;
+    subEl.textContent = info.projectName || info.cwdLabel || info.cwd || "";
+    if (iconEl) iconEl.textContent = "💻";
+
+    if (statusEl) {
+      statusEl.innerHTML = "";
+      statusEl.appendChild(statusPill(info.status));
+    }
+
+    renderTimelineEvents(timeline, data.events || [], true);
+
+    // Composer / follow-up
+    const canSend = !!info.canSendFollowup;
+    composer.hidden = false;
+    const input = $c("d-input");
+    const sendBtn = $c("d-send");
+    const hint = $c("d-composer-hint");
+    if (input) {
+      input.disabled = !canSend;
+      input.placeholder = canSend ? "发送 follow-up 消息..." : (info.followupBlockedReason || "无 follow-up 权限");
+    }
+    if (sendBtn) sendBtn.disabled = !canSend;
+    if (hint) hint.textContent = canSend ? "" : (info.followupBlockedReason || getFollowupBlockedReason(info) || "当前设备未开启 desktop_control 权限");
+  }
+
+  /* ---- RENDER: Mobile Session Detail ---- */
+  function renderMobileDetail (sessionId) {
+    const data = CS.timelines.get(`mobile:${sessionId}`);
+    const titleEl = $c("d-title");
+    const subEl = $c("d-sub");
+    const statusEl = $c("d-status-pill");
+    const iconEl = $c("d-icon");
+    const timeline = $c("d-timeline");
+    const composer = $c("d-composer");
+    const startZone = $c("d-start-zone");
+
+    if (!titleEl) return;
+
+    composer.hidden = true;
+
+    if (!data) {
+      titleEl.textContent = "Loading...";
+      subEl.textContent = sessionId;
+      if (statusEl) statusEl.innerHTML = "";
+      if (iconEl) iconEl.textContent = "📱";
+      if (timeline) timeline.innerHTML = '<div class="tl-empty">加载中...</div>';
+      startZone.hidden = true;
+      return;
+    }
+
+    const s = data || {};
+    titleEl.textContent = s.title || s.name || sessionId.slice(0, 8);
+    subEl.textContent = `${s.agentId || "claude"}${s.cwdLabel ? " · " + s.cwdLabel : (s.cwd ? " · " + s.cwd : "")}`;
+    if (iconEl) iconEl.textContent = "📱";
+
+    if (statusEl) {
+      statusEl.innerHTML = "";
+      statusEl.appendChild(statusPill(s.status));
+    }
+
+    renderTimelineEvents(timeline, data.events || [], false);
+
+    // Start zone
+    const scopes = (CS.appState && CS.appState.auth && CS.appState.auth.scopes) || [];
+    const hasStartScope = scopes.includes("session:start");
+    const isDraft = s.status === "draft";
+    const isFailed = s.status === "failed" || s.status === "agent_start_failed";
+    const canStart = (isDraft || isFailed) && hasStartScope;
+
+    startZone.hidden = !isDraft && !isFailed;
+    const startBtn = $c("d-start");
+    const startHint = $c("d-start-hint");
+
+    if (startBtn) {
+      startBtn.disabled = !canStart;
+      startBtn.textContent = isFailed ? "重试启动" : "Start Agent";
+      startBtn.onclick = async () => {
+        if (!confirm("确认启动 Agent？")) return;
+        startBtn.disabled = true;
+        startBtn.textContent = "启动中...";
+        try {
+          await startMobileSession(sessionId);
+          await loadMobileTimeline(sessionId);
+          await loadDashboard();
+          renderMobileDetail(sessionId);
+        } catch (e) {
+          alert("启动失败: " + e.message);
+          startBtn.disabled = false;
+          startBtn.textContent = isFailed ? "重试启动" : "Start Agent";
+        }
+      };
+    }
+    if (startHint) {
+      if (isDraft && !hasStartScope) {
+        startHint.textContent = "当前设备没有 session:start 权限，请在电脑端授权";
+      } else if (isFailed) {
+        startHint.textContent = "上次启动失败，可以重试";
+      } else {
+        startHint.textContent = "";
+      }
+    }
+  }
+
+  /* ---- Navigation ---- */
+  function setTopbarElements(viewName) {
+    const dd = $c("agent-dropdown");
+    const cwd = $c("topbar-cwd");
+    const isContract = viewName === "home-cockpit" || viewName === "agent-detail";
+    if (dd) dd.style.display = isContract ? "none" : "";
+    if (cwd) cwd.style.display = isContract ? "none" : "";
+  }
+
+  function switchContractView (viewName) {
+    S.currentTab = viewName;
+    qsa(".view").forEach(v => { v.hidden = true; v.classList.remove("is-active"); });
+    const view = document.querySelector(`[data-view="${viewName}"]`);
+    if (view) { view.hidden = false; view.classList.add("is-active"); }
+    qsa(".sidebar-item").forEach(btn => {
+      btn.classList.toggle("is-active", btn.getAttribute("data-go") === viewName);
+    });
+    const backBtn = $c("app-back");
+    if (backBtn) backBtn.hidden = viewName === "home-cockpit";
+    const titleEl = $c("app-topbar-title");
+    if (titleEl) {
+      if (viewName === "home-cockpit") titleEl.textContent = "FanBox Mobile";
+      else if (viewName === "agent-detail") titleEl.textContent = "Detail";
+    }
+    setTopbarElements(viewName);
+    if (window.innerWidth < 1024) closeSidebar();
+  }
+
+  function openHome () {
+    stopDetailPoll();
+    switchContractView("home-cockpit");
+    refreshAll();
+    startHomePoll();
+  }
+
+  function openDesktopAgent (agentId) {
+    CS.selected = { type: "desktop-agent", id: agentId };
+    stopHomePoll();
+    switchContractView("agent-detail");
+    loadDesktopTimeline(agentId).then(() => renderDesktopDetail(agentId));
+    startDetailPoll(agentId, "desktop");
+  }
+
+  function openMobileSession (sessionId) {
+    CS.selected = { type: "mobile-session", id: sessionId };
+    stopHomePoll();
+    switchContractView("agent-detail");
+    loadMobileTimeline(sessionId).then(() => renderMobileDetail(sessionId));
+    startDetailPoll(sessionId, "mobile");
+  }
+
+  function goBack () {
+    openHome();
+  }
+
+  /* ---- Polling ---- */
+  function startHomePoll () {
+    stopHomePoll();
+    CS.pollTimer = setInterval(() => {
+      if (S.currentTab === "home-cockpit") refreshAll();
+    }, 5000);
+  }
+  function stopHomePoll () {
+    if (CS.pollTimer) { clearInterval(CS.pollTimer); CS.pollTimer = null; }
+  }
+  function startDetailPoll (id, type) {
+    stopDetailPoll();
+    CS.detailPollTimer = setInterval(() => {
+      if (S.currentTab !== "agent-detail" || !CS.selected) return;
+      if (type === "desktop") {
+        loadDesktopTimeline(id).then(() => renderDesktopDetail(id));
+      } else {
+        loadMobileTimeline(id).then(() => renderMobileDetail(id));
+      }
+    }, 3000);
+  }
+  function stopDetailPoll () {
+    if (CS.detailPollTimer) { clearInterval(CS.detailPollTimer); CS.detailPollTimer = null; }
+  }
+
+  /* ---- Refresh all home data ---- */
+  async function refreshAll () {
+    try {
+      await Promise.all([loadAppState(), loadDashboard()]);
+    } catch (e) { /* errors stored in CS.errors */ }
+    renderContractHome();
+  }
+
+  /* ---- Wire up detail composer send ---- */
+  function wireDetailComposer () {
+    const input = $c("d-input");
+    const sendBtn = $c("d-send");
+
+    async function doSend () {
+      if (!CS.selected || CS.selected.type !== "desktop-agent") return;
+      const msg = input.value.trim();
+      if (!msg) return;
+      sendBtn.disabled = true;
+      input.disabled = true;
+      try {
+        await sendDesktopInput(CS.selected.id, msg);
+        input.value = "";
+        renderDesktopDetail(CS.selected.id);
+      } catch (e) {
+        alert("发送失败: " + e.message);
+      } finally {
+        sendBtn.disabled = false;
+        const data = CS.timelines.get(`desktop:${CS.selected.id}`);
+        input.disabled = !(data && data.canSendFollowup);
+      }
+    }
+
+    if (sendBtn) sendBtn.addEventListener("click", doSend);
+    if (input) input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); doSend(); }
+    });
+  }
+
+  /* ---- Wire back button ---- */
+  function wireBackButton () {
+    const backBtn = $c("app-back");
+    if (backBtn) backBtn.addEventListener("click", goBack);
+  }
+
+  /* ---- Wire refresh for contract views ---- */
+  function wireRefresh () {
+    const refresh = $c("app-refresh");
+    if (!refresh) return;
+    refresh.addEventListener("click", () => {
+      if (S.currentTab === "home-cockpit") refreshAll();
+      else if (S.currentTab === "agent-detail" && CS.selected) {
+        if (CS.selected.type === "desktop-agent") {
+          loadDesktopTimeline(CS.selected.id).then(() => renderDesktopDetail(CS.selected.id));
+        } else {
+          loadMobileTimeline(CS.selected.id).then(() => renderMobileDetail(CS.selected.id));
+        }
+      }
+    });
+  }
+
+  /* ---- Wire all legacy sidebar tabs to stop polls ---- */
+  function wireLegacySidebarTabs () {
+    qsa(".sidebar-item").forEach(btn => {
+      const tab = btn.getAttribute("data-go");
+      if (tab && tab !== "home-cockpit") {
+        btn.addEventListener("click", () => {
+          stopHomePoll();
+          stopDetailPoll();
+          const titleEl = $c("app-topbar-title");
+          if (titleEl) titleEl.textContent = "FanBox";
+          setTopbarElements(tab);
+        });
+      }
+    });
+  }
+
+  /* ---- Override sidebar for contract home ---- */
+  function wireContractSidebar () {
+    qsa(".sidebar-item").forEach(btn => {
+      const tab = btn.getAttribute("data-go");
+      if (tab === "home-cockpit") {
+        btn.addEventListener("click", (e) => {
+          e.stopImmediatePropagation();
+          openHome();
+        });
+      }
+    });
+  }
+
+  /* ---- Init after pairing ---- */
+  async function startContractMode () {
+    if (!USE_CONTRACT_HOME) return;
+    CS.token = S.token;
+    wireNewTaskForm();
+    wireDetailComposer();
+    wireBackButton();
+    wireRefresh();
+    wireContractSidebar();
+    wireLegacySidebarTabs();
+    await loadProjects();
+    openHome();
+  }
+
+  /* ---- Hook into existing showApp ---- */
+  const _origShowApp = showApp;
+  showApp = function () {
+    $c("pair-screen").hidden = true;
+    $c("app").hidden = false;
+    buildAgentDropdownMenu();
+    updateAgentDropdownDisplay();
+    updateTopbarCwd();
+    renderTaskChips();
+    if (USE_CONTRACT_HOME) {
+      startContractMode();
+    } else {
+      _origShowApp();
+    }
+  };
+
+  /* ---- Expose minimal API ---- */
+  return { start: startContractMode, openHome, openDesktopAgent, openMobileSession };
+})();

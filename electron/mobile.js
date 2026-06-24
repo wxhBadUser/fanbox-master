@@ -1743,10 +1743,13 @@ async function readSessionTimelineMobile(sessionId, limitRaw) {
   return {
     ok: true,
     sessionId: sess.sessionId,
+    id: sess.sessionId,
     status: sess.status,
     agentId: sess.agentId,
     cwd: sess.cwd,
     cwdLabel: sess.cwdLabel,
+    title: sess.title || '',
+    name: sess.title || sess.agentId || 'Task',
     canStart: sess.canStart === false ? false : undefined,
     events,
     nextCursor: null,
@@ -2429,17 +2432,23 @@ async function readMobileAppState(t) {
   ]);
   const sessions = Array.isArray(sessionsResult.items) ? sessionsResult.items : [];
   const runningDesktopAgents = desktopAgents.filter((a) => a.status === 'running' || a.busy).length;
+  const availableAgents = Array.from(mobileSessions.ALLOWED_AGENT_IDS).map(id => ({
+    id,
+    label: agentLabel(id, '').trim() || id
+  }));
   return {
     ok: true,
     server: {
       name: 'FanBox Windows Edition',
       version: '2.4.0',
+      hostname: os.hostname(),
       platform: process.platform,
       enabled: cfg.enabled,
       port: cfg.port,
       serverId: cfg.serverId,
       primaryLanUrl: status.primaryLanUrl || null,
-      lanOnly: true
+      lanOnly: true,
+      uptime: process.uptime()
     },
     auth: {
       paired: true,
@@ -2469,6 +2478,7 @@ async function readMobileAppState(t) {
       desktopContinuableAgents: desktopAgents.length,
       runningDesktopAgents
     },
+    availableAgents,
     meta: mobileContractMeta('app-state-projection', {
       desktopAgentsSource: _desktopTerminalProvider ? 'desktop-terminal-provider' : 'none'
     })
@@ -2499,10 +2509,25 @@ async function readMobileDashboard(t) {
     lastActiveAt: s.lastActiveAt,
     source: s.source ? 'session-derived:' + s.source : 'session-derived'
   }));
+  const mobileSessionList = sessions.slice(0, 20).map((s) => ({
+    id: s.sessionId,
+    sessionId: s.sessionId,
+    name: s.title || s.agentId || 'Task',
+    agentId: s.agentId,
+    status: s.status,
+    cwd: s.cwd,
+    cwdLabel: s.cwdLabel,
+    title: s.title,
+    createdAt: s.createdAt,
+    updatedAt: s.updatedAt || s.lastActiveAt,
+    lastActiveAt: s.lastActiveAt,
+    source: s.source || 'session-index'
+  }));
   return {
     ok: true,
     activeSessions,
     runningAgents,
+    mobileSessions: mobileSessionList,
     desktopContinuableAgents: desktopAgents.map((a) => applyCanSendFollowup(a, t.device)),
     pendingApprovals: Array.isArray(approvals) ? approvals : [],
     recentFiles: Array.isArray(recentFiles.items) ? recentFiles.items : [],
@@ -3342,6 +3367,20 @@ async function handleMobileApiV2A(req, res, url) {
       return sendJson(res, 404, { ok: false, error: 'desktop_agent_not_found' }), true;
     }
     const safeAgent = applyCanSendFollowup(result.agent, t.device);
+    let followupBlockedReason = '';
+    if (!safeAgent.canSendFollowup) {
+      if (!deviceHasDesktopControlScope(t.device)) {
+        followupBlockedReason = 'desktop_control_scope_required';
+      } else if (!_desktopTerminalWriteProvider) {
+        followupBlockedReason = 'write_provider_unavailable';
+      } else if (!safeAgent.canOpen) {
+        followupBlockedReason = safeAgent.reason || 'agent_not_accessible';
+      } else if (safeAgent.status === 'exited') {
+        followupBlockedReason = 'agent_exited';
+      } else {
+        followupBlockedReason = safeAgent.reason || 'not_available';
+      }
+    }
     return sendJson(res, 200, {
       ok: true,
       id: result.agent.id,
@@ -3349,7 +3388,12 @@ async function handleMobileApiV2A(req, res, url) {
       agentId: result.agent.agentId,
       label: result.agent.label,
       status: result.agent.status,
+      cwd: result.agent.cwd || '',
+      cwdLabel: result.agent.projectName || '',
+      projectName: result.agent.projectName || '',
       canSendFollowup: safeAgent.canSendFollowup,
+      followupBlockedReason,
+      reason: result.agent.reason || '',
       events: result.events,
       eventCount: result.eventCount,
       meta: result.meta
@@ -3912,12 +3956,14 @@ async function handleRequest(req, res) {
       server: {
         name: 'FanBox Windows Edition',
         version: '2.4.0',
+        hostname: os.hostname(),
         platform: process.platform,
         enabled: cfg.enabled,
         port: cfg.port,
         serverId: cfg.serverId,
         primaryLanUrl: status.primaryLanUrl || null,
-        lanOnly: true
+        lanOnly: true,
+        uptime: process.uptime()
       },
       pairing: {
         active: !!status.pairing,
@@ -4223,6 +4269,7 @@ module.exports = {
   genServerId,
   sha256,
   addTokenRecord,
+  updateToken,
   // 工具方法（内部使用，但导出以便测试）
   listDirSafe,
   pathInAllowed,

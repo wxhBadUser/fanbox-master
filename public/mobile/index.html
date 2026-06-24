@@ -58,9 +58,13 @@
       </button>
 
       <nav class="sidebar-nav" aria-label="Workspace navigation">
-        <button class="sidebar-item" data-go="home" type="button" title="Chat">
+        <button class="sidebar-item is-active" data-go="home-cockpit" type="button" title="Home">
           <span class="sidebar-item-icon" data-i="home"></span>
-          <span>Chat</span>
+          <span>Home</span>
+        </button>
+        <button class="sidebar-item" data-go="home" type="button" title="Legacy Chat">
+          <span class="sidebar-item-icon" data-i="chat"></span>
+          <span>Legacy Chat</span>
         </button>
         <button class="sidebar-item" data-go="project" type="button" title="Project">
           <span class="sidebar-item-icon" data-i="project"></span>
@@ -107,36 +111,137 @@
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
 
+        <button id="app-back" class="app-back-btn" type="button" aria-label="Back" hidden>
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+
+        <div class="app-topbar-title" id="app-topbar-title">FanBox</div>
+
         <div class="agent-dropdown" id="agent-dropdown">
-          <button id="agent-dropdown-trigger" class="agent-dropdown-trigger" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Current agent">
-            <span class="agent-dropdown-icon" id="agent-dropdown-icon" aria-hidden="true"></span>
-            <span class="agent-dropdown-label" id="agent-dropdown-label">Claude Code</span>
-            <svg class="agent-dropdown-caret" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="6 9 12 15 18 9"/>
-            </svg>
+          <button class="agent-dropdown-trigger" id="agent-dropdown-trigger" type="button" aria-haspopup="true" aria-expanded="false">
+            <span class="agent-dropdown-icon" id="agent-dropdown-icon"></span>
+            <span class="agent-dropdown-label" id="agent-dropdown-label"></span>
+            <svg class="agent-dropdown-caret" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 8 10 12 14 8"/></svg>
           </button>
-          <div id="agent-dropdown-menu" class="agent-dropdown-menu" role="menu" hidden></div>
+          <div class="agent-dropdown-menu" id="agent-dropdown-menu" role="menu" hidden></div>
         </div>
+
+        <div class="app-topbar-cwd" id="topbar-cwd" title="">—</div>
 
         <div class="app-topbar-spacer"></div>
 
-        <div class="app-topbar-meta" aria-hidden="false">
-          <span id="topbar-cwd" class="topbar-meta-item" title="Working folder">—</span>
-          <button id="app-refresh" class="app-icon-btn" type="button" aria-label="Refresh" title="Refresh">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><polyline points="21 4 21 9 16 9"/></svg>
-          </button>
-        </div>
+        <button id="app-refresh" class="app-icon-btn" type="button" aria-label="Refresh" title="Refresh">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><polyline points="21 4 21 9 16 9"/></svg>
+        </button>
       </header>
 
       <main class="app-main" id="app-main">
         <!-- =========================================================
-             Home Tab · Manus-like Agent Chat Workspace
-             ---------------------------------------------------------
-             Phase UI-A8-1: 只保留一个 textarea。
-             hero 态: composer 居中显示在大标题下方
-             chat 态: 同一个 composer 固定在主区底部
+             UI1A: Contract Home Cockpit (NEW DEFAULT)
+             Consumes app-state + dashboard contract endpoints.
              ========================================================= -->
-        <section class="view is-active" data-view="home">
+        <section class="view is-active" data-view="home-cockpit">
+          <div class="cockpit" id="cockpit">
+            <div class="cockpit-connection" id="c-connection">
+              <span class="cockpit-status-dot" id="c-status-dot"></span>
+              <span class="cockpit-status-text" id="c-status-text">Connecting...</span>
+              <span class="cockpit-server-name" id="c-server-name"></span>
+            </div>
+
+            <div class="cockpit-section" id="c-section-desktop">
+              <div class="cockpit-section-head">
+                <h3 class="cockpit-section-title">Running on Desktop</h3>
+                <span class="cockpit-section-count" id="c-desktop-count">0</span>
+              </div>
+              <div class="cockpit-scroll" id="c-desktop-list"></div>
+            </div>
+
+            <div class="cockpit-section" id="c-section-mobile">
+              <div class="cockpit-section-head">
+                <h3 class="cockpit-section-title">My Mobile Tasks</h3>
+                <span class="cockpit-section-count" id="c-mobile-count">0</span>
+              </div>
+              <div class="cockpit-list" id="c-mobile-list"></div>
+            </div>
+
+            <div class="cockpit-section" id="c-section-newtask">
+              <div class="cockpit-section-head">
+                <h3 class="cockpit-section-title">New Task</h3>
+              </div>
+              <div class="newtask-form" id="newtask-form">
+                <label class="field-label">Project</label>
+                <select id="nt-project" class="field field-select"><option value="">Loading projects...</option></select>
+                <label class="field-label">Agent</label>
+                <div class="nt-agents" id="nt-agents"></div>
+                <label class="field-label">Title</label>
+                <input id="nt-title" class="field" type="text" placeholder="Task title (optional)" maxlength="80">
+                <label class="field-label">What to do</label>
+                <textarea id="nt-message" class="field field-textarea" rows="3" placeholder="Describe the task..." maxlength="2000"></textarea>
+                <button id="nt-create" class="btn-primary btn-block" type="button">Create Draft</button>
+                <div id="nt-msg" class="msg" role="status"></div>
+              </div>
+            </div>
+
+            <div class="cockpit-section" id="c-section-approvals" hidden>
+              <div class="cockpit-section-head">
+                <h3 class="cockpit-section-title">Pending Approvals</h3>
+                <span class="cockpit-section-count badge-warn" id="c-approvals-count">0</span>
+              </div>
+              <div class="cockpit-list" id="c-approvals-list"></div>
+            </div>
+
+            <div class="cockpit-section" id="c-section-files">
+              <div class="cockpit-section-head">
+                <h3 class="cockpit-section-title">Recent Files</h3>
+              </div>
+              <div class="cockpit-list cockpit-list-compact" id="c-recent-files"></div>
+            </div>
+
+            <div class="cockpit-section" id="c-section-usage">
+              <div class="cockpit-section-head">
+                <h3 class="cockpit-section-title">Usage</h3>
+              </div>
+              <div class="cockpit-usage" id="c-usage"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =========================================================
+             UI1A: Unified Agent / Session Detail
+             Works for both desktop agents and mobile sessions.
+             ========================================================= -->
+        <section class="view" data-view="agent-detail">
+          <div class="detail" id="detail">
+            <div class="detail-header" id="d-header">
+              <div class="detail-header-top">
+                <div class="detail-agent-icon" id="d-icon"></div>
+                <div class="detail-header-info">
+                  <div class="detail-title" id="d-title">—</div>
+                  <div class="detail-sub" id="d-sub">—</div>
+                </div>
+                <div class="detail-status-pill" id="d-status-pill">—</div>
+              </div>
+              <div class="detail-actions" id="d-actions"></div>
+            </div>
+            <div class="detail-timeline" id="d-timeline"></div>
+            <div class="detail-composer" id="d-composer" hidden>
+              <textarea id="d-input" class="field field-textarea detail-input" rows="2" placeholder="Type a follow-up message..." maxlength="4000"></textarea>
+              <div class="detail-composer-foot">
+                <span id="d-composer-hint" class="detail-composer-hint"></span>
+                <button id="d-send" class="btn-primary detail-send-btn" type="button" disabled>Send</button>
+              </div>
+            </div>
+            <div class="detail-start-zone" id="d-start-zone" hidden>
+              <button id="d-start" class="btn-primary btn-block btn-start" type="button">Start Agent</button>
+              <div id="d-start-hint" class="detail-composer-hint"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =========================================================
+             Legacy Home Tab · Manus-like Agent Chat Workspace (preserved)
+             ========================================================= -->
+        <section class="view" data-view="home" hidden>
           <div class="home-shell" id="home-shell">
             <!-- hero / 欢迎态（聊天开始后隐藏） -->
             <div class="home-hero" id="home-hero">
