@@ -201,7 +201,7 @@ async function main() {
   check('2e. safety-pairing rendered', safetyRendered.pairingChildren > 0, 'children=' + safetyRendered.pairingChildren);
   const safetyText = await page.evaluate(() => document.querySelector('[data-view="safety"]').innerText);
   check('2f. Safety does not show token/tokenHash', !/tokenHash|Bearer\s/i.test(safetyText), 'leaked token');
-  check('2g. Safety shows scopes (desktop_control)', /desktop_control/i.test(safetyText), 'missing scope');
+  check('2g. Safety shows scopes (继续输入 human-readable label for desktop_control)', /继续输入/.test(safetyText), 'missing scope');
   const overflow2 = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
   check('2h. no horizontal overflow (Safety)', overflow2.sw <= overflow2.cw + 2, 'sw=' + overflow2.sw);
   await page.screenshot({ path: path.join(SCREENSHOT_DIR, '02-safety-390x844.png') });

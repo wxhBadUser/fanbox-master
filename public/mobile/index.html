@@ -12,8 +12,26 @@
   <!-- 配对卡（未配对时显示；配对成功后隐藏） -->
   <section id="pair-screen" class="pair-screen" hidden>
     <div class="pair-card card">
-      <h1 class="pair-title">Mobile Console</h1>
+      <h1 class="pair-title">FanBox Mobile</h1>
       <p class="pair-sub">安全配对 · 仅局域网 · 一次一码</p>
+
+      <!-- 401 / 重新配对提示 -->
+      <div id="pair-notice" class="pair-notice" hidden></div>
+
+      <!-- 操作指引 -->
+      <ol class="pair-steps">
+        <li>在电脑端打开 FanBox，进入 <strong>Mobile Access</strong></li>
+        <li>点击 <strong>生成配对码</strong>，获取 6 位数字</li>
+        <li>确保手机与电脑在<strong>同一局域网 / Wi-Fi</strong></li>
+        <li>在下方输入设备名与配对码</li>
+      </ol>
+
+      <!-- LAN URL 显示 -->
+      <div id="pair-lan" class="pair-lan" hidden>
+        <span class="pair-lan-label">局域网地址</span>
+        <code id="pair-lan-url" class="pair-lan-url"></code>
+      </div>
+
       <label class="field-label">设备名</label>
       <input id="pair-device" class="field" type="text" placeholder="例如 My Phone" maxlength="60">
       <label class="field-label">配对码</label>
@@ -21,7 +39,7 @@
       <button id="pair-btn" class="btn-primary" type="button">配对</button>
       <div id="pair-msg" class="msg" role="status"></div>
     </div>
-    <p class="pair-foot">移动端通过 LAN + Token 安全访问 FanBox。Agent 命令直接执行，audit 写入本地日志。</p>
+    <p class="pair-foot">移动端通过局域网 + Token 安全访问 FanBox。Agent 命令直接在电脑端执行，所有操作写入本地审计日志。</p>
   </section>
 
   <!-- 主应用（配对成功后显示） -->
@@ -152,13 +170,19 @@
           <div class="cockpit" id="cockpit">
             <div class="cockpit-connection" id="c-connection">
               <span class="cockpit-status-dot" id="c-status-dot"></span>
-              <span class="cockpit-status-text" id="c-status-text">Connecting...</span>
+              <span class="cockpit-status-text" id="c-status-text">连接中...</span>
               <span class="cockpit-server-name" id="c-server-name"></span>
+            </div>
+
+            <!-- 权限摘要条 -->
+            <div class="cockpit-scopes" id="c-scopes-summary" hidden>
+              <span class="cockpit-scopes-label">当前权限</span>
+              <div class="cockpit-scopes-chips" id="c-scopes-chips"></div>
             </div>
 
             <div class="cockpit-section" id="c-section-desktop">
               <div class="cockpit-section-head">
-                <h3 class="cockpit-section-title">Running on Desktop</h3>
+                <h3 class="cockpit-section-title">电脑端运行中</h3>
                 <span class="cockpit-section-count" id="c-desktop-count">0</span>
               </div>
               <div class="cockpit-scroll" id="c-desktop-list"></div>
@@ -166,7 +190,7 @@
 
             <div class="cockpit-section" id="c-section-mobile">
               <div class="cockpit-section-head">
-                <h3 class="cockpit-section-title">My Mobile Tasks</h3>
+                <h3 class="cockpit-section-title">我的手机任务</h3>
                 <span class="cockpit-section-count" id="c-mobile-count">0</span>
               </div>
               <div class="cockpit-list" id="c-mobile-list"></div>
@@ -174,25 +198,25 @@
 
             <div class="cockpit-section" id="c-section-newtask">
               <div class="cockpit-section-head">
-                <h3 class="cockpit-section-title">New Task</h3>
+                <h3 class="cockpit-section-title">新建任务</h3>
               </div>
               <div class="newtask-form" id="newtask-form">
-                <label class="field-label">Project</label>
-                <select id="nt-project" class="field field-select"><option value="">Loading projects...</option></select>
+                <label class="field-label">项目</label>
+                <select id="nt-project" class="field field-select"><option value="">加载项目中...</option></select>
                 <label class="field-label">Agent</label>
                 <div class="nt-agents" id="nt-agents"></div>
-                <label class="field-label">Title</label>
-                <input id="nt-title" class="field" type="text" placeholder="Task title (optional)" maxlength="80">
-                <label class="field-label">What to do</label>
-                <textarea id="nt-message" class="field field-textarea" rows="3" placeholder="Describe the task..." maxlength="2000"></textarea>
-                <button id="nt-create" class="btn-primary btn-block" type="button">Create Draft</button>
+                <label class="field-label">标题</label>
+                <input id="nt-title" class="field" type="text" placeholder="任务标题（可选）" maxlength="80">
+                <label class="field-label">任务描述</label>
+                <textarea id="nt-message" class="field field-textarea" rows="3" placeholder="描述你要做什么..." maxlength="2000"></textarea>
+                <button id="nt-create" class="btn-primary btn-block" type="button">创建草稿</button>
                 <div id="nt-msg" class="msg" role="status"></div>
               </div>
             </div>
 
             <div class="cockpit-section" id="c-section-approvals" hidden>
               <div class="cockpit-section-head">
-                <h3 class="cockpit-section-title">Pending Approvals</h3>
+                <h3 class="cockpit-section-title">待审批</h3>
                 <span class="cockpit-section-count badge-warn" id="c-approvals-count">0</span>
               </div>
               <div class="cockpit-list" id="c-approvals-list"></div>
@@ -200,14 +224,14 @@
 
             <div class="cockpit-section" id="c-section-files">
               <div class="cockpit-section-head">
-                <h3 class="cockpit-section-title">Recent Files</h3>
+                <h3 class="cockpit-section-title">最近文件</h3>
               </div>
               <div class="cockpit-list cockpit-list-compact" id="c-recent-files"></div>
             </div>
 
             <div class="cockpit-section" id="c-section-usage">
               <div class="cockpit-section-head">
-                <h3 class="cockpit-section-title">Usage</h3>
+                <h3 class="cockpit-section-title">使用统计</h3>
               </div>
               <div class="cockpit-usage" id="c-usage"></div>
             </div>
@@ -233,14 +257,14 @@
             </div>
             <div class="detail-timeline" id="d-timeline"></div>
             <div class="detail-composer" id="d-composer" hidden>
-              <textarea id="d-input" class="field field-textarea detail-input" rows="2" placeholder="Type a follow-up message..." maxlength="4000"></textarea>
+              <textarea id="d-input" class="field field-textarea detail-input" rows="2" placeholder="输入 follow-up 消息..." maxlength="4000"></textarea>
               <div class="detail-composer-foot">
                 <span id="d-composer-hint" class="detail-composer-hint"></span>
-                <button id="d-send" class="btn-primary detail-send-btn" type="button" disabled>Send</button>
+                <button id="d-send" class="btn-primary detail-send-btn" type="button" disabled>发送</button>
               </div>
             </div>
             <div class="detail-start-zone" id="d-start-zone" hidden>
-              <button id="d-start" class="btn-primary btn-block btn-start" type="button">Start Agent</button>
+              <button id="d-start" class="btn-primary btn-block btn-start" type="button">启动 Agent</button>
               <div id="d-start-hint" class="detail-composer-hint"></div>
             </div>
           </div>
@@ -418,7 +442,7 @@
             </div>
             <button id="files-open-agent" class="files-cwd-bar-cta" type="button" disabled>
               <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2L4 13h6l-1 7 7-11h-6l1-7z"/></svg>
-              <span>从当前文件夹与 AI 对话</span>
+              <span>设为工作目录</span>
             </button>
           </div>
 

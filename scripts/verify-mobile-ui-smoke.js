@@ -518,6 +518,60 @@ async function main() {
   ok('CSS has safety styles', cssContent.includes('.safety') || cssContent.includes('[data-view="safety"]'), 'missing safety CSS');
   ok('CSS has projects styles', cssContent.includes('.projects') || cssContent.includes('[data-view="projects"]'), 'missing projects CSS');
 
+  // ============================================================
+  section('UX-Polish: Productized mobile experience');
+  // ============================================================
+  // 1. Home 主行动按钮存在
+  ok('UX1. Home has main action button (创建草稿)', htmlRes.body.includes('nt-create') && htmlRes.body.includes('创建草稿'), 'missing main action button');
+
+  // 2. 状态 badge 存在
+  ok('UX2. Home has status badge (c-status-dot + c-status-text)', htmlRes.body.includes('c-status-dot') && htmlRes.body.includes('c-status-text'), 'missing status badge');
+
+  // 3. Detail timeline event class 存在
+  ok('UX3. CSS has .tl-event class for timeline events', cssContent.includes('.tl-event'), 'missing tl-event class');
+
+  // 4. follow-up disabled reason 可见 (composer hint element exists in JS)
+  ok('UX4. JS renders follow-up disabled reason (d-composer-hint)', jsContent.includes('d-composer-hint') && /disabled|reason|hint/i.test(jsContent), 'missing disabled reason');
+
+  // 5. Safety 权限文案是人话 (Chinese human-readable scope labels)
+  ok('UX5a. Safety scope label: 查看状态', jsContent.includes('查看状态'), 'missing human-readable read:status label');
+  ok('UX5b. Safety scope label: 查看文件', jsContent.includes('查看文件'), 'missing human-readable read:files label');
+  ok('UX5c. Safety scope label: 继续输入 (desktop_control)', jsContent.includes('继续输入'), 'missing human-readable desktop_control label');
+  ok('UX5d. Safety scope label: 启动任务 (session:start)', jsContent.includes('启动任务'), 'missing human-readable session:start label');
+
+  // 6. audit 不显示 token/tokenHash/initialMessage/follow-up 原文
+  ok('UX6a. JS Safety does not render tokenHash in audit', !/audit.*tokenHash|safety-audit.*token/i.test(jsContent), 'audit may leak token');
+  ok('UX6b. Audit API does not leak initialMessage text', auditData && !/"initialMessage"\s*:\s*"/.test(JSON.stringify(auditData)), 'audit leaks initialMessage text');
+  ok('UX6c. Audit API does not leak raw follow-up input', auditData && !/raw_input|rawInput|inputPreview/i.test(JSON.stringify(auditData)), 'audit leaks raw input');
+
+  // 7. Projects riskFlags 转换成用户可理解文案
+  ok('UX7. JS has riskFlagLabel helper for human-readable risk flags', jsContent.includes('riskFlagLabel') || jsContent.includes('riskFlagText'), 'missing riskFlag label helper');
+
+  // 8. Files preview 不横向溢出 (CSS overflow guard)
+  ok('UX8. CSS has files-preview-body overflow guard', cssContent.includes('.files-preview-body') && /overflow/i.test(cssContent), 'missing files preview overflow guard');
+
+  // 9. Pairing screen 文案存在
+  ok('UX9a. Pairing screen has FanBox Mobile title', htmlRes.body.includes('FanBox Mobile'), 'missing pairing title');
+  ok('UX9b. Pairing screen has 安全配对 subtitle', htmlRes.body.includes('安全配对'), 'missing pairing subtitle');
+  ok('UX9c. Pairing screen has pair-steps guide', htmlRes.body.includes('pair-steps'), 'missing pairing steps');
+
+  // 10. 401 重新配对提示存在
+  ok('UX10a. JS has 401 re-pair notice (登录已失效 or 重新配对)', jsContent.includes('登录已失效') || jsContent.includes('重新配对'), 'missing 401 re-pair notice');
+  ok('UX10b. HTML has pair-notice element for 401 message', htmlRes.body.includes('pair-notice'), 'missing pair-notice element');
+
+  // 11. 390×844 无横向溢出 (CSS has overflow-x hidden + responsive media query)
+  ok('UX11a. CSS has overflow-x: hidden on body/html', /overflow-x:\s*hidden/i.test(cssContent), 'missing overflow-x hidden');
+  ok('UX11b. CSS has responsive media query for mobile width', /@media\s*\(\s*max-width/i.test(cssContent), 'missing responsive media query');
+
+  // 12. Home scopes summary exists (cockpit-scopes)
+  ok('UX12. Home has scopes summary element (c-scopes-summary)', htmlRes.body.includes('c-scopes-summary'), 'missing scopes summary');
+
+  // 13. Timeline event type icons exist in JS (input_sent, agent_started, etc.)
+  ok('UX13. JS has timeline event icon for input_sent (📱 follow-up)', /input_sent.*📱|📱.*follow-up|你从手机发送/.test(jsContent), 'missing input_sent icon');
+
+  // 14. Pairing screen has LAN URL display element
+  ok('UX14. HTML has pair-lan element for LAN URL display', htmlRes.body.includes('pair-lan'), 'missing pair-lan element');
+
 
   // ============================================================
   console.log('\n===== Mobile UI Smoke Test =====');

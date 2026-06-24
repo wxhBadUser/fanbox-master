@@ -416,7 +416,7 @@ async function api (path, opts = {}) {
   });
   if (r.status === 401) {
     clearToken();
-    showPair();
+    showPair("登录已失效，请重新配对");
     return null;
   }
   if (!r.ok) {
@@ -559,7 +559,7 @@ function wirePairing () {
 async function restoreToken () {
   try {
     const data = await api("/api/mobile/info");
-    if (!data) { showPair(); return; }
+    if (!data) { return; }
     localStorage.setItem(DEVICE_KEY, data.deviceName || "");
     S.deviceName = data.deviceName || "";
     showApp();
@@ -601,11 +601,37 @@ async function doPair () {
   }
 }
 
-function showPair () {
+function showPair (notice) {
   $("pair-screen").hidden = false;
   $("app").hidden = true;
   // clear any stale token
   S.token = null;
+  // show 401 / re-pair notice
+  const noticeEl = $("pair-notice");
+  if (noticeEl) {
+    if (notice) {
+      noticeEl.hidden = false;
+      noticeEl.textContent = notice;
+      noticeEl.className = "pair-notice pair-notice-warn";
+    } else {
+      noticeEl.hidden = true;
+      noticeEl.textContent = "";
+    }
+  }
+  // try to fetch LAN URL from public info endpoint
+  fetch("/api/mobile/info").then(r => r.ok ? r.json() : null).then(d => {
+    const lanEl = $("pair-lan");
+    const urlEl = $("pair-lan-url");
+    if (d && d.server && d.server.primaryLanUrl && lanEl && urlEl) {
+      urlEl.textContent = d.server.primaryLanUrl;
+      lanEl.hidden = false;
+    } else if (lanEl) {
+      lanEl.hidden = true;
+    }
+  }).catch(() => {
+    const lanEl = $("pair-lan");
+    if (lanEl) lanEl.hidden = true;
+  });
 }
 
 /* =========================================================
@@ -1839,13 +1865,19 @@ function normalizeFiles (arr) {
 function renderFilesError (err) {
   const msg = (err && err.message) ? String(err.message) : '加载失败';
   let hint = msg;
+  let title = "加载失败";
   // 401 → 已被 api() 拦截 clearToken + showPair，此分支实际不会触发
   if (/403/.test(msg) || /path_not_allowed|forbidden_path/.test(msg)) {
-    hint = "无权限访问该路径";
+    title = "无法访问";
+    hint = "该文件或目录不在可访问范围内，出于安全考虑已被限制";
   } else if (/404|not_found/.test(msg)) {
-    hint = "路径不存在";
+    title = "路径不存在";
+    hint = "该文件或目录可能已被移动或删除";
+  } else if (/network|fetch|ECONNREFUSED/.test(msg)) {
+    title = "网络错误";
+    hint = "无法连接到电脑端，请检查局域网连接";
   }
-  return `<div class="files-empty"><div class="files-empty-strong">加载失败</div><div class="files-empty-hint">${htmlEscape(hint)}</div></div>`;
+  return `<div class="files-empty"><div class="files-empty-strong">${htmlEscape(title)}</div><div class="files-empty-hint">${htmlEscape(hint)}</div></div>`;
 }
 
 /** 渲染文件列表。
@@ -3043,7 +3075,7 @@ const UI1A = (() => {
     });
     if (r.status === 401) {
       clearToken();
-      showPair();
+      showPair("登录已失效，请重新配对");
       throw new Error("unauthorized");
     }
     if (!r.ok) {
@@ -3156,26 +3188,25 @@ const UI1A = (() => {
     if (scopesEl) {
       scopesEl.innerHTML = "";
       const allScopes = [
-        { id: "read:status", label: "读取状态", desc: "查看 Home/Dashboard" },
-        { id: "read:files", label: "读取文件", desc: "浏览 Files" },
-        { id: "desktop_control", label: "桌面控制", desc: "向桌面 Agent 发送 follow-up" },
-        { id: "session:start", label: "启动会话", desc: "启动 draft Agent" },
+        { id: "read:status", label: "查看状态", desc: "查看首页和电脑状态" },
+        { id: "read:files", label: "查看文件", desc: "浏览电脑上的文件" },
+        { id: "desktop_control", label: "继续输入", desc: "允许手机继续给电脑端 Agent 发消息" },
+        { id: "session:start", label: "启动任务", desc: "允许手机启动新的 Agent 任务" },
       ];
       for (const sc of allScopes) {
         const has = scopes.includes(sc.id);
         const pill = el("div", { class: "scope-pill" + (has ? " scope-pill-on" : " scope-pill-off") }, [
           el("span", { class: "scope-pill-dot" }),
           el("span", { class: "scope-pill-label" }, { text: sc.label }),
-          el("span", { class: "scope-pill-id safety-mono" }, { text: sc.id }),
           el("span", { class: "scope-pill-desc" }, { text: has ? "已授权" : "未授权 · " + sc.desc }),
         ]);
         scopesEl.appendChild(pill);
       }
       if (!scopes.includes("desktop_control")) {
-        scopesEl.appendChild(el("div", { class: "safety-warn" }, { text: "⚠ 没有 desktop_control 权限，无法发送 follow-up" }));
+        scopesEl.appendChild(el("div", { class: "safety-warn" }, { text: "⚠ 没有「继续输入」权限，无法给电脑端 Agent 发消息" }));
       }
       if (!scopes.includes("session:start")) {
-        scopesEl.appendChild(el("div", { class: "safety-warn" }, { text: "⚠ 没有 session:start 权限，无法启动 draft" }));
+        scopesEl.appendChild(el("div", { class: "safety-warn" }, { text: "⚠ 没有「启动任务」权限，无法启动新任务" }));
       }
     }
 
@@ -3186,18 +3217,25 @@ const UI1A = (() => {
       const ps = CS.safetyPairStatus || {};
       const info = CS.safetyInfo || {};
       const sInfo = info.server || {};
-      const cInfo = info.connection || {};
       pairEl.appendChild(el("div", { class: "safety-row" }, [
         el("span", { class: "safety-row-label" }, { text: "配对码状态" }),
         el("span", { class: "safety-row-val" + (ps.pairing ? " safety-ok" : " safety-muted") }, { text: ps.pairing ? "配对中（可接受新设备）" : "未开放配对" }),
       ]));
+      const lanUrl = sInfo.hostname ? `http://${sInfo.hostname}:4580` : "";
+      const lanRow = el("div", { class: "safety-row" }, [
+        el("span", { class: "safety-row-label" }, { text: "局域网地址" }),
+        el("span", { class: "safety-row-val safety-mono" }, { text: lanUrl || "—" }),
+      ]);
+      if (lanUrl) {
+        const copyBtn = el("button", { class: "safety-copy-btn", type: "button", "aria-label": "复制地址", onclick: () => {
+          try { navigator.clipboard.writeText(lanUrl); } catch (_) {}
+        } }, { text: "复制" });
+        lanRow.appendChild(copyBtn);
+      }
+      pairEl.appendChild(lanRow);
       pairEl.appendChild(el("div", { class: "safety-row" }, [
-        el("span", { class: "safety-row-label" }, { text: "LAN URL" }),
-        el("span", { class: "safety-row-val safety-mono" }, { text: sInfo.hostname ? `http://${sInfo.hostname}:4580` : "—" }),
-      ]));
-      pairEl.appendChild(el("div", { class: "safety-row" }, [
-        el("span", { class: "safety-row-label" }, { text: "传输方式" }),
-        el("span", { class: "safety-row-val" }, { text: cInfo.transport || "http+sse" }),
+        el("span", { class: "safety-row-label" }, { text: "连接方式" }),
+        el("span", { class: "safety-row-val" }, { text: "局域网直连" }),
       ]));
       pairEl.appendChild(el("div", { class: "safety-row" }, [
         el("span", { class: "safety-row-label" }, { text: "运行时长" }),
@@ -3213,21 +3251,27 @@ const UI1A = (() => {
       if (devs.length === 0) {
         devEl.innerHTML = `<div class="safety-empty">暂无配对设备</div>`;
       } else {
+        const scopeLabels = {
+          "read:status": "查看状态",
+          "read:files": "查看文件",
+          "desktop_control": "继续输入",
+          "session:start": "启动任务",
+        };
         for (const d of devs) {
+          const scopeText = (d.scopes || []).map(s => scopeLabels[s] || s).join("、") || "—";
           const card = el("div", { class: "safety-device-card" + (d.isCurrent ? " is-current" : ""), role: "listitem" }, [
             el("div", { class: "safety-device-head" }, [
               el("span", { class: "safety-device-name" }, { text: d.deviceName || "未知设备" }),
               d.isCurrent ? el("span", { class: "safety-device-tag" }, { text: "当前" }) : null,
               d.revoked ? el("span", { class: "safety-device-tag safety-device-tag-off" }, { text: "已撤销" }) : null,
             ]),
-            el("div", { class: "safety-device-meta safety-mono" }, { text: (d.deviceId || "").substring(0, 16) + "…" }),
             el("div", { class: "safety-device-meta" }, [
               el("span", {}, { text: "配对于 " + (d.pairedAt ? shortTime(d.pairedAt) : "—") }),
               el("span", {}, { text: " · 最后活跃 " + (d.lastActiveAt ? shortTime(d.lastActiveAt) : "—") }),
             ]),
             el("div", { class: "safety-device-scopes" }, [
-              el("span", { class: "safety-device-scopes-label" }, { text: "Scopes: " }),
-              el("span", { class: "safety-mono" }, { text: (d.scopes || []).join(", ") || "—" }),
+              el("span", { class: "safety-device-scopes-label" }, { text: "权限：" }),
+              el("span", {}, { text: scopeText }),
             ]),
           ]);
           devEl.appendChild(card);
@@ -3243,13 +3287,23 @@ const UI1A = (() => {
       if (items.length === 0) {
         audEl.innerHTML = `<div class="safety-empty">暂无审计记录</div>`;
       } else {
+        const actionLabels = {
+          "desktop_agent.input.accepted": "发送输入",
+          "desktop_agent.input.rate_limited": "输入被限流",
+          "mobile_session.draft.created": "创建草稿",
+          "mobile_session.start.accepted": "启动任务",
+          "mobile_session.start.completed": "任务完成",
+          "mobile_session.start.rejected": "启动被拒",
+          "pair.confirmed": "设备配对",
+        };
         for (const a of items) {
+          const actionLabel = actionLabels[a.action] || a.action || "操作";
           const row = el("div", { class: "audit-row", role: "listitem" }, [
             el("div", { class: "audit-row-head" }, [
-              el("span", { class: "audit-row-action" }, { text: a.action || "—" }),
+              el("span", { class: "audit-row-action" }, { text: actionLabel }),
               el("span", { class: "audit-row-time" }, { text: a.timestamp ? shortTime(a.timestamp) : "—" }),
             ]),
-            el("div", { class: "audit-row-meta safety-mono" }, { text: auditMetaSummary(a) }),
+            el("div", { class: "audit-row-meta" }, { text: auditMetaSummary(a) }),
           ]);
           audEl.appendChild(row);
         }
@@ -3259,12 +3313,13 @@ const UI1A = (() => {
 
   function auditMetaSummary (a) {
     const parts = [];
-    if (a.deviceId) parts.push("dev:" + String(a.deviceId).substring(0, 8));
-    if (a.agentId) parts.push("agent:" + a.agentId);
-    if (a.sessionId) parts.push("session:" + String(a.sessionId).substring(0, 8));
-    if (a.inputLen != null) parts.push("len:" + a.inputLen);
-    if (a.cwdLabel) parts.push("cwd:" + a.cwdLabel);
-    return parts.join(" · ") || "(no meta)";
+    if (a.deviceName) parts.push("设备：" + a.deviceName);
+    else if (a.deviceId) parts.push("设备：" + String(a.deviceId).substring(0, 8));
+    if (a.agentId) parts.push("Agent：" + a.agentId);
+    if (a.cwdLabel) parts.push("目录：" + a.cwdLabel);
+    if (a.inputLen != null) parts.push("输入 " + a.inputLen + " 字符");
+    if (a.initialMessageLength != null) parts.push("消息 " + a.initialMessageLength + " 字符");
+    return parts.join(" · ") || "（无附加信息）";
   }
 
   /* ---- UI1B: Projects page renderer ---- */
@@ -3274,12 +3329,31 @@ const UI1A = (() => {
     listEl.innerHTML = "";
     const projects = CS.projects || [];
     if (projects.length === 0) {
-      listEl.innerHTML = `<div class="projects-empty"><div class="projects-empty-strong">暂无项目</div><div class="projects-empty-p">在电脑端打开一个工作目录，或通过 Files 进入一个文件夹</div></div>`;
+      listEl.innerHTML = `<div class="projects-empty"><div class="projects-empty-strong">暂无项目</div><div class="projects-empty-p">在电脑端用 Claude/Codex 打开一个项目文件夹，或通过 Files 进入一个文件夹</div></div>`;
       return;
     }
     for (const p of projects) {
       listEl.appendChild(renderContractProjectCard(p));
     }
+  }
+
+  function riskFlagLabel (r) {
+    const map = {
+      "cwd_outside_roots": "目录不在允许范围",
+      "cwd_forbidden": "目录被禁止访问",
+      "agent_unavailable": "Agent 不可用",
+      "cwd_not_allowed": "目录不可访问",
+    };
+    return map[r] || r;
+  }
+
+  function sourceLabel (s) {
+    const map = {
+      "desktop-terminal": "桌面终端",
+      "mobile-draft": "手机创建",
+      "manual": "手动添加",
+    };
+    return map[s] || s || "—";
   }
 
   function renderContractProjectCard (p) {
@@ -3288,8 +3362,8 @@ const UI1A = (() => {
     const agents = Array.isArray(p.agentIds) ? p.agentIds : [];
     const agentLabels = agents.map(a => agentLabelById(a)).filter(Boolean);
     const summary = [];
-    if (typeof p.sessionCount === "number") summary.push(`${p.sessionCount} sessions`);
-    if (p.lastActiveAt) summary.push(`Last ${shortTime(p.lastActiveAt)}`);
+    if (typeof p.sessionCount === "number") summary.push(`${p.sessionCount} 个会话`);
+    if (p.lastActiveAt) summary.push("最近 " + shortTime(p.lastActiveAt));
     if (p.latestSessionTitle) summary.push(p.latestSessionTitle);
 
     const card = el("div", { class: "proj-card" + (canStart ? "" : " proj-card-locked"), role: "listitem", "data-project-id": p.id || p.cwd }, [
@@ -3302,17 +3376,17 @@ const UI1A = (() => {
         ]),
       ]),
       el("div", { class: "proj-card-tags" }, [
-        el("span", { class: "proj-tag proj-tag-source" }, { text: p.source || "—" }),
+        el("span", { class: "proj-tag proj-tag-source" }, { text: sourceLabel(p.source) }),
         canStart
           ? el("span", { class: "proj-tag proj-tag-ok" }, { text: "可创建会话" })
           : el("span", { class: "proj-tag proj-tag-off" }, { text: "不可创建" }),
-        ...risks.map(r => el("span", { class: "proj-tag proj-tag-risk" }, { text: r })),
+        ...risks.map(r => el("span", { class: "proj-tag proj-tag-risk" }, { text: riskFlagLabel(r) })),
         ...agentLabels.map(l => el("span", { class: "proj-tag proj-tag-agent" }, { text: l })),
       ]),
       el("div", { class: "proj-card-actions" }, [
         canStart
           ? el("button", { class: "proj-card-btn proj-card-btn-new", type: "button", onclick: () => createDraftFromProject(p) }, { text: "新建任务" })
-          : el("span", { class: "proj-card-btn proj-card-btn-disabled" }, { text: p.reason || "cwd 不在 allowed roots" }),
+          : el("span", { class: "proj-card-btn proj-card-btn-disabled" }, { text: p.reason === "cwd_not_allowed" ? "该目录不在可访问范围" : (p.reason || "无法创建会话") }),
       ]),
     ]);
     return card;
@@ -3409,22 +3483,48 @@ const UI1A = (() => {
     if (!box) return;
     box.innerHTML = "";
     const st = CS.appState;
-    let connClass = "is-offline", connText = "Offline", serverName = "";
+    let connClass = "is-offline", connText = "离线", serverName = "";
     if (st) {
       connClass = "is-online";
-      connText = "Connected";
+      connText = "已连接";
       serverName = (st.server && st.server.hostname) || "";
     } else if (CS.errors.appState) {
       connClass = "is-offline";
-      connText = "Disconnected";
+      connText = "连接断开";
     } else {
       connClass = "is-connecting";
-      connText = "Connecting...";
+      connText = "连接中...";
     }
     box.appendChild(el("span", { class: `cockpit-status-dot ${connClass}` }));
     box.appendChild(el("span", { class: "cockpit-status-text", text: connText }));
     if (serverName) {
       box.appendChild(el("span", { class: "cockpit-server-name", text: serverName }));
+    }
+    // render scopes summary
+    renderScopesSummary();
+  }
+
+  /* ---- RENDER: Scopes Summary (Home top bar) ---- */
+  function renderScopesSummary () {
+    const box = $c("c-scopes-summary");
+    const chips = $c("c-scopes-chips");
+    if (!box || !chips) return;
+    const st = CS.appState || {};
+    const scopes = (st.auth && st.auth.scopes) || [];
+    if (scopes.length === 0) { box.hidden = true; return; }
+    box.hidden = false;
+    chips.innerHTML = "";
+    const scopeMap = {
+      "read:status": { label: "查看状态", cls: "scope-chip-on" },
+      "read:files": { label: "查看文件", cls: "scope-chip-on" },
+      "desktop_control": { label: "继续输入", cls: "scope-chip-on" },
+      "session:start": { label: "启动任务", cls: "scope-chip-on" },
+    };
+    for (const sc of ["read:status", "read:files", "desktop_control", "session:start"]) {
+      const has = scopes.includes(sc);
+      const info = scopeMap[sc] || { label: sc, cls: "" };
+      const chip = el("span", { class: "scope-chip " + (has ? "scope-chip-on" : "scope-chip-off") }, { text: info.label });
+      chips.appendChild(chip);
     }
   }
 
@@ -3448,7 +3548,7 @@ const UI1A = (() => {
     if (count) count.textContent = agents.length;
 
     if (agents.length === 0) {
-      box.appendChild(el("div", { class: "cockpit-empty", style: "width:100%;margin:0;" }, { text: "暂无桌面端 Agent" }));
+      box.appendChild(el("div", { class: "cockpit-empty", style: "width:100%;margin:0;" }, { text: "暂无桌面端 Agent · 在电脑端启动 Claude/Codex 终端即可看到" }));
       return;
     }
 
@@ -3466,8 +3566,8 @@ const UI1A = (() => {
       }
       const blockedReason = getFollowupBlockedReason(a);
       const followup = a.canSendFollowup
-        ? el("div", { class: "desk-card-followup is-yes", text: "✓ 可发送 follow-up" })
-        : el("div", { class: "desk-card-followup is-no", text: blockedReason || "无 follow-up 权限" });
+        ? el("div", { class: "desk-card-followup is-yes", text: "✓ 可继续输入" })
+        : el("div", { class: "desk-card-followup is-no", text: blockedReason || "无继续输入权限" });
       card.appendChild(followup);
       box.appendChild(card);
     });
@@ -3484,7 +3584,7 @@ const UI1A = (() => {
     if (count) count.textContent = sessions.length;
 
     if (sessions.length === 0) {
-      box.appendChild(el("div", { class: "cockpit-empty" }, { text: "暂无移动任务，从下方新建" }));
+      box.appendChild(el("div", { class: "cockpit-empty" }, { text: "暂无手机任务 · 从下方「新建任务」开始" }));
       return;
     }
 
@@ -3607,7 +3707,7 @@ const UI1A = (() => {
       box.appendChild(el("div", { class: "cockpit-empty" }, { text: "暂无最近文件" }));
       return;
     }
-    files.slice(0, 6).forEach(f => {
+    files.slice(0, 3).forEach(f => {
       const row = el("div", { class: "file-row", onclick: () => {
         localStorage.setItem(CWD_KEY, f.cwd || "");
         S.cwd = f.cwd || "";
@@ -3647,9 +3747,9 @@ const UI1A = (() => {
     box.innerHTML = "";
     const u = (CS.dashboard && CS.dashboard.usageSummary) || {};
     const stats = [
-      { val: (u.sessionsStarted || 0), label: "Tasks" },
-      { val: (u.commandsRun || 0), label: "Commands" },
-      { val: (u.totalDurationMin || 0) + "m", label: "Duration" },
+      { val: (u.sessionsStarted || 0), label: "任务数" },
+      { val: (u.commandsRun || 0), label: "命令数" },
+      { val: (u.totalDurationMin || 0) + "分", label: "总时长" },
     ];
     stats.forEach(s => {
       const d = el("div", { class: "usage-stat" });
@@ -3685,7 +3785,7 @@ const UI1A = (() => {
           el("span", { class: "tl-event-dot" }),
           el("span", { text: shortTime(ev.timestamp) || "" }),
         ]));
-        e.appendChild(el("div", { class: "tl-event-body", text: "🔒 此事件内容已安全裁剪" }));
+        e.appendChild(el("div", { class: "tl-event-body tl-redacted", text: "🔒 此事件内容已安全裁剪 · 仅保留时间戳" }));
         container.appendChild(e);
         return;
       }
@@ -3708,12 +3808,13 @@ const UI1A = (() => {
       }
 
       if (type === "input_sent") {
-        const e = el("div", { class: "tl-event" });
+        const e = el("div", { class: "tl-event is-user" });
         e.appendChild(el("div", { class: "tl-event-meta" }, [
           el("span", { class: "tl-event-dot" }),
-          el("span", { text: "Follow-up sent · " + shortTime(ev.timestamp) }),
+          el("span", { text: "📱 你从手机发送了 follow-up · " + shortTime(ev.timestamp) }),
         ]));
-        e.appendChild(el("div", { class: "tl-event-body", text: ev.text || ev.title || "" }));
+        const len = (ev.meta && ev.meta.inputLength) || 0;
+        e.appendChild(el("div", { class: "tl-event-body", text: len > 0 ? `（${len} 字符）` : "已送达" }));
         container.appendChild(e);
         return;
       }
@@ -3808,9 +3909,9 @@ const UI1A = (() => {
         const e = el("div", { class: "tl-event is-draft" });
         e.appendChild(el("div", { class: "tl-event-meta" }, [
           el("span", { class: "tl-event-dot" }),
-          el("span", { text: "会话已创建 · " + shortTime(ev.timestamp) }),
+          el("span", { text: "📝 草稿已创建 · " + shortTime(ev.timestamp) }),
         ]));
-        e.appendChild(el("div", { class: "tl-event-body", text: "任务 draft 已保存" }));
+        e.appendChild(el("div", { class: "tl-event-body", text: "任务草稿已保存，点击下方「启动 Agent」开始执行" }));
         container.appendChild(e);
         return;
       }
@@ -3819,7 +3920,7 @@ const UI1A = (() => {
         const e = el("div", { class: "tl-event is-draft" });
         e.appendChild(el("div", { class: "tl-event-meta" }, [
           el("span", { class: "tl-event-dot" }),
-          el("span", { text: "Draft 就绪 · " + shortTime(ev.timestamp) }),
+          el("span", { text: "✓ 草稿就绪 · " + shortTime(ev.timestamp) }),
         ]));
         e.appendChild(el("div", { class: "tl-event-body", text: "可以启动 Agent 了" }));
         container.appendChild(e);
@@ -3830,7 +3931,7 @@ const UI1A = (() => {
         const e = el("div", { class: "tl-event is-running" });
         e.appendChild(el("div", { class: "tl-event-meta" }, [
           el("span", { class: "tl-event-dot" }),
-          el("span", { text: "启动请求已发送 · " + shortTime(ev.timestamp) }),
+          el("span", { text: "⏳ 启动请求已发送 · " + shortTime(ev.timestamp) }),
         ]));
         container.appendChild(e);
         return;
@@ -3840,21 +3941,22 @@ const UI1A = (() => {
         const e = el("div", { class: "tl-event is-running" });
         e.appendChild(el("div", { class: "tl-event-meta" }, [
           el("span", { class: "tl-event-dot" }),
-          el("span", { text: "Agent 已启动 · " + shortTime(ev.timestamp) }),
+          el("span", { text: "▶️ Agent 已启动 · " + shortTime(ev.timestamp) }),
         ]));
-        if (ev.pid) e.appendChild(el("div", { class: "tl-event-body", text: `PID: ${ev.pid}` }));
         container.appendChild(e);
         return;
       }
 
       if (type === "agent_completed") {
-        const e = el("div", { class: "tl-event is-success" });
+        const exitCode = (ev.meta && ev.meta.exitCode) || 0;
+        const statCls = exitCode === 0 ? "is-success" : "is-error";
+        const e = el("div", { class: `tl-event ${statCls}` });
         e.appendChild(el("div", { class: "tl-event-meta" }, [
           el("span", { class: "tl-event-dot" }),
-          el("span", { text: "Agent 已完成 · " + shortTime(ev.timestamp) }),
+          el("span", { text: (exitCode === 0 ? "✅ " : "⚠️ ") + "Agent 已完成 · " + shortTime(ev.timestamp) }),
         ]));
-        if (ev.exitCode !== undefined && ev.exitCode !== null) {
-          e.appendChild(el("div", { class: "tl-event-body", text: `退出码: ${ev.exitCode}` }));
+        if (exitCode !== 0 && exitCode !== null && exitCode !== undefined) {
+          e.appendChild(el("div", { class: "tl-event-body", text: `退出码: ${exitCode}` }));
         }
         container.appendChild(e);
         return;
@@ -3864,9 +3966,9 @@ const UI1A = (() => {
         const e = el("div", { class: "tl-event is-error" });
         e.appendChild(el("div", { class: "tl-event-meta" }, [
           el("span", { class: "tl-event-dot" }),
-          el("span", { text: "启动失败 · " + shortTime(ev.timestamp) }),
+          el("span", { text: "❌ 启动失败 · " + shortTime(ev.timestamp) }),
         ]));
-        e.appendChild(el("div", { class: "tl-event-body", text: ev.reason || ev.error || "unknown error" }));
+        e.appendChild(el("div", { class: "tl-event-body", text: ev.reason || ev.error || "未知错误" }));
         container.appendChild(e);
         return;
       }
@@ -3926,10 +4028,10 @@ const UI1A = (() => {
     const hint = $c("d-composer-hint");
     if (input) {
       input.disabled = !canSend;
-      input.placeholder = canSend ? "发送 follow-up 消息..." : (info.followupBlockedReason || "无 follow-up 权限");
+      input.placeholder = canSend ? "输入 follow-up 消息..." : (info.followupBlockedReason || "无继续输入权限");
     }
     if (sendBtn) sendBtn.disabled = !canSend;
-    if (hint) hint.textContent = canSend ? "" : (info.followupBlockedReason || getFollowupBlockedReason(info) || "当前设备未开启 desktop_control 权限");
+    if (hint) hint.textContent = canSend ? "消息将发送到电脑端 Agent" : (info.followupBlockedReason || getFollowupBlockedReason(info) || "当前设备未开启「继续输入」权限");
   }
 
   /* ---- RENDER: Mobile Session Detail ---- */
@@ -3982,7 +4084,7 @@ const UI1A = (() => {
 
     if (startBtn) {
       startBtn.disabled = !canStart;
-      startBtn.textContent = isFailed ? "重试启动" : "Start Agent";
+      startBtn.textContent = isFailed ? "重试启动" : "启动 Agent";
       startBtn.onclick = async () => {
         if (!confirm("确认启动 Agent？")) return;
         startBtn.disabled = true;
@@ -3995,15 +4097,17 @@ const UI1A = (() => {
         } catch (e) {
           alert("启动失败: " + e.message);
           startBtn.disabled = false;
-          startBtn.textContent = isFailed ? "重试启动" : "Start Agent";
+          startBtn.textContent = isFailed ? "重试启动" : "启动 Agent";
         }
       };
     }
     if (startHint) {
       if (isDraft && !hasStartScope) {
-        startHint.textContent = "当前设备没有 session:start 权限，请在电脑端授权";
+        startHint.textContent = "当前设备没有「启动任务」权限，请在电脑端授权 session:start";
       } else if (isFailed) {
         startHint.textContent = "上次启动失败，可以重试";
+      } else if (isDraft) {
+        startHint.textContent = "点击启动后，Agent 将在电脑端执行任务";
       } else {
         startHint.textContent = "";
       }
