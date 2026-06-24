@@ -21,6 +21,8 @@ const fs = require('fs');
 // Phase 2A-1：session 汇总 + mobile 偏好读写
 const mobileSessions = require('./mobile-sessions');
 const mobileAgentRunner = require('./mobile-agent-runner');
+// R2: Desktop project memory scanner — reads ~/.claude/projects/ + ~/.codex/sessions/
+const projectMemory = require('./project-memory');
 
 // ---------- 路径 ----------
 
@@ -2883,42 +2885,9 @@ async function handleMobileApiV2(req, res, url) {
         seenCwds.add(key);
       }
 
-      // 4) Add root directories from mobileAllowedRoots() that aren't already in the list
-      const roots = mobileAllowedRoots();
-      const fallback = [];
-      for (const r of roots) {
-        let rPath, rName;
-        if (r && typeof r === 'object') { rPath = r.path || ''; rName = r.name || ''; }
-        else { rPath = String(r || ''); rName = ''; }
-        if (!rPath) continue;
-        if (isForbiddenPath(rPath)) continue;
-        const key = rPath.replace(/\\/g, '/').toLowerCase();
-        if (seenCwds.has(key)) continue;
-        seenCwds.add(key);
-        let label;
-        try { label = rName || path.basename(rPath); } catch (_e) { label = rName || rPath; }
-        const assessment = assessProjectCwd(rPath);
-        const item = {
-          id: safeProjectId(rPath, 'root'),
-          name: label,
-          cwd: rPath,
-          cwdLabel: label,
-          source: 'root',
-          agents: [],
-          agentIds: [],
-          lastActiveAt: 0,
-          sessionCount: 0,
-          latestSessionId: null,
-          latestSessionTitle: null,
-          latestMessagePreview: null,
-          statusSummary: { running: 0, done: 0, failed: 0 },
-          canCreateSession: assessment.canCreateSession,
-          reason: assessment.reason,
-          riskFlags: assessment.riskFlags
-        };
-        items.push(item);
-        fallback.push(item);
-      }
+      // R2: Step 4 (roots fallback) REMOVED — drive roots (C:/D:/E:/Downloads/Pictures)
+      // must NOT appear as projects. Only real desktop project memory from agent session
+      // logs is a valid project source. Use /api/mobile/project-memory for the correct list.
 
       // 5) Sort: creatable first, then by lastActiveAt desc
       items.sort((a, b) => {
@@ -2931,9 +2900,25 @@ async function handleMobileApiV2(req, res, url) {
       const recent30d = items.filter(i => i.lastActiveAt > 0 && (now - i.lastActiveAt) <= DAY30);
       const startable = items.filter(i => i.canCreateSession);
 
-      return sendJson(res, 200, { ok: true, items, groups: { recent7d, recent30d, fallback }, startableCount: startable.length, total: items.length });
+      return sendJson(res, 200, { ok: true, items, groups: { recent7d, recent30d, fallback: [] }, startableCount: startable.length, total: items.length });
     } catch (e) {
       return sendJson(res, 200, { ok: true, items: [], groups: { recent7d: [], recent30d: [], fallback: [] }, startableCount: 0, total: 0 });
+    }
+  }
+
+  // /api/mobile/project-memory —— R2: Desktop Project Memory Projection
+  // Returns real desktop project memory from ~/.claude/projects/ + ~/.codex/sessions/
+  // This is a READ-ONLY safe projection: no drive roots, no raw prompts, no tokens.
+  if (pathOnly === '/api/mobile/project-memory') {
+    const t = await requireMobileAuth(req, res); if (!t) return;
+    try {
+      const data = await projectMemory.scanProjectMemory({
+        isAllowedCwd: (cwd) => pathInAllowed(cwd),
+        isForbidden: (cwd) => isForbiddenPath(cwd),
+      });
+      return sendJson(res, 200, data);
+    } catch (e) {
+      return sendJson(res, 200, { ok: true, items: [] });
     }
   }
 

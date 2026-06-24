@@ -3847,7 +3847,8 @@ const UI1A = (() => {
     } else {
       CS.expandedProjects.add(projectId);
     }
-    renderSidebarProjects();
+    // R2: Use project memory sidebar renderer (not old renderSidebarProjects)
+    renderProjectMemorySidebar(CS.projectMemory || CS.projects || []);
   }
 
   function agentIcon (agentId) {
@@ -4819,6 +4820,270 @@ const UI1A = (() => {
     });
   }
 
+  /* ---- R2-Reframe: Desktop Project Memory Sync ---- */
+
+  // Defensive: detect drive root names (C:, D:, E:, etc.) — must NEVER appear as projects
+  function isDriveRoot (name) {
+    if (!name || typeof name !== 'string') return false;
+    const upper = name.toUpperCase().replace(/\\/g, '').replace(/:/g, '').trim();
+    // Single letter A-Z drive root
+    if (/^[A-Z]$/.test(upper)) return true;
+    // Common Windows folder roots that should not be projects
+    const driveRoots = ['C:', 'D:', 'E:', 'F:', 'G:', 'H:', 'I:', 'J:',
+      'DESKTOP', 'DOWNLOADS', 'DOCUMENTS', 'PICTURES', 'MUSIC', 'VIDEOS',
+      'HOME', 'USERPROFILE', 'APPDATA', 'PROGRAMFILES'];
+    return driveRoots.includes(upper);
+  }
+
+  // R2: Load desktop project memory from /api/mobile/project-memory
+  // This is the SAME source-of-truth as desktop sidebar (server.js agentProjects)
+  async function loadProjectMemory () {
+    const container = $c("sb-projects-list");
+    if (!container) return;
+    const emptyEl = $c("sb-pm-empty");
+    if (emptyEl) emptyEl.textContent = "加载项目记忆中...";
+    try {
+      const data = await cApi("/api/mobile/project-memory");
+      if (data && data.ok && Array.isArray(data.items)) {
+        // R2: Defensive filter — skip any drive roots even if backend somehow returns them
+        CS.projectMemory = data.items.filter(p => !isDriveRoot(p.name) && !isDriveRoot(p.cwdLabel));
+        // Also keep CS.projects for backward compat (old views)
+        CS.projects = CS.projectMemory;
+        renderProjectMemorySidebar(CS.projectMemory);
+        renderHomeProjectsList();
+      } else {
+        CS.projectMemory = [];
+        CS.projects = [];
+        if (emptyEl) emptyEl.textContent = "暂无项目记忆";
+      }
+    } catch (e) {
+      CS.projectMemory = [];
+      CS.projects = [];
+      if (emptyEl) emptyEl.textContent = "加载失败: " + (e.message || "未知错误");
+    }
+  }
+
+  // R2: Render project memory sidebar with expandable project rows + session rows
+  function renderProjectMemorySidebar (items) {
+    const list = $c("sb-projects-list");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!items || items.length === 0) {
+      list.appendChild(el("div", { class: "sidebar-project-memory-empty", text: "暂无项目记忆" }));
+      return;
+    }
+    for (const p of items) {
+      // R2: Defensive — skip drive roots
+      if (isDriveRoot(p.name) || isDriveRoot(p.cwdLabel)) continue;
+      const item = el("div", { class: "sidebar-project" });
+      const isExpanded = CS.expandedProjects.has(p.id);
+      const header = el("button", {
+        class: "sidebar-project-row sidebar-project-header",
+        'data-project-id': p.id,
+        onclick: () => expandProject(p.id)
+      });
+      header.appendChild(el("span", { class: `sidebar-project-caret ${isExpanded ? "is-expanded" : ""}`, text: "▸" }));
+      header.appendChild(el("span", { class: "sidebar-project-name", text: p.name || p.cwdLabel || p.cwd }));
+      header.appendChild(el("span", { class: "sidebar-project-meta", text: relTime(p.lastActiveAt) }));
+      item.appendChild(header);
+      if (isExpanded) {
+        const sessionsContainer = el("div", { class: "sidebar-project-sessions", id: `sb-sessions-${p.id}` });
+        // R2: Project memory items already include sessions — render them directly
+        const sessions = p.sessions || [];
+        if (sessions.length === 0) {
+          sessionsContainer.appendChild(el("div", { class: "sidebar-empty", text: "暂无 session" }));
+        } else {
+          for (const s of sessions) {
+            const row = el("button", {
+              class: "sidebar-session-row",
+              'data-session-id': s.id,
+              onclick: () => openChatSession(s.id, p.id)
+            });
+            row.appendChild(el("span", { class: "sidebar-session-icon", text: agentIcon(s.agentId) }));
+            row.appendChild(el("span", { class: "sidebar-session-title", text: s.title || s.agentId || "session" }));
+            row.appendChild(el("span", { class: `sidebar-session-status is-${s.status}`, text: sessionStatusLabel(s.status) }));
+            sessionsContainer.appendChild(row);
+          }
+        }
+        item.appendChild(sessionsContainer);
+      }
+      list.appendChild(item);
+    }
+  }
+
+  // R2: Expand/collapse project in sidebar (alias to toggleProjectExpanded)
+  function expandProject (projectId) {
+    toggleProjectExpanded(projectId);
+  }
+
+  // R2: Open chat session — ChatGPT-like chat detail
+  async function openChatSession (sessionId, projectId) {
+    CS.selected = { type: "session", id: sessionId, projectId };
+    stopHomePoll();
+    stopDetailPoll();
+    switchContractView("chat-pane");
+    renderChatEmptyState();
+    // Try to load session timeline
+    try {
+      const data = await cApi(`/api/mobile/sessions/${encodeURIComponent(sessionId)}/timeline`);
+      if (data && data.ok) {
+        renderChatSession(data);
+      } else {
+        renderChatEmptyState("无法加载 session");
+      }
+    } catch (e) {
+      renderChatEmptyState("加载失败: " + (e.message || ""));
+    }
+  }
+
+  // R2: Render chat session detail — messages + input
+  function renderChatSession (sessionData) {
+    const emptyEl = $c("chat-empty-state");
+    const sessionEl = $c("chat-session");
+    if (emptyEl) emptyEl.hidden = true;
+    if (sessionEl) sessionEl.hidden = false;
+
+    // Header
+    const titleEl = $c("chat-session-title");
+    const metaEl = $c("chat-session-meta");
+    if (titleEl) titleEl.textContent = sessionData.title || sessionData.name || "session";
+    if (metaEl) {
+      const parts = [];
+      if (sessionData.agentId) parts.push(sessionData.agentId);
+      if (sessionData.status) parts.push(sessionStatusLabel(sessionData.status));
+      if (sessionData.cwdLabel) parts.push(sessionData.cwdLabel);
+      metaEl.textContent = parts.join(" · ");
+    }
+
+    // Messages
+    const messagesEl = $c("chat-messages");
+    if (!messagesEl) return;
+    messagesEl.innerHTML = "";
+    const events = sessionData.events || [];
+    for (const ev of events) {
+      const msg = renderChatMessage(ev);
+      if (msg) messagesEl.appendChild(msg);
+    }
+    // Scroll to bottom
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    // Input zone
+    renderChatInput(sessionData);
+  }
+
+  // R2: Render a single chat message from timeline event
+  function renderChatMessage (ev) {
+    if (!ev || !ev.type) return null;
+    let cls = "chat-message";
+    let text = ev.text || "";
+    if (ev.type === "user_message" || ev.type === "input_sent") {
+      cls += " is-user";
+    } else if (ev.type === "agent_message" || ev.type === "agent_response") {
+      cls += " is-agent";
+    } else if (ev.type === "output_tail" || ev.type === "tool_output") {
+      cls += " is-output";
+    } else {
+      cls += " is-system";
+    }
+    const msg = el("div", { class: cls });
+    msg.appendChild(el("div", { text: text }));
+    if (ev.timestamp) {
+      msg.appendChild(el("div", { class: "chat-message-meta", text: new Date(ev.timestamp).toLocaleTimeString() }));
+    }
+    return msg;
+  }
+
+  // R2: Render chat input zone (follow-up or start)
+  function renderChatInput (sessionData) {
+    const inputZone = $c("chat-input-zone");
+    const startZone = $c("chat-start-zone");
+    const hintEl = $c("chat-followup-hint");
+    const sendBtn = $c("chat-followup-send");
+    const inputEl = $c("chat-followup-input");
+
+    const status = sessionData.status || "idle";
+    const scopes = (CS.appState && CS.appState.auth && CS.appState.auth.scopes) || [];
+    const hasDesktopControl = scopes.includes("desktop_control");
+    const hasSessionStart = scopes.includes("session:start");
+
+    if (status === "draft") {
+      // Draft session — show Start button
+      if (inputZone) inputZone.hidden = true;
+      if (startZone) startZone.hidden = false;
+      const startBtn = $c("chat-start-btn");
+      const startHint = $c("chat-start-hint");
+      if (startBtn) {
+        startBtn.disabled = !hasSessionStart;
+        startBtn.onclick = async () => {
+          try {
+            const r = await cApi(`/api/mobile/sessions/${encodeURIComponent(sessionData.id || sessionData.sessionId)}/start`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ confirm: true })
+            });
+            if (r && r.ok) {
+              openChatSession(sessionData.id || sessionData.sessionId, CS.selected && CS.selected.projectId);
+            }
+          } catch (e) { /* ignore */ }
+        };
+      }
+      if (startHint) {
+        startHint.textContent = hasSessionStart ? "可以启动 Agent" : "需要 启动任务 权限";
+      }
+    } else {
+      // Active/done/failed session — show follow-up input
+      if (inputZone) inputZone.hidden = false;
+      if (startZone) startZone.hidden = true;
+      const canSend = hasDesktopControl && (status === "running" || status === "idle");
+      if (sendBtn) sendBtn.disabled = !canSend;
+      if (inputEl) inputEl.disabled = !canSend;
+      if (hintEl) {
+        if (!hasDesktopControl) {
+          hintEl.textContent = "需要 继续输入 权限";
+        } else if (status !== "running" && status !== "idle") {
+          hintEl.textContent = `Session 状态: ${sessionStatusLabel(status)}`;
+        } else {
+          hintEl.textContent = "";
+        }
+      }
+    }
+  }
+
+  // R2: Render chat empty state
+  function renderChatEmptyState (errorMsg) {
+    const emptyEl = $c("chat-empty-state");
+    const sessionEl = $c("chat-session");
+    if (emptyEl) emptyEl.hidden = false;
+    if (sessionEl) sessionEl.hidden = true;
+
+    const titleEl = $c("chat-empty-title");
+    const subEl = $c("chat-empty-sub");
+    const permEl = $c("chat-empty-permissions");
+
+    if (titleEl) {
+      const serverName = (CS.appState && CS.appState.server && (CS.appState.server.name || CS.appState.server.hostname)) || "电脑端";
+      titleEl.textContent = errorMsg || ("已连接电脑端");
+    }
+    if (subEl) {
+      subEl.textContent = errorMsg ? errorMsg : "从左侧选择一个项目或 session";
+    }
+    if (permEl) {
+      permEl.innerHTML = "";
+      const scopes = (CS.appState && CS.appState.auth && CS.appState.auth.scopes) || [];
+      const labels = {
+        "read:status": "查看状态",
+        "read:files": "查看文件",
+        "desktop_control": "继续输入",
+        "session:start": "启动任务"
+      };
+      for (const scope of Object.keys(labels)) {
+        if (scopes.includes(scope)) {
+          permEl.appendChild(el("span", { class: "perm-chip", text: labels[scope] }));
+        }
+      }
+    }
+  }
+
   /* ---- Init after pairing ---- */
   async function startContractMode () {
     if (!USE_CONTRACT_HOME) return;
@@ -4832,8 +5097,11 @@ const UI1A = (() => {
     wireSidebarMore();
     wireNewChatModal();
     wireFilesDrawer();
-    await loadProjects();
-    openHome();
+    // R2: Load desktop project memory (not roots/drives) and show chat empty state
+    await loadProjectMemory();
+    // R2: Default to chat-pane empty state (not dashboard)
+    switchContractView("chat-pane");
+    renderChatEmptyState();
   }
 
   /* ---- Hook into existing showApp ---- */

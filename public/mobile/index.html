@@ -87,10 +87,12 @@
         <div class="sidebar-running-list" id="sb-running-list"></div>
       </div>
 
-      <!-- 最近项目区（可展开项目树） -->
+      <!-- 最近项目区（可展开项目树）— R2: 来自桌面端项目记忆 -->
       <div class="sidebar-section sidebar-projects">
         <div class="sidebar-h"><span>最近项目</span></div>
-        <div class="sidebar-projects-list" id="sb-projects-list"></div>
+        <div class="sidebar-projects-list sidebar-project-memory" id="sb-projects-list" data-project-memory>
+          <div class="sidebar-project-memory-empty" id="sb-pm-empty">加载项目记忆中...</div>
+        </div>
       </div>
 
       <!-- More/Debug 折叠区（隐藏旧功能，代码全部保留） -->
@@ -296,6 +298,45 @@
             <div class="detail-start-zone" id="d-start-zone" hidden>
               <button id="d-start" class="btn-primary btn-block btn-start" type="button">启动 Agent</button>
               <div id="d-start-hint" class="detail-composer-hint"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =========================================================
+             R2-Reframe: Chat Pane (ChatGPT-like chat window)
+             默认空态 → 点项目显示 overview → 点 session 显示聊天详情
+             ========================================================= -->
+        <section class="view" data-view="chat-pane">
+          <div class="chat-pane" id="chat-pane">
+            <!-- 空态：未选择 session -->
+            <div class="chat-empty-state" id="chat-empty-state">
+              <div class="chat-empty-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              </div>
+              <div class="chat-empty-title" id="chat-empty-title">已连接电脑端</div>
+              <div class="chat-empty-sub" id="chat-empty-sub">从左侧选择一个项目或 session</div>
+              <div class="chat-empty-permissions" id="chat-empty-permissions"></div>
+            </div>
+            <!-- 聊天详情：消息流 + 底部输入 -->
+            <div class="chat-session" id="chat-session" hidden>
+              <div class="chat-session-header">
+                <div class="chat-session-title" id="chat-session-title">—</div>
+                <div class="chat-session-meta" id="chat-session-meta">—</div>
+              </div>
+              <div class="chat-messages" id="chat-messages" role="log" aria-label="Chat messages"></div>
+              <div class="chat-input" id="chat-input">
+                <div class="chat-input-zone" id="chat-input-zone">
+                  <textarea id="chat-followup-input" class="field field-textarea chat-followup" rows="2" placeholder="输入消息..." maxlength="4000"></textarea>
+                  <div class="chat-input-foot">
+                    <span id="chat-followup-hint" class="chat-followup-hint"></span>
+                    <button id="chat-followup-send" class="btn-primary chat-followup-send" type="button" disabled>发送</button>
+                  </div>
+                </div>
+                <div class="chat-start-zone" id="chat-start-zone" hidden>
+                  <button id="chat-start-btn" class="btn-primary btn-block btn-start" type="button">启动 Agent</button>
+                  <div id="chat-start-hint" class="chat-followup-hint"></div>
+                </div>
+              </div>
             </div>
           </div>
         </section>

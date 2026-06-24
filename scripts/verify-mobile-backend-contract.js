@@ -1456,6 +1456,130 @@ function containsSensitiveAuditData(value) {
     b3bSecondStart.ok === false && isStableError(b3bSecondStart, 'session_not_draft'),
     JSON.stringify(b3bSecondStart).substring(0, 200));
 
+  // ============================================================
+  // R2: Desktop Project Memory Projection
+  // Fixture: create fake .claude/projects/ and .codex/sessions/ files
+  // so the new /api/mobile/project-memory endpoint has real data to scan.
+  // ============================================================
+  section('5f) R2: Desktop Project Memory Projection');
+
+  // --- Fixture setup: create fake agent session logs on disk ---
+  const claudeProjRoot = path.join(TMP_HOME, '.claude', 'projects');
+  const codexSessRoot = path.join(TMP_HOME, '.codex', 'sessions');
+  fs.mkdirSync(claudeProjRoot, { recursive: true });
+  fs.mkdirSync(codexSessRoot, { recursive: true });
+
+  // Create a real project directory that the session logs will reference
+  const fixtureProjectCwd = path.join(TMP_HOME, 'fanbox-master');
+  fs.mkdirSync(fixtureProjectCwd, { recursive: true });
+  const fixtureDocsCwd = path.join(TMP_HOME, 'docs');
+  fs.mkdirSync(fixtureDocsCwd, { recursive: true });
+
+  // Claude Code session: munge(cwd) = cwd.replace(/[^A-Za-z0-9]/g, '-')
+  const mungeClaudeDir = (cwd) => cwd.replace(/[^A-Za-z0-9]/g, '-');
+  const claudeProjectDir = path.join(claudeProjRoot, mungeClaudeDir(fixtureProjectCwd));
+  fs.mkdirSync(claudeProjectDir, { recursive: true });
+  const claudeSessionFile = path.join(claudeProjectDir, 'abc123.jsonl');
+  const claudeSessionContent = [
+    JSON.stringify({ type: 'user', message: { role: 'user', content: 'Fix the auth bug in mobile.js' }, timestamp: new Date(now - 3600000).toISOString(), cwd: fixtureProjectCwd }),
+    JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu1', name: 'Write', input: { file_path: path.join(fixtureProjectCwd, 'fix.js') } }] } }),
+    JSON.stringify({ type: 'user', message: { role: 'user', content: 'Thanks' }, timestamp: new Date(now - 3500000).toISOString(), isMeta: false }),
+  ].join('\n') + '\n';
+  fs.writeFileSync(claudeSessionFile, claudeSessionContent, 'utf8');
+  // Set mtime to 1 hour ago so it's within 90-day cutoff
+  const claudeFileTime = Math.floor((now - 3600000) / 1000);
+  try { fs.utimesSync(claudeSessionFile, claudeFileTime, claudeFileTime); } catch (_) {}
+
+  // Codex session: rollout file with session_meta containing cwd
+  const codexSessionFile = path.join(codexSessRoot, 'rollout-2025-01-01T00-00-00-def456.jsonl');
+  const codexSessionContent = [
+    JSON.stringify({ session_meta: { id: 'def456', cwd: fixtureDocsCwd } }),
+    JSON.stringify({ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Write documentation for the API' }] }),
+  ].join('\n') + '\n';
+  fs.writeFileSync(codexSessionFile, codexSessionContent, 'utf8');
+  try { fs.utimesSync(codexSessionFile, claudeFileTime, claudeFileTime); } catch (_) {}
+
+  // --- Test: GET /api/mobile/project-memory without auth returns 401 ---
+  const pmNoAuth = asJson(await request({ path: '/api/mobile/project-memory', method: 'GET' }));
+  ok('R2-1: project-memory without auth returns 401',
+    pmNoAuth.ok === false && isStableError(pmNoAuth, 'unauthorized'),
+    JSON.stringify(pmNoAuth).substring(0, 120));
+
+  // --- Test: GET /api/mobile/project-memory with auth returns 200 ---
+  const pmRes = await request({ path: '/api/mobile/project-memory', method: 'GET', headers: auth });
+  const pmData = asJson(pmRes);
+  ok('R2-2: project-memory returns 200', pmRes.status === 200, 'status=' + pmRes.status);
+  ok('R2-3: project-memory returns ok:true', pmData.ok === true, JSON.stringify(pmData).substring(0, 120));
+
+  // --- Test: response has items array (projects) ---
+  ok('R2-4: project-memory has items array', Array.isArray(pmData.items), 'type=' + typeof pmData.items);
+
+  // --- Test: NO drive roots in project list ---
+  const pmItemsText = JSON.stringify(pmData.items || []);
+  ok('R2-5: project-memory does NOT contain C: drive root', !/"cwd"\s*:\s*"[CG]:\\\\"/.test(pmItemsText) && !pmItemsText.match(/"name"\s*:\s*"[CD]:"/), pmItemsText.substring(0, 200));
+  ok('R2-6: project-memory does NOT contain Downloads folder', !pmItemsText.includes('"name":"Downloads"'), pmItemsText.substring(0, 200));
+  ok('R2-7: project-memory does NOT contain Pictures folder', !pmItemsText.includes('"name":"Pictures"'), pmItemsText.substring(0, 200));
+  ok('R2-8: project-memory does NOT contain Desktop folder', !pmItemsText.includes('"name":"Desktop"'), pmItemsText.substring(0, 200));
+
+  // --- Test: projects have source "desktop-project-memory" ---
+  const pmItems = pmData.items || [];
+  if (pmItems.length > 0) {
+    ok('R2-9: first project has source desktop-project-memory', pmItems[0].source === 'desktop-project-memory', 'source=' + pmItems[0].source);
+    ok('R2-10: first project has id (string)', typeof pmItems[0].id === 'string' && pmItems[0].id.length > 0, 'id=' + pmItems[0].id);
+    ok('R2-11: first project has name (string)', typeof pmItems[0].name === 'string' && pmItems[0].name.length > 0, 'name=' + pmItems[0].name);
+    ok('R2-12: first project has cwd (string)', typeof pmItems[0].cwd === 'string' && pmItems[0].cwd.length > 0, 'cwd=' + pmItems[0].cwd);
+    ok('R2-13: first project has lastActiveAt (number)', typeof pmItems[0].lastActiveAt === 'number' && pmItems[0].lastActiveAt > 0, 'lastActiveAt=' + pmItems[0].lastActiveAt);
+    ok('R2-14: first project has sessionCount (number)', typeof pmItems[0].sessionCount === 'number', 'sessionCount=' + pmItems[0].sessionCount);
+    ok('R2-15: first project has sessions array', Array.isArray(pmItems[0].sessions), 'sessions type=' + typeof pmItems[0].sessions);
+    ok('R2-16: first project has riskFlags array', Array.isArray(pmItems[0].riskFlags), 'riskFlags type=' + typeof pmItems[0].riskFlags);
+  } else {
+    ok('R2-9: project-memory has at least one project', false, 'items is empty');
+  }
+
+  // --- Test: fixture project fanbox-master appears in list ---
+  const fanboxProject = pmItems.find((p) => p.name === 'fanbox-master' || p.cwd === fixtureProjectCwd);
+  ok('R2-17: fixture project fanbox-master appears in list', !!fanboxProject, 'items=' + JSON.stringify(pmItems.map((p) => p.name)).substring(0, 120));
+
+  // --- Test: fanbox-master project has sessions with correct fields ---
+  if (fanboxProject && Array.isArray(fanboxProject.sessions) && fanboxProject.sessions.length > 0) {
+    const sess = fanboxProject.sessions[0];
+    ok('R2-18: session has id (string)', typeof sess.id === 'string' && sess.id.length > 0, 'id=' + sess.id);
+    ok('R2-19: session has title (string)', typeof sess.title === 'string' && sess.title.length > 0, 'title=' + sess.title);
+    ok('R2-20: session has agentId', typeof sess.agentId === 'string' && ['claude', 'codex', 'qoder', 'opencode', 'unknown'].includes(sess.agentId), 'agentId=' + sess.agentId);
+    ok('R2-21: session has status', typeof sess.status === 'string' && ['running', 'draft', 'done', 'failed', 'idle', 'unknown'].includes(sess.status), 'status=' + sess.status);
+    ok('R2-22: session has lastActiveAt (number)', typeof sess.lastActiveAt === 'number' && sess.lastActiveAt > 0, 'lastActiveAt=' + sess.lastActiveAt);
+    ok('R2-23: session has canResume (boolean)', typeof sess.canResume === 'boolean', 'canResume=' + sess.canResume);
+    ok('R2-24: session title is truncated (<=160)', sess.title.length <= 160, 'title length=' + sess.title.length);
+  } else {
+    ok('R2-18: fanbox-master project has sessions', false, 'sessions=' + JSON.stringify(fanboxProject?.sessions).substring(0, 120));
+  }
+
+  // --- Test: docs project appears (from Codex fixture) ---
+  const docsProject = pmItems.find((p) => p.name === 'docs' || p.cwd === fixtureDocsCwd);
+  ok('R2-25: fixture project docs appears in list', !!docsProject, 'looking for docs in ' + JSON.stringify(pmItems.map((p) => p.name)).substring(0, 120));
+
+  // --- Test: no token/tokenHash/raw prompt in response ---
+  const pmFullText = JSON.stringify(pmData);
+  ok('R2-26: project-memory does not expose tokenHash', !/tokenHash/i.test(pmFullText), 'leaked tokenHash');
+  ok('R2-27: project-memory does not expose Bearer token', !/Bearer\s/i.test(pmFullText), 'leaked Bearer');
+  ok('R2-28: project-memory does not expose raw prompt text', !pmFullText.includes('Fix the auth bug in mobile.js'), 'leaked raw prompt');
+  ok('R2-29: project-memory does not expose .claude/projects path', !pmFullText.includes('.claude' + path.sep + 'projects'), 'leaked internal path');
+  ok('R2-30: project-memory does not expose .codex/sessions path', !pmFullText.includes('.codex' + path.sep + 'sessions'), 'leaked internal path');
+
+  // --- Test: projects sorted by lastActiveAt desc ---
+  let sortedCorrectly = true;
+  for (let i = 1; i < pmItems.length; i++) {
+    if ((pmItems[i - 1].lastActiveAt || 0) < (pmItems[i].lastActiveAt || 0)) { sortedCorrectly = false; break; }
+  }
+  ok('R2-31: projects sorted by lastActiveAt desc', sortedCorrectly, 'order=' + pmItems.map((p) => p.lastActiveAt).join(','));
+
+  // --- Test: old /api/mobile/projects endpoint no longer returns drive roots ---
+  const oldProjRes = await request({ path: '/api/mobile/projects', method: 'GET', headers: auth });
+  const oldProjData = asJson(oldProjRes);
+  const oldProjText = JSON.stringify(oldProjData.items || []);
+  ok('R2-32: old /api/mobile/projects no longer returns root source items', !oldProjText.includes('"source":"root"'), 'still has root source');
+  ok('R2-33: old /api/mobile/projects no longer contains C:/D:/E: drive roots', !/"name"\s*:\s*"[C-Z]:"/.test(oldProjText), oldProjText.substring(0, 200));
+
   section('6) Syntax checks');
   ok('node -c electron/mobile.js already loaded', typeof mobile.createMobileServer === 'function');
 
