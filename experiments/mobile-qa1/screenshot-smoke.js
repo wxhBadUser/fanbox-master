@@ -284,8 +284,8 @@ async function main() {
       auditChildren: audit ? audit.children.length : -1,
       pairingChildren: pairing ? pairing.children.length : -1,
       leaksToken: /token[A-Z]?[a-z]*[\s=:]["']?[a-zA-Z0-9]{16,}/i.test(bodyText),
-      hasDesktopControl: bodyText.includes('desktop_control'),
-      hasSessionStart: bodyText.includes('session:start'),
+      hasDesktopControl: bodyText.includes('继续输入'),
+      hasSessionStart: bodyText.includes('启动任务'),
     };
   });
   check('3b. test safety scopes rendered', safetyRendered.scopesChildren > 0, 'children=' + safetyRendered.scopesChildren);
