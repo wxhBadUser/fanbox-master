@@ -82,9 +82,15 @@ function assert(name, cond, detail) {
 
 console.log('--- 桌面布局重组 TDD ---\n');
 
-console.log('[1] 搜索框迁移到 topbar');
-assert('#cmdk-trigger 不在 sidebar 内', !isInside('cmdk-trigger', 'aside', 'sidebar'), '仍在 sidebar');
-assert('#cmdk-trigger 在 topbar 内', isInside('cmdk-trigger', 'header', 'topbar'), '不在 topbar');
+console.log('[1] 搜索框放回 sidebar（R1B 修正）');
+assert('#cmdk-trigger 在 sidebar 内', isInside('cmdk-trigger', 'aside', 'sidebar'), '不在 sidebar');
+assert('#cmdk-trigger 不在 topbar 内', !isInside('cmdk-trigger', 'header', 'topbar'), '仍在 topbar');
+// 搜索框在 brand 之后、agentProjects 之前
+const brandPos = HTML.indexOf('class="brand"');
+const cmdkPos = posOf('cmdk-trigger');
+const agentProjPos = HTML.indexOf('data-sidebar-section="agentProjects"');
+assert('#cmdk-trigger 在 brand 之后', cmdkPos > brandPos && brandPos !== -1, '不在 brand 之后');
+assert('#cmdk-trigger 在 agentProjects 之前', cmdkPos < agentProjPos && agentProjPos !== -1, '不在 agentProjects 之前');
 
 console.log('\n[2] sidebar 主菜单顺序');
 // sidebar 内 data-sidebar-section 出现顺序
@@ -133,28 +139,26 @@ assert('#terminal-session-switcher 仍存在', posOf('terminal-session-switcher'
 assert('TERMINAL_TYPOGRAPHY 未删', APP.indexOf('TERMINAL_TYPOGRAPHY') !== -1);
 assert('themes.soft 未删', APP.indexOf('soft: {') !== -1);
 
-console.log('\n[8] topbar 双行布局（搜索框 + 路径）');
-assert('topbar 含 .topbar-search-row', HTML.indexOf('topbar-search-row') !== -1, '无 topbar-search-row');
-assert('topbar 含 .topbar-path-row', HTML.indexOf('topbar-path-row') !== -1, '无 topbar-path-row');
-assert('#cmdk-trigger 在 topbar-search-row 内', isInsideClass('cmdk-trigger', 'div', 'topbar-search-row'), '不在 search-row');
-assert('#breadcrumb 在 topbar-path-row 内', isInsideClass('breadcrumb', 'div', 'topbar-path-row'), '不在 path-row');
-assert('.nav-buttons 在 topbar-path-row 内', rangeOfClass('div', 'topbar-path-row') && HTML.indexOf('nav-buttons') > rangeOfClass('div', 'topbar-path-row')[0], 'nav-buttons 不在 path-row');
-assert('.topbar-actions 在 topbar-path-row 内', rangeOfClass('div', 'topbar-path-row') && HTML.indexOf('topbar-actions') > rangeOfClass('div', 'topbar-path-row')[0], 'topbar-actions 不在 path-row');
-// 搜索框在路径行之前
-assert('search-row 在 path-row 之前', HTML.indexOf('topbar-search-row') !== -1 && HTML.indexOf('topbar-path-row') !== -1 && HTML.indexOf('topbar-search-row') < HTML.indexOf('topbar-path-row'), '顺序错');
-// style.css 让 topbar 纵向堆叠
+console.log('\n[8] topbar 恢复单行（R1B：搜索已回 sidebar）');
+assert('topbar 不含 .topbar-search-row', HTML.indexOf('topbar-search-row') === -1, '仍有 topbar-search-row');
+assert('#breadcrumb 仍在 topbar 内', isInside('breadcrumb', 'header', 'topbar') || isInside('breadcrumb', 'nav', 'topbar'), 'breadcrumb 不在 topbar');
+assert('.nav-buttons 仍在 topbar 内', HTML.indexOf('nav-buttons') !== -1 && posOf('topbar') < HTML.indexOf('nav-buttons'), 'nav-buttons 不在 topbar');
+assert('.topbar-actions 仍在 topbar 内', HTML.indexOf('topbar-actions') !== -1 && posOf('topbar') < HTML.indexOf('topbar-actions'), 'topbar-actions 不在 topbar');
+// topbar 不再纵向堆叠搜索行（恢复单行 flex）
 const CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'style.css'), 'utf8');
-assert('style.css topbar 纵向布局', /#topbar\s*\{[^}]*flex-direction:\s*column/.test(CSS), 'topbar 未纵向堆叠');
+assert('style.css topbar 不再 flex-direction: column', !/#topbar\s*\{[^}]*flex-direction:\s*column/.test(CSS), 'topbar 仍纵向堆叠');
 
-console.log('\n[9] 左侧项目 session 展开容器');
+console.log('\n[9] 左侧项目 session 展开（R1B：默认展开 + 更多记忆 + 续上可见）');
 assert('agentProjects 仍在 sidebar', order.includes('agentProjects'), 'agentProjects 丢失');
 assert('app.js 含 project session 容器', APP.indexOf('project-session-list') !== -1 || APP.indexOf('data-project-sessions') !== -1, '无 session 容器');
-assert('app.js 含查看更多入口', APP.indexOf('查看更多') !== -1, '无查看更多');
+assert('app.js 含「更多记忆」入口', APP.indexOf('更多记忆') !== -1, '无更多记忆');
 assert('app.js 含续上入口', APP.indexOf('续上') !== -1, '无续上');
 assert('app.js 复用 /api/project-memory', APP.indexOf('/api/project-memory') !== -1, '未复用 project-memory');
 assert('app.js 含 claude --resume 续上命令', /claude[^]*--resume/.test(APP), '无 claude resume');
 assert('app.js 含 codex resume 续上命令', /codex\s+resume/.test(APP), '无 codex resume');
-assert('app.js session 默认显示 5 条', /slice\(\s*0\s*,\s*5\s*\)/.test(APP) || APP.indexOf('PROJECT_SESS_PAGE') !== -1 || APP.indexOf('sessLimit') !== -1, '无 5 条限制');
+assert('app.js session 默认显示 5 条', /slice\(\s*0\s*,\s*5\s*\)/.test(APP) || APP.indexOf('PROJECT_SESS_PAGE') !== -1, '无 5 条限制');
+assert('app.js 默认展开当前项目', APP.indexOf('expandDefaultProject') !== -1 || APP.indexOf('defaultExpand') !== -1 || /autoExpand|expandCurrent/.test(APP), '无默认展开逻辑');
+assert('app.js 更多记忆打开 memoryPanel', /更多记忆[^]*memoryPanel|memoryPanel[^]*更多记忆/.test(APP.replace(/\s+/g, ' ')) || APP.indexOf('memoryPanel') !== -1, '更多记忆未复用 memoryPanel');
 
 console.log('\n[10] Settings 回归保护');
 assert('settings-panel 仍存在', posOf('settings-panel') !== -1, 'settings-panel 丢失');

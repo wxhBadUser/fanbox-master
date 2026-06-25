@@ -2419,7 +2419,12 @@ async function loadAgentProjects() {
   const ul = $('#agent-projects-list');
   ul.innerHTML = '';
   if (!list.length) { ul.innerHTML = '<div class="nav-empty">用 Claude Code / Codex 跑过的项目会出现在这里</div>'; return; }
-  list.forEach((pj) => {
+  // 默认展开当前项目（cwd 命中）或最近活跃项目（列表第一个）
+  const cwd = state.cwd || '';
+  const defaultIdx = list.findIndex((pj) => cwd && (pj.path === cwd || cwd.startsWith(pj.path + '/') || pj.path.startsWith(cwd + '/')));
+  const expandIdx = defaultIdx !== -1 ? defaultIdx : 0;
+  const projectLis = [];
+  list.forEach((pj, idx) => {
     const li = navDirLi(pj.name, pj.path);
     li.querySelector('.label').title = `${pj.path}\n${pj.agents.join(' + ')} · ${agoShort(pj.lastActive)}前活跃`;
     // 把文件夹展开箭头改成「展开最近 session」——agent 项目关心的是对话历史，不是子目录
@@ -2437,13 +2442,22 @@ async function loadAgentProjects() {
     when.append(agoShort(pj.lastActive));
     li.appendChild(when);
     ul.appendChild(li);
+    projectLis.push({ li, pj, twirl });
   });
   renderRootsActive(); // 重渲后补一次高亮，让「当前所在的 agent 项目」保持选中态
+  // 默认展开当前/最近项目，让用户一眼看到最近对话
+  if (projectLis[expandIdx]) expandDefaultProject(projectLis[expandIdx].li, projectLis[expandIdx].pj.path, projectLis[expandIdx].twirl);
+}
+
+// 默认展开当前项目（首次加载 / 数据刷新后调用）
+function expandDefaultProject(li, dirPath, twirl) {
+  // 已展开过就别重复
+  if (li.nextElementSibling && li.nextElementSibling.classList.contains('project-session-list')) return;
+  toggleProjectSessions(li, dirPath, twirl);
 }
 
 // agent 项目的最近 session 展开：复用 /api/project-memory 拿会话摘要，复用 memoryPanel 的续上命令
-const PROJECT_SESS_PAGE = 5; // 默认显示 5 条，查看更多再追加 5 条
-const PROJECT_SESS_MAX = 20; // 单项目最多展开 20 条，避免一次渲染太多
+const PROJECT_SESS_PAGE = 5; // 默认显示 5 条
 async function toggleProjectSessions(li, dirPath, twirl) {
   const old = li.nextElementSibling;
   if (old && old.classList.contains('project-session-list')) { old.remove(); twirl.textContent = '▸'; return; }
@@ -2455,23 +2469,23 @@ async function toggleProjectSessions(li, dirPath, twirl) {
   li.after(ul);
   let d;
   try { d = await api('/api/project-memory?path=' + encodeURIComponent(dirPath)); }
-  catch { ul.innerHTML = '<li class="proj-sess-empty">会话日志读取失败</li>'; return; }
-  if (!d.ok || !d.sessions.length) { ul.innerHTML = '<li class="proj-sess-empty">这个项目还没有 agent 会话记录</li>'; return; }
+  catch { ul.innerHTML = '<li class="proj-sess-empty">加载失败，点击重试</li>'; ul.querySelector('.proj-sess-empty').onclick = () => { toggleProjectSessions(li, dirPath, twirl); toggleProjectSessions(li, dirPath, twirl); }; return; }
+  if (!d.ok || !d.sessions.length) { ul.innerHTML = '<li class="proj-sess-empty">暂无最近对话</li>'; return; }
   ul.dataset.sessions = JSON.stringify(d.sessions);
-  ul.dataset.limit = String(PROJECT_SESS_PAGE);
   renderProjectSessions(ul, dirPath);
 }
 function renderProjectSessions(ul, dirPath) {
   const all = JSON.parse(ul.dataset.sessions || '[]');
-  const limit = Math.min(Number(ul.dataset.limit) || PROJECT_SESS_PAGE, PROJECT_SESS_MAX);
-  const shown = all.slice(0, limit);
+  const shown = all.slice(0, PROJECT_SESS_PAGE);
   ul.innerHTML = '';
   shown.forEach((s, i) => ul.appendChild(buildSessItem(s, i, dirPath)));
-  if (all.length > limit && limit < PROJECT_SESS_MAX) {
+  // 「更多记忆…」打开完整项目记忆面板（已有完整历史 + 续上能力），不在左侧无限展开
+  if (all.length > PROJECT_SESS_PAGE) {
     const more = document.createElement('li');
     more.className = 'proj-sess-more';
-    more.textContent = '查看更多…';
-    more.onclick = (ev) => { ev.stopPropagation(); ul.dataset.limit = String(Math.min(limit + PROJECT_SESS_PAGE, PROJECT_SESS_MAX)); renderProjectSessions(ul, dirPath); };
+    more.textContent = '更多记忆…';
+    more.title = '打开完整项目记忆';
+    more.onclick = (ev) => { ev.stopPropagation(); memoryPanel(dirPath); };
     ul.appendChild(more);
   }
 }
@@ -2493,6 +2507,7 @@ function buildSessItem(s, i, dirPath) {
   const meta = document.createElement('div');
   meta.className = 'sess-meta';
   meta.innerHTML = `<span class="sess-agent">${escapeHtml(agentLabel)}</span> · <span class="sess-time">${escapeHtml(fmtTime(s.lastT))}</span>`;
+  // 续上按钮始终可见（不只 hover），复用 memoryPanel 的 resume 命令
   const resume = document.createElement('button');
   resume.className = 'sess-resume';
   resume.textContent = '续上';
