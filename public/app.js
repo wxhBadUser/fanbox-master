@@ -3629,9 +3629,9 @@ const term = {
       brightBlack: '#57534a', brightRed: '#e8302a', brightGreen: '#00a33e', brightYellow: '#a67c00', brightBlue: '#2222dd', brightMagenta: '#b03aa0', brightCyan: '#008a9a', brightWhite: '#0a0a0a',
     },
     soft: {
-      background: '#fbfbfa', foreground: '#1f241f', cursor: '#2f5f3a', cursorAccent: '#fbfbfa', selectionBackground: 'rgba(47, 95, 58, 0.22)',
-      black: '#1f241f', red: '#b91c1c', green: '#047857', yellow: '#92400e', blue: '#174ea6', magenta: '#7e22ce', cyan: '#006d75', white: '#f3f4f0',
-      brightBlack: '#4b5563', brightRed: '#dc2626', brightGreen: '#059669', brightYellow: '#b45309', brightBlue: '#1d4ed8', brightMagenta: '#9333ea', brightCyan: '#0891b2', brightWhite: '#ffffff',
+      background: '#fbfbfa', foreground: '#0f1720', cursor: '#2f5f3a', cursorAccent: '#fbfbfa', selectionBackground: 'rgba(47, 95, 58, 0.22)',
+      black: '#111827', red: '#b91c1c', green: '#047857', yellow: '#92400e', blue: '#174ea6', magenta: '#7e22ce', cyan: '#006d75', white: '#f3f4f0',
+      brightBlack: '#374151', brightRed: '#dc2626', brightGreen: '#059669', brightYellow: '#b45309', brightBlue: '#1d4ed8', brightMagenta: '#9333ea', brightCyan: '#0891b2', brightWhite: '#ffffff',
     },
   },
   theme() { return this.themes[state.theme] || this.themes.terminal; },

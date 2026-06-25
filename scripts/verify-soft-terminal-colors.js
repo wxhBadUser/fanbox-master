@@ -75,13 +75,16 @@ console.log('--- 柔白终端彩色对比 TDD ---\n');
 console.log('[1] themes.soft 16 色 palette');
 const pal = loadSoftPalette();
 eq('background 保持白灰', pal.background, '#fbfbfa');
+// R5: neutral black 加深（只改这三值，彩色不动）
+eq('foreground #0f1720', pal.foreground, '#0f1720');
+eq('black #111827', pal.black, '#111827');
+eq('brightBlack #374151', pal.brightBlack, '#374151');
 eq('red #b91c1c', pal.red, '#b91c1c');
 eq('green #047857', pal.green, '#047857');
 eq('yellow #92400e', pal.yellow, '#92400e');
 eq('blue #174ea6', pal.blue, '#174ea6');
 eq('magenta #7e22ce', pal.magenta, '#7e22ce');
 eq('cyan #006d75', pal.cyan, '#006d75');
-eq('brightBlack #4b5563', pal.brightBlack, '#4b5563');
 eq('brightRed #dc2626', pal.brightRed, '#dc2626');
 eq('brightBlue #1d4ed8', pal.brightBlue, '#1d4ed8');
 
