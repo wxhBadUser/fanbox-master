@@ -48,6 +48,31 @@ function isInside(id, tag, containerId) {
   const r = rangeOf(tag, containerId); if (!r) return false;
   return p > r[0] && p < r[1];
 }
+// 找带 class 的容器内容范围 [start,end)：按 tag 深度走
+function rangeOfClass(tag, className) {
+  const openRe = new RegExp('<' + tag + '\\b[^>]*class="[^"]*\\b' + className + '\\b[^"]*"', 'i');
+  const om = HTML.match(openRe);
+  if (!om) return null;
+  const start = om.index;
+  const events = [];
+  const tagOpen = new RegExp('<' + tag + '\\b', 'gi'); tagOpen.lastIndex = start;
+  const tagClose = new RegExp('</' + tag + '>', 'gi'); tagClose.lastIndex = start;
+  let m;
+  while ((m = tagOpen.exec(HTML)) !== null) { events.push([m.index, 1]); if (m[0].length === 0) tagOpen.lastIndex++; }
+  while ((m = tagClose.exec(HTML)) !== null) { events.push([m.index, -1]); if (m[0].length === 0) tagClose.lastIndex++; }
+  events.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+  let depth = 0;
+  for (const [pos, type] of events) {
+    if (type === 1) depth++;
+    else { depth--; if (depth === 0) return [start, pos + ('</' + tag + '>').length]; }
+  }
+  return null;
+}
+function isInsideClass(id, tag, className) {
+  const p = posOf(id); if (p === -1) return false;
+  const r = rangeOfClass(tag, className); if (!r) return false;
+  return p > r[0] && p < r[1];
+}
 
 let PASS = 0, FAIL = 0;
 function assert(name, cond, detail) {
@@ -107,6 +132,36 @@ assert('#terminal-panel 仍存在', posOf('terminal-panel') !== -1);
 assert('#terminal-session-switcher 仍存在', posOf('terminal-session-switcher') !== -1);
 assert('TERMINAL_TYPOGRAPHY 未删', APP.indexOf('TERMINAL_TYPOGRAPHY') !== -1);
 assert('themes.soft 未删', APP.indexOf('soft: {') !== -1);
+
+console.log('\n[8] topbar 双行布局（搜索框 + 路径）');
+assert('topbar 含 .topbar-search-row', HTML.indexOf('topbar-search-row') !== -1, '无 topbar-search-row');
+assert('topbar 含 .topbar-path-row', HTML.indexOf('topbar-path-row') !== -1, '无 topbar-path-row');
+assert('#cmdk-trigger 在 topbar-search-row 内', isInsideClass('cmdk-trigger', 'div', 'topbar-search-row'), '不在 search-row');
+assert('#breadcrumb 在 topbar-path-row 内', isInsideClass('breadcrumb', 'div', 'topbar-path-row'), '不在 path-row');
+assert('.nav-buttons 在 topbar-path-row 内', rangeOfClass('div', 'topbar-path-row') && HTML.indexOf('nav-buttons') > rangeOfClass('div', 'topbar-path-row')[0], 'nav-buttons 不在 path-row');
+assert('.topbar-actions 在 topbar-path-row 内', rangeOfClass('div', 'topbar-path-row') && HTML.indexOf('topbar-actions') > rangeOfClass('div', 'topbar-path-row')[0], 'topbar-actions 不在 path-row');
+// 搜索框在路径行之前
+assert('search-row 在 path-row 之前', HTML.indexOf('topbar-search-row') !== -1 && HTML.indexOf('topbar-path-row') !== -1 && HTML.indexOf('topbar-search-row') < HTML.indexOf('topbar-path-row'), '顺序错');
+// style.css 让 topbar 纵向堆叠
+const CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'style.css'), 'utf8');
+assert('style.css topbar 纵向布局', /#topbar\s*\{[^}]*flex-direction:\s*column/.test(CSS), 'topbar 未纵向堆叠');
+
+console.log('\n[9] 左侧项目 session 展开容器');
+assert('agentProjects 仍在 sidebar', order.includes('agentProjects'), 'agentProjects 丢失');
+assert('app.js 含 project session 容器', APP.indexOf('project-session-list') !== -1 || APP.indexOf('data-project-sessions') !== -1, '无 session 容器');
+assert('app.js 含查看更多入口', APP.indexOf('查看更多') !== -1, '无查看更多');
+assert('app.js 含续上入口', APP.indexOf('续上') !== -1, '无续上');
+assert('app.js 复用 /api/project-memory', APP.indexOf('/api/project-memory') !== -1, '未复用 project-memory');
+assert('app.js 含 claude --resume 续上命令', /claude[^]*--resume/.test(APP), '无 claude resume');
+assert('app.js 含 codex resume 续上命令', /codex\s+resume/.test(APP), '无 codex resume');
+assert('app.js session 默认显示 5 条', /slice\(\s*0\s*,\s*5\s*\)/.test(APP) || APP.indexOf('PROJECT_SESS_PAGE') !== -1 || APP.indexOf('sessLimit') !== -1, '无 5 条限制');
+
+console.log('\n[10] Settings 回归保护');
+assert('settings-panel 仍存在', posOf('settings-panel') !== -1, 'settings-panel 丢失');
+assert('#theme-switch 在 settings-panel 内', isInside('theme-switch', 'div', 'settings-panel'), '皮肤未进 settings');
+assert('#toggle-hidden 在 settings-panel 内', isInside('toggle-hidden', 'input', 'settings-panel') || isInside('toggle-hidden', 'div', 'settings-panel'), '隐藏文件未进 settings');
+assert('#sort-seg 在 settings-panel 内', isInside('sort-seg', 'div', 'settings-panel'), '排序未进 settings');
+assert('#view-seg 在 settings-panel 内', isInside('view-seg', 'div', 'settings-panel'), '视图未进 settings');
 
 console.log('\n=== PASS: ' + PASS + ' / FAIL: ' + FAIL + ' ===');
 process.exit(FAIL === 0 ? 0 : 1);

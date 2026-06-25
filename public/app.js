@@ -2422,6 +2422,10 @@ async function loadAgentProjects() {
   list.forEach((pj) => {
     const li = navDirLi(pj.name, pj.path);
     li.querySelector('.label').title = `${pj.path}\n${pj.agents.join(' + ')} · ${agoShort(pj.lastActive)}前活跃`;
+    // 把文件夹展开箭头改成「展开最近 session」——agent 项目关心的是对话历史，不是子目录
+    const twirl = li.querySelector('.twirl');
+    twirl.title = '展开最近会话';
+    twirl.onclick = (ev) => { ev.stopPropagation(); toggleProjectSessions(li, pj.path, twirl); };
     const when = document.createElement('span');
     when.className = 'when';
     pj.agents.forEach((a) => {
@@ -2435,6 +2439,84 @@ async function loadAgentProjects() {
     ul.appendChild(li);
   });
   renderRootsActive(); // 重渲后补一次高亮，让「当前所在的 agent 项目」保持选中态
+}
+
+// agent 项目的最近 session 展开：复用 /api/project-memory 拿会话摘要，复用 memoryPanel 的续上命令
+const PROJECT_SESS_PAGE = 5; // 默认显示 5 条，查看更多再追加 5 条
+const PROJECT_SESS_MAX = 20; // 单项目最多展开 20 条，避免一次渲染太多
+async function toggleProjectSessions(li, dirPath, twirl) {
+  const old = li.nextElementSibling;
+  if (old && old.classList.contains('project-session-list')) { old.remove(); twirl.textContent = '▸'; return; }
+  twirl.textContent = '▾';
+  const ul = document.createElement('ul');
+  ul.className = 'project-session-list nav-sub';
+  ul.dataset.projectSessions = dirPath;
+  ul.innerHTML = '<li class="proj-sess-loading">翻会话日志中…</li>';
+  li.after(ul);
+  let d;
+  try { d = await api('/api/project-memory?path=' + encodeURIComponent(dirPath)); }
+  catch { ul.innerHTML = '<li class="proj-sess-empty">会话日志读取失败</li>'; return; }
+  if (!d.ok || !d.sessions.length) { ul.innerHTML = '<li class="proj-sess-empty">这个项目还没有 agent 会话记录</li>'; return; }
+  ul.dataset.sessions = JSON.stringify(d.sessions);
+  ul.dataset.limit = String(PROJECT_SESS_PAGE);
+  renderProjectSessions(ul, dirPath);
+}
+function renderProjectSessions(ul, dirPath) {
+  const all = JSON.parse(ul.dataset.sessions || '[]');
+  const limit = Math.min(Number(ul.dataset.limit) || PROJECT_SESS_PAGE, PROJECT_SESS_MAX);
+  const shown = all.slice(0, limit);
+  ul.innerHTML = '';
+  shown.forEach((s, i) => ul.appendChild(buildSessItem(s, i, dirPath)));
+  if (all.length > limit && limit < PROJECT_SESS_MAX) {
+    const more = document.createElement('li');
+    more.className = 'proj-sess-more';
+    more.textContent = '查看更多…';
+    more.onclick = (ev) => { ev.stopPropagation(); ul.dataset.limit = String(Math.min(limit + PROJECT_SESS_PAGE, PROJECT_SESS_MAX)); renderProjectSessions(ul, dirPath); };
+    ul.appendChild(more);
+  }
+}
+function buildSessItem(s, i, dirPath) {
+  const li = document.createElement('li');
+  li.className = 'proj-sess';
+  li.dataset.sessI = String(i);
+  const agentLabel = s.agent === 'codex' ? 'Codex' : 'Claude Code';
+  const icon = document.createElement('span');
+  icon.className = 'sess-icon ' + (s.agent || 'claude');
+  icon.textContent = s.agent === 'codex' ? '>_' : 'C';
+  icon.title = agentLabel;
+  const body = document.createElement('div');
+  body.className = 'sess-body';
+  const title = document.createElement('div');
+  title.className = 'sess-title';
+  title.textContent = shortSessTitle(s.title, agentLabel);
+  title.title = s.title || agentLabel;
+  const meta = document.createElement('div');
+  meta.className = 'sess-meta';
+  meta.innerHTML = `<span class="sess-agent">${escapeHtml(agentLabel)}</span> · <span class="sess-time">${escapeHtml(fmtTime(s.lastT))}</span>`;
+  const resume = document.createElement('button');
+  resume.className = 'sess-resume';
+  resume.textContent = '续上';
+  resume.title = '在内嵌终端里接上这段会话的上下文继续';
+  resume.onclick = (ev) => {
+    ev.stopPropagation();
+    const cmd = s.agent === 'codex' ? `codex resume ${s.id}` : `claude --dangerously-skip-permissions --resume ${s.id}`;
+    term.runInDir(dirPath, cmd, '已在终端续上会话');
+  };
+  meta.appendChild(resume);
+  body.append(title, meta);
+  li.append(icon, body);
+  return li;
+}
+// session 标题缩短：中文 ≤18 字、英文 ≤6 词，超长省略
+function shortSessTitle(t, fallback) {
+  let s = (t || '').trim();
+  if (!s) return fallback;
+  // 中文按字数截
+  if (/[\u4e00-\u9fff]/.test(s)) { return s.length > 18 ? s.slice(0, 18) + '…' : s; }
+  // 英文按词数截
+  const words = s.split(/\s+/);
+  if (words.length > 6) return words.slice(0, 6).join(' ') + '…';
+  return s.length > 40 ? s.slice(0, 40) + '…' : s;
 }
 
 // ---------- 最近修改 ----------

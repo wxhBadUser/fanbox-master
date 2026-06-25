@@ -132,7 +132,7 @@ body {
   box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.65);
 }
 [data-theme="soft"] #topbar {
-  min-height: 58px; gap: 14px; padding: 11px 18px; border-bottom-color: rgba(28, 25, 23, 0.055);
+  min-height: 0; gap: 10px; padding: 11px 18px; border-bottom-color: rgba(28, 25, 23, 0.055);
   background: rgba(255, 255, 255, 0.72); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
 }
 [data-theme="soft"] .brand { padding: 4px 10px 20px; gap: 12px; }
@@ -140,7 +140,7 @@ body {
 [data-theme="soft"] .brand-name { letter-spacing: 0; font-weight: 760; }
 [data-theme="soft"] .brand-sub { color: rgba(105, 100, 94, 0.62); letter-spacing: 1.6px; }
 [data-theme="soft"] .cmdk-trigger {
-  margin-bottom: 20px; padding: 10px 13px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  padding: 10px 13px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 [data-theme="soft"] .cmdk-trigger:hover { background: #ffffff; border-color: rgba(198, 122, 76, 0.28); box-shadow: 0 8px 24px rgba(80, 68, 58, 0.07); }
 [data-theme="soft"] .nav-section { margin-bottom: 20px; }
@@ -505,6 +505,22 @@ kbd {
 .agent-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint); }
 .agent-dot.claude { background: #d97757; }
 .agent-dot.codex { background: #10a37f; }
+/* ---------- agent 项目最近 session 展开 ---------- */
+.project-session-list { padding-left: 22px; list-style: none; margin: 0 0 4px; }
+.proj-sess { display: flex; align-items: flex-start; gap: 7px; padding: 5px 6px; border-radius: 7px; cursor: default; }
+.proj-sess:hover { background: var(--bg-3); }
+.sess-icon { flex: none; width: 18px; height: 18px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; font-family: var(--font-mono, monospace); color: #fff; }
+.sess-icon.claude { background: #d97757; }
+.sess-icon.codex { background: #10a37f; }
+.sess-body { flex: 1 1 auto; min-width: 0; }
+.sess-title { font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; }
+.sess-meta { display: flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--text-faint); margin-top: 1px; font-variant-numeric: tabular-nums; }
+.sess-resume { margin-left: auto; border: 1px solid var(--border); background: var(--bg-3); color: var(--text-dim); font-size: 10px; padding: 1px 7px; border-radius: 999px; cursor: pointer; opacity: 0; transition: opacity 0.12s; }
+.proj-sess:hover .sess-resume, .sess-resume:focus { opacity: 1; }
+.sess-resume:hover { color: var(--accent); border-color: var(--accent); }
+.proj-sess-more { padding: 4px 6px; font-size: 11px; color: var(--text-faint); cursor: pointer; border-radius: 6px; }
+.proj-sess-more:hover { color: var(--accent); background: var(--bg-3); }
+.proj-sess-loading, .proj-sess-empty { padding: 5px 6px; font-size: 11px; color: var(--text-faint); }
 .brand .logo { color: var(--accent); }
 /* ---------- Skills 透视入口（侧栏底部工具簇）---------- */
 .sidebar-tool-section { margin-top: auto; padding: 12px 8px 0; border-top: 1px solid var(--border); }
@@ -724,9 +740,13 @@ kbd {
 /* ---------- 主区 ---------- */
 #main { display: flex; flex-direction: column; overflow: hidden; }
 #topbar {
-  display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 16px;
   border-bottom: 1px solid var(--border); background: var(--bg-2);
 }
+/* 第一行：搜索框独占一行，更长 */
+.topbar-search-row { display: flex; align-items: center; width: 100%; }
+/* 第二行：导航按钮 + 面包屑 + 操作区 */
+.topbar-path-row { display: flex; align-items: center; gap: 10px; width: 100%; }
 .nav-buttons { display: flex; gap: 4px; }
 .nav-buttons button {
   width: 30px; height: 30px; border-radius: 7px; border: 1px solid var(--border);
@@ -758,8 +778,8 @@ kbd {
 #topbar.tb-xs .toggle { display: none; }
 #topbar.tb-xxs #view-seg, #topbar.tb-xxs #btn-recent { display: none; }
 #topbar.tb-min #sort-seg { display: none; }
-/* topbar 内的搜索框：长条、占据中间剩余空间 */
-#topbar .cmdk-trigger { flex: 1 1 240px; max-width: 420px; margin: 0; }
+/* topbar 内的搜索框：独占第一行，长条优先 */
+#topbar .cmdk-trigger { flex: 1 1 auto; width: min(720px, 100%); max-width: 760px; margin: 0; }
 /* 设置入口（sidebar 底部） */
 .settings-btn {
   display: flex; align-items: center; gap: 7px; width: 100%; padding: 9px 12px;
