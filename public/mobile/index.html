@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="color-scheme" content="light">
-  <meta name="theme-color" content="#FFFFFF">
-  <title>FanBox · Agent Workspace</title>
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#0b0e14">
+  <title>FanBox Mobile</title>
   <link rel="stylesheet" href="/mobile/mobile.css">
 </head>
 <body>
@@ -187,10 +187,121 @@
 
       <main class="app-main" id="app-main">
         <!-- =========================================================
-             UI1A: Contract Home Cockpit (NEW DEFAULT)
+             Mobile-Paseo-R1 · Sessions Hub (DEFAULT ACTIVE)
+             Single source: GET /api/mobile/session-hub
+             Lists projects → sessions. Never lists drive roots.
+             ========================================================= -->
+        <section class="view view-sessions is-active" data-view="sessions-hub">
+          <header class="hub-topbar">
+            <div class="hub-topbar-brand">
+              <span class="hub-topbar-title">FanBox Mobile</span>
+              <span class="hub-topbar-dot" id="hub-host-dot"></span>
+              <span class="hub-topbar-host" id="hub-host-name">连接中…</span>
+            </div>
+            <h1 class="hub-heading">Sessions</h1>
+          </header>
+
+          <div class="hub-scroll" id="hub-scroll">
+            <div id="hub-projects" class="hub-projects" role="list" aria-label="Projects and sessions">
+              <div class="hub-loading">加载中…</div>
+            </div>
+          </div>
+
+          <nav class="hub-bottombar" aria-label="Hub actions">
+            <span class="hub-bottombar-host" id="hub-host-foot">—</span>
+            <span class="hub-bottombar-spacer"></span>
+            <button class="hub-bottombar-btn" id="hub-new" type="button" aria-label="New">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <button class="hub-bottombar-btn" type="button" data-go="settings" aria-label="Settings">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+          </nav>
+        </section>
+
+        <!-- =========================================================
+             Mobile-Paseo-R1 · Session Detail (Chat / Terminal / Files / Changes)
+             ========================================================= -->
+        <section class="view view-session-detail" data-view="session-detail" hidden>
+          <header class="sd-header">
+            <button class="sd-back" id="sd-back" type="button" aria-label="Back">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <div class="sd-header-info">
+              <div class="sd-title" id="sd-title">—</div>
+              <div class="sd-sub">
+                <span id="sd-project">—</span>
+                <span class="sd-sub-sep" aria-hidden="true">·</span>
+                <span id="sd-agent">—</span>
+                <span class="sd-sub-sep" aria-hidden="true">·</span>
+                <span id="sd-status">—</span>
+              </div>
+            </div>
+            <span class="sd-more" aria-hidden="true">⋯</span>
+          </header>
+
+          <nav class="sd-tabs" role="tablist" aria-label="Session tabs">
+            <button class="sd-tab is-active" type="button" role="tab" data-tab="chat" aria-selected="true">Chat</button>
+            <button class="sd-tab" type="button" role="tab" data-tab="terminal" aria-selected="false">Terminal</button>
+            <button class="sd-tab" type="button" role="tab" data-tab="files" aria-selected="false">Files</button>
+            <button class="sd-tab" type="button" role="tab" data-tab="changes" aria-selected="false">Changes</button>
+          </nav>
+
+          <!-- Chat panel -->
+          <div class="sd-panel is-active" id="sd-chat" role="tabpanel">
+            <div class="sd-messages" id="sd-messages" role="log" aria-label="Chat messages"></div>
+            <div class="sd-composer" id="sd-composer">
+              <textarea id="sd-input" class="sd-input" rows="1" maxlength="4000" placeholder="输入消息…"></textarea>
+              <div class="sd-composer-foot">
+                <span class="sd-composer-hint" id="sd-input-hint"></span>
+                <button id="sd-send" class="sd-send" type="button" disabled>
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Terminal panel -->
+          <div class="sd-panel" id="sd-terminal" role="tabpanel" hidden>
+            <div class="terminal-head" id="sd-term-head">—</div>
+            <div class="terminal-surface" id="sd-term-out" role="log" aria-label="Terminal output"></div>
+            <div class="sd-term-input-zone" id="sd-term-input-zone" hidden>
+              <input id="sd-term-input" class="sd-term-input" type="text" placeholder="输入后回车发送…" maxlength="4096" autocomplete="off">
+            </div>
+          </div>
+
+          <!-- Files panel -->
+          <div class="sd-panel" id="sd-files" role="tabpanel" hidden>
+            <div class="sd-files-search">
+              <svg class="sd-files-search-icon" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="9" r="6"/><line x1="17" y1="17" x2="13.5" y2="13.5"/></svg>
+              <input id="sd-files-q" class="sd-files-search-input" type="search" placeholder="搜索文件…" maxlength="80" autocomplete="off">
+            </div>
+            <div class="sd-files-tree" id="sd-file-tree" role="list" aria-label="File tree"></div>
+            <div class="sd-files-preview" id="sd-file-preview" hidden>
+              <header class="sd-files-preview-head">
+                <div class="sd-files-preview-meta">
+                  <div id="sd-files-preview-name" class="sd-files-preview-name"></div>
+                  <div id="sd-files-preview-sub" class="sd-files-preview-sub"></div>
+                </div>
+                <button id="sd-files-preview-close" class="sd-files-preview-close" type="button" aria-label="Close preview">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+                </button>
+              </header>
+              <div id="sd-files-preview-body" class="sd-files-preview-body"></div>
+            </div>
+          </div>
+
+          <!-- Changes panel -->
+          <div class="sd-panel" id="sd-changes" role="tabpanel" hidden>
+            <div class="sd-changes-list" id="sd-changes-list"></div>
+          </div>
+        </section>
+
+        <!-- =========================================================
+             UI1A: Contract Home Cockpit (LEGACY · hidden by default, reachable via Settings → Debug)
              Consumes app-state + dashboard contract endpoints.
              ========================================================= -->
-        <section class="view is-active" data-view="home-cockpit">
+        <section class="view" data-view="home-cockpit" hidden>
           <div class="cockpit" id="cockpit">
             <div class="cockpit-connection" id="c-connection">
               <span class="cockpit-status-dot" id="c-status-dot"></span>
@@ -669,15 +780,87 @@
         </section>
 
         <!-- =========================================================
-             Settings Tab · 占位
+             Settings · Hosts / Permissions / Diagnostics / Debug-More (LEGACY)
+             Reachable from Sessions hub bottom bar. Read-only.
              ========================================================= -->
         <section class="view" data-view="settings" hidden>
           <header class="view-header">
             <h2 class="view-title">Settings</h2>
           </header>
-          <div class="settings-card">
-            <p class="settings-card-h">Settings</p>
-            <p class="settings-card-p">Mobile settings will be available in a future update.</p>
+
+          <div class="settings-scroll" id="settings-scroll">
+            <!-- Hosts -->
+            <section class="settings-section">
+              <h3 class="settings-section-title">Host</h3>
+              <div class="settings-row">
+                <span class="settings-row-label">Current computer</span>
+                <span class="settings-row-value" id="set-host-name">—</span>
+              </div>
+              <div class="settings-row">
+                <span class="settings-row-label">Server</span>
+                <span class="settings-row-value" id="set-host-server">—</span>
+              </div>
+              <div class="settings-row">
+                <span class="settings-row-label">LAN URL</span>
+                <span class="settings-row-value mono" id="set-host-lan">—</span>
+              </div>
+              <div class="settings-row">
+                <span class="settings-row-label">Connection</span>
+                <span class="settings-row-value" id="set-host-conn">—</span>
+              </div>
+            </section>
+
+            <!-- Permissions -->
+            <section class="settings-section">
+              <h3 class="settings-section-title">Permissions</h3>
+              <div class="settings-perms" id="set-perms" role="list" aria-label="Current permissions">
+                <div class="settings-perms-empty">—</div>
+              </div>
+            </section>
+
+            <!-- Diagnostics -->
+            <section class="settings-section">
+              <h3 class="settings-section-title">Diagnostics</h3>
+              <div class="settings-row">
+                <span class="settings-row-label">Mobile server</span>
+                <span class="settings-row-value">LAN only</span>
+              </div>
+              <div class="settings-row">
+                <span class="settings-row-label">Pairing</span>
+                <span class="settings-row-value" id="set-diag-pairing">—</span>
+              </div>
+              <div class="settings-row">
+                <span class="settings-row-label">Device</span>
+                <span class="settings-row-value" id="set-diag-device">—</span>
+              </div>
+              <div class="settings-row">
+                <span class="settings-row-label">Token</span>
+                <span class="settings-row-value">••••（hidden）</span>
+              </div>
+            </section>
+
+            <!-- Debug / More (LEGACY entries, collapsed) -->
+            <section class="settings-section settings-debug">
+              <button class="settings-debug-toggle" id="set-debug-toggle" type="button" aria-expanded="false">
+                <span>Debug / More</span>
+                <svg class="settings-debug-caret" viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 8 10 12 14 8"/></svg>
+              </button>
+              <nav class="settings-debug-nav" id="set-debug-nav" hidden aria-label="Legacy views">
+                <button class="settings-debug-item" type="button" data-go="home-cockpit">Home Cockpit (legacy dashboard)</button>
+                <button class="settings-debug-item" type="button" data-go="safety">Safety</button>
+                <button class="settings-debug-item" type="button" data-go="projects">Projects</button>
+                <button class="settings-debug-item" type="button" data-go="files">Files</button>
+                <button class="settings-debug-item" type="button" data-go="home">Legacy Chat</button>
+                <button class="settings-debug-item" type="button" data-go="project">Legacy Project</button>
+                <button class="settings-debug-item" type="button" data-go="skills">Skills</button>
+              </nav>
+            </section>
+
+            <!-- Placeholder kept for legacy render compatibility -->
+            <div class="settings-card" hidden aria-hidden="true">
+              <p class="settings-card-h">Settings</p>
+              <p class="settings-card-p">Mobile settings will be available in a future update.</p>
+            </div>
           </div>
         </section>
       </main>

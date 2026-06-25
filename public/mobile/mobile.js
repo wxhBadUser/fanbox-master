@@ -3067,6 +3067,20 @@ const UI1A = (() => {
     return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   }
 
+  function formatApiError (error, fallback) {
+    if (!error && error !== 0) return fallback || '请求失败';
+    if (typeof error === 'string') return error;
+    if (error instanceof Error) return error.message || fallback || '请求失败';
+    if (typeof error === 'object') {
+      if (typeof error.code === 'string' && error.code) {
+        return error.message ? (error.code + ': ' + error.message) : error.code;
+      }
+      if (typeof error.message === 'string' && error.message) return error.message;
+      try { return JSON.stringify(error).slice(0, 180); } catch (_) { return fallback || '请求失败'; }
+    }
+    return String(error);
+  }
+
   async function cApi (path, opts = {}) {
     const r = await fetch(path, {
       ...opts,
@@ -3082,13 +3096,13 @@ const UI1A = (() => {
       throw new Error("unauthorized");
     }
     if (!r.ok) {
-      let msg = `${r.status}`;
-      try { const j = await r.json(); msg = j.error || msg; } catch { try { msg = await r.text() } catch {} }
+      let msg;
+      try { const j = await r.json(); msg = formatApiError(j && j.error, String(r.status)); } catch { try { msg = await r.text() } catch { msg = String(r.status); } }
       throw new Error(msg);
     }
     if (r.status === 204) return null;
     const data = await r.json();
-    if (data && data.ok === false) throw new Error(data.error || "request failed");
+    if (data && data.ok === false) throw new Error(formatApiError(data && data.error, "request failed"));
     return data;
   }
 
@@ -4425,6 +4439,22 @@ const UI1A = (() => {
         return;
       }
 
+      // Mobile-Paseo-R1-Fix-Strict: project-memory tool/system events carry a safe
+      // summary text (e.g. "修改了 fix.js"). Render the text body so the Chat tab
+      // shows real history, not just an empty meta row.
+      if (type === "tool" || type === "system") {
+        const e = el("div", { class: "tl-event is-status" });
+        e.appendChild(el("div", { class: "tl-event-meta" }, [
+          el("span", { class: "tl-event-dot" }),
+          el("span", { text: (type === "tool" ? "🔧 工具" : "系统") + " · " + shortTime(ev.timestamp) }),
+        ]));
+        if (ev.text) {
+          e.appendChild(el("div", { class: "tl-event-body", text: ev.text }));
+        }
+        container.appendChild(e);
+        return;
+      }
+
       // Fallback for unknown event types
       const e = el("div", { class: "tl-event is-system" });
       e.appendChild(el("div", { class: "tl-event-meta" }, [
@@ -4583,11 +4613,15 @@ const UI1A = (() => {
     qsa(".sidebar-item").forEach(btn => {
       btn.classList.toggle("is-active", btn.getAttribute("data-go") === viewName);
     });
+    // Back button: hidden only on the sessions-hub root; visible on every detail/sub view
     const backBtn = $c("app-back");
-    if (backBtn) backBtn.hidden = viewName === "home-cockpit";
+    if (backBtn) backBtn.hidden = (viewName === "sessions-hub" || viewName === "home-cockpit");
     const titleEl = $c("app-topbar-title");
     if (titleEl) {
-      if (viewName === "home-cockpit") titleEl.textContent = "FanBox Mobile";
+      if (viewName === "sessions-hub") titleEl.textContent = "Sessions";
+      else if (viewName === "session-detail") titleEl.textContent = (CS.currentSession && CS.currentSession.title) || "Session";
+      else if (viewName === "settings") titleEl.textContent = "Settings";
+      else if (viewName === "home-cockpit") titleEl.textContent = "FanBox Mobile";
       else if (viewName === "project-overview") titleEl.textContent = (CS.selectedProject && CS.selectedProject.name) || "Project";
       else if (viewName === "agent-detail") titleEl.textContent = "Detail";
       else if (viewName === "safety") titleEl.textContent = "Safety";
@@ -4675,7 +4709,12 @@ const UI1A = (() => {
   }
 
   function goBack () {
-    if (S.currentTab === "agent-detail" && CS.selectedProject) {
+    // Mobile-Paseo-R1: session-detail / settings always return to sessions-hub
+    if (S.currentTab === "session-detail" || S.currentTab === "settings") {
+      stopDetailPoll();
+      switchContractView("sessions-hub");
+      loadSessionHub();
+    } else if (S.currentTab === "agent-detail" && CS.selectedProject) {
       openProjectOverview(CS.selectedProject.id);
     } else {
       openHome();
@@ -4756,7 +4795,13 @@ const UI1A = (() => {
     const refresh = $c("app-refresh");
     if (!refresh) return;
     refresh.addEventListener("click", () => {
-      if (S.currentTab === "home-cockpit") refreshAll();
+      if (S.currentTab === "sessions-hub") loadSessionHub();
+      else if (S.currentTab === "session-detail" && CS.currentSession) {
+        // Re-load the currently active detail tab
+        const activeTab = document.querySelector(".sd-tab.is-active");
+        if (activeTab) switchSessionDetailTab(activeTab.getAttribute("data-tab"), true);
+      }
+      else if (S.currentTab === "home-cockpit") refreshAll();
       else if (S.currentTab === "agent-detail" && CS.selected) {
         if (CS.selected.type === "desktop-agent") {
           loadDesktopTimeline(CS.selected.id).then(() => renderDesktopDetail(CS.selected.id));
@@ -5097,11 +5142,15 @@ const UI1A = (() => {
     wireSidebarMore();
     wireNewChatModal();
     wireFilesDrawer();
-    // R2: Load desktop project memory (not roots/drives) and show chat empty state
-    await loadProjectMemory();
-    // R2: Default to chat-pane empty state (not dashboard)
-    switchContractView("chat-pane");
-    renderChatEmptyState();
+    // Mobile-Paseo-R1: wire the new hub / session-detail / settings-debug
+    wireHub();
+    wireSessionDetail();
+    wireSettingsDebug();
+    // Keep legacy project memory loaded (sidebar uses it, hidden but preserved)
+    loadProjectMemory();
+    // Mobile-Paseo-R1: default to Sessions hub (was chat-pane + renderChatEmptyState)
+    switchContractView("sessions-hub");
+    await loadSessionHub();
   }
 
   /* ---- Hook into existing showApp ---- */
@@ -5120,6 +5169,627 @@ const UI1A = (() => {
     }
   };
 
+  /* =========================================================
+     Mobile-Paseo-R1 · Sessions Hub + Session Detail + Settings
+     ----------------------------------------------------------
+     loadSessionHub()      → GET /api/mobile/session-hub, render #hub-projects
+     openSessionDetail()   → switch to session-detail, set header, default chat tab
+     switchSessionDetailTab() → lazy-load tab data on first activation
+     loadChatTab/loadTerminalTab/loadFilesTab/loadChangesTab
+     populateSettings()   → Hosts / Permissions / Diagnostics from app-state + hub
+     wireHub/wireSessionDetail/wireSettingsDebug
+     Security: never reads mobileAllowedRoots; isDriveRoot() defensively filters.
+     ========================================================= */
+
+  const PERM_LABELS = {
+    "read:status": "查看状态",
+    "read:files": "查看文件",
+    "desktop_control": "继续输入",
+    "session:start": "启动任务",
+  };
+
+  async function loadSessionHub () {
+    const container = $c("hub-projects");
+    if (!container) return;
+    container.innerHTML = '<div class="hub-loading">加载中…</div>';
+    const dot = $c("hub-host-dot");
+    const nameEl = $c("hub-host-name");
+    const footEl = $c("hub-host-foot");
+    try {
+      const data = await cApi("/api/mobile/session-hub");
+      if (!data || data.ok === false) throw new Error((data && data.error) || "failed");
+      CS.sessionHub = data;
+      const host = data.host || {};
+      const hostName = host.name || "FanBox";
+      if (nameEl) nameEl.textContent = hostName + (host.online === false ? " (offline)" : "");
+      if (dot) dot.className = "hub-topbar-dot " + (host.online === false ? "is-offline" : "is-online");
+      if (footEl) footEl.textContent = "● " + hostName;
+      renderHubProjects(data);
+    } catch (e) {
+      container.innerHTML = '';
+      container.appendChild(el("div", { class: "hub-error" }, { text: formatApiError(e, "加载会话失败") }));
+    }
+  }
+
+  function renderHubProjects (data) {
+    const container = $c("hub-projects");
+    if (!container) return;
+    container.innerHTML = "";
+    const projects = (data && data.projects) || [];
+    const runningAgents = (data && data.runningAgents) || [];
+
+    if (projects.length === 0 && runningAgents.length === 0) {
+      container.appendChild(el("div", { class: "hub-empty" }, [
+        el("div", { class: "hub-empty-title", text: "暂无 Sessions" }),
+        el("div", { class: "hub-empty-sub", text: "在电脑端打开 Agent 后，这里会显示活跃 Sessions" }),
+      ]));
+      return;
+    }
+
+    // Running agents section (desktop-terminal, not yet bound to a project session)
+    if (runningAgents.length > 0) {
+      const runGroup = el("div", { class: "hub-group", role: "group", "aria-label": "正在运行" });
+      runGroup.appendChild(el("div", { class: "hub-group-head" }, [
+        el("span", { class: "hub-group-title", text: "正在运行" }),
+        el("span", { class: "hub-group-count", text: String(runningAgents.length) }),
+      ]));
+      for (const a of runningAgents) {
+        runGroup.appendChild(buildHubSessionRow({
+          id: a.id,
+          title: a.label || a.agentId || "Agent",
+          agentId: a.agentId,
+          status: a.status || "running",
+          lastActiveAt: a.lastActiveAt,
+          source: "desktop-terminal",
+          timelineKind: "desktop-terminal",
+          timelineId: a.id,
+          desktopAgentId: a.id,
+          canResume: !!a.canSendFollowup,
+          changedFileCount: 0,
+          cwd: a.cwd,
+        }, null));
+      }
+      container.appendChild(runGroup);
+    }
+
+    // Projects with nested sessions
+    for (const proj of projects) {
+      // Defensive: never render drive-root projects (security rule)
+      if (isDriveRoot(proj.name) || isDriveRoot(proj.cwd)) continue;
+      const sessions = proj.sessions || [];
+      const group = el("div", { class: "hub-group", role: "group", "aria-label": proj.name || proj.cwd });
+      group.appendChild(el("div", { class: "hub-group-head" }, [
+        el("span", { class: "hub-group-title", text: proj.name || basename(proj.cwd) || "Project" }),
+        el("span", { class: "hub-group-cwd mono", text: shortPath(proj.cwd) }),
+        el("span", { class: "hub-group-count", text: String(sessions.length) }),
+      ]));
+      if (sessions.length === 0) {
+        group.appendChild(el("div", { class: "hub-group-empty", text: "暂无 Session" }));
+      } else {
+        for (const s of sessions) {
+          group.appendChild(buildHubSessionRow(s, proj));
+        }
+      }
+      container.appendChild(group);
+    }
+  }
+
+  function buildHubSessionRow (session, project) {
+    const status = session.status || "draft";
+    const statusCls = status === "running" ? "is-running"
+      : status === "done" ? "is-done"
+      : status === "failed" ? "is-failed"
+      : (status === "waiting_input" || status === "waiting_approval") ? "is-waiting"
+      : "is-draft";
+    const row = el("button", {
+      class: "hub-session" + (status === "running" ? " is-running-row" : ""),
+      type: "button",
+      role: "listitem",
+      "data-session-id": session.id || "",
+      "data-source": session.source || "",
+    });
+    row.appendChild(el("div", { class: "hub-session-status " + statusCls }));
+    const body = el("div", { class: "hub-session-body" });
+    body.appendChild(el("div", { class: "hub-session-title", text: session.title || "(未命名)" }));
+    const meta = el("div", { class: "hub-session-meta" });
+    meta.appendChild(el("span", { class: "hub-session-agent", text: session.agentId || "—" }));
+    if (project && project.name) {
+      meta.appendChild(el("span", { class: "hub-session-sep", text: "·" }));
+      meta.appendChild(el("span", { class: "hub-session-proj", text: project.name }));
+    }
+    if (session.lastActiveAt) {
+      meta.appendChild(el("span", { class: "hub-session-sep", text: "·" }));
+      meta.appendChild(el("span", { class: "hub-session-time", text: relTime(session.lastActiveAt) }));
+    }
+    body.appendChild(meta);
+    row.appendChild(body);
+    const cta = el("span", { class: "hub-session-cta" });
+    cta.textContent = status === "running" ? "Open" : (session.canResume ? "Resume" : "View");
+    row.appendChild(cta);
+    row.addEventListener("click", () => openSessionDetail(session, project));
+    return row;
+  }
+
+  function basename (p) {
+    if (!p || typeof p !== "string") return "";
+    const norm = p.replace(/\\/g, "/");
+    const parts = norm.split("/").filter(Boolean);
+    return parts[parts.length - 1] || p;
+  }
+
+  function shortPath (p) {
+    if (!p) return "";
+    const b = basename(p);
+    const norm = p.replace(/\\/g, "/");
+    const parts = norm.split("/").filter(Boolean);
+    if (parts.length <= 2) return b;
+    return parts[parts.length - 2] + "/" + b;
+  }
+
+  function openSessionDetail (session, project) {
+    stopDetailPoll();
+    CS.currentSession = session;
+    CS.currentProject = project || null;
+    CS.loadedDetailTabs = new Set();
+    // Header
+    const titleEl = $c("sd-title");
+    if (titleEl) titleEl.textContent = session.title || "(未命名)";
+    const projEl = $c("sd-project");
+    if (projEl) projEl.textContent = (project && project.name) || basename(session.cwd) || "—";
+    const agentEl = $c("sd-agent");
+    if (agentEl) agentEl.textContent = session.agentId || "—";
+    const statusEl = $c("sd-status");
+    if (statusEl) statusEl.textContent = session.status || "—";
+    // Reset panels + tabs
+    ["sd-chat", "sd-terminal", "sd-files", "sd-changes"].forEach(id => {
+      const p = $c(id);
+      if (p) { p.hidden = true; p.classList.remove("is-active"); }
+    });
+    qsa(".sd-tab").forEach((t, i) => {
+      const isActive = i === 0;
+      t.classList.toggle("is-active", isActive);
+      t.setAttribute("aria-selected", isActive ? "true" : "false");
+    });
+    switchContractView("session-detail");
+    switchSessionDetailTab("chat");
+    // Slow poll for live sessions
+    if (session.status === "running" || session.status === "waiting_input") {
+      startDetailPoll(session.id, session.source === "desktop-terminal" ? "desktop" : "mobile");
+    }
+  }
+
+  function switchSessionDetailTab (tabName, forceReload) {
+    CS.currentDetailTab = tabName;
+    qsa(".sd-tab").forEach(t => {
+      const isActive = t.getAttribute("data-tab") === tabName;
+      t.classList.toggle("is-active", isActive);
+      t.setAttribute("aria-selected", isActive ? "true" : "false");
+    });
+    const panelMap = { chat: "sd-chat", terminal: "sd-terminal", files: "sd-files", changes: "sd-changes" };
+    for (const [tab, id] of Object.entries(panelMap)) {
+      const p = $c(id);
+      if (p) { p.hidden = (tab !== tabName); p.classList.toggle("is-active", tab === tabName); }
+    }
+    const loaded = CS.loadedDetailTabs || (CS.loadedDetailTabs = new Set());
+    if (forceReload || !loaded.has(tabName)) {
+      loaded.add(tabName);
+      if (tabName === "chat") loadChatTab();
+      else if (tabName === "terminal") loadTerminalTab();
+      else if (tabName === "files") loadFilesTab();
+      else if (tabName === "changes") loadChangesTab();
+    }
+  }
+
+  async function loadChatTab () {
+    const sess = CS.currentSession;
+    if (!sess) return;
+    const box = $c("sd-messages");
+    if (!box) return;
+    box.innerHTML = '<div class="sd-loading">加载中…</div>';
+    const hint = $c("sd-input-hint");
+    const sendBtn = $c("sd-send");
+    const input = $c("sd-input");
+    try {
+      let events = [];
+      let isDesktop = false;
+      if (sess.timelineKind === "desktop-terminal" || sess.timelineKind === "desktop-agent") {
+        isDesktop = true;
+        const d = await cApi(`/api/mobile/desktop-agents/${encodeURIComponent(sess.desktopAgentId || sess.timelineId || sess.id)}/timeline?limit=100`);
+        events = (d && d.events) || [];
+      } else {
+        const d = await cApi(`/api/mobile/sessions/${encodeURIComponent(sess.timelineId || sess.id)}/timeline?limit=100`);
+        events = (d && d.events) || [];
+      }
+      // Chat filter: drop output_tail / recent_files (kept in terminal/changes tabs)
+      const chatEvents = events.filter(ev => ev && ev.type !== "output_tail" && ev.type !== "recent_files");
+      if (chatEvents.length === 0) {
+        box.innerHTML = '';
+        box.appendChild(el("div", { class: "sd-empty", text: "这个历史会话暂无可显示消息" }));
+      } else {
+        renderTimelineEvents(box, chatEvents, isDesktop);
+      }
+    } catch (e) {
+      box.innerHTML = '';
+      box.appendChild(el("div", { class: "sd-error", text: formatApiError(e, "加载消息失败") }));
+    }
+    const canSend = canSendFollowup(sess);
+    if (sendBtn) sendBtn.disabled = !canSend;
+    if (input) input.disabled = !canSend;
+    if (hint) hint.textContent = canSend ? "" : followupBlockedReason(sess);
+  }
+
+  async function loadTerminalTab () {
+    const sess = CS.currentSession;
+    if (!sess) return;
+    const out = $c("sd-term-out");
+    const head = $c("sd-term-head");
+    const inputZone = $c("sd-term-input-zone");
+    if (head) head.textContent = [sess.agentId || "agent", sess.cwd ? shortPath(sess.cwd) : "", sess.status || ""].filter(Boolean).join(" · ");
+    if (out) {
+      out.innerHTML = '<div class="sd-loading">加载终端输出…</div>';
+      if (!sess.desktopAgentId) {
+        out.innerHTML = '';
+        out.appendChild(el("div", { class: "sd-empty", text: "这个历史会话没有可连接的实时终端" }));
+        out.appendChild(el("div", { class: "sd-empty-sub", text: "只有正在运行的桌面 Agent 才能打开实时终端" }));
+      } else {
+        try {
+          const d = await cApi(`/api/mobile/desktop-agents/${encodeURIComponent(sess.desktopAgentId)}/timeline?limit=100`);
+          const events = (d && d.events) || [];
+          const termEvents = events.filter(ev => ev && ["output_tail", "status_snapshot", "status_change", "process_exit", "waiting_input", "input_sent", "status"].includes(ev.type));
+          renderTimelineEvents(out, termEvents, true);
+        } catch (e) {
+          out.innerHTML = '';
+          out.appendChild(el("div", { class: "sd-error", text: formatApiError(e, "加载终端失败") }));
+        }
+      }
+    }
+    const canSend = canSendFollowup(sess);
+    if (inputZone) inputZone.hidden = !canSend;
+  }
+
+  async function loadFilesTab () {
+    const sess = CS.currentSession;
+    const cwd = (sess && sess.cwd) || (CS.currentProject && CS.currentProject.cwd) || "";
+    const tree = $c("sd-file-tree");
+    const preview = $c("sd-file-preview");
+    if (preview) preview.hidden = true;
+    if (!tree) return;
+    tree.innerHTML = '<div class="sd-loading">加载文件…</div>';
+    if (!cwd) {
+      tree.innerHTML = '';
+      tree.appendChild(el("div", { class: "sd-empty", text: "当前 Session 未绑定工作目录" }));
+      return;
+    }
+    try {
+      const d = await cApi(`/api/mobile/files?path=${encodeURIComponent(cwd)}`);
+      const items = (d && d.items) || [];
+      tree.innerHTML = '';
+      if (items.length === 0) {
+        tree.appendChild(el("div", { class: "sd-empty", text: "目录为空" }));
+        return;
+      }
+      for (const f of items) {
+        const row = el("button", {
+          class: "sd-file-row" + (f.kind === "directory" ? " is-dir" : ""),
+          type: "button",
+          role: "listitem",
+          "data-path": f.path || "",
+        }, [
+          el("span", { class: "sd-file-icon", text: f.kind === "directory" ? "📁" : sdFileIcon(f.name) }),
+          el("span", { class: "sd-file-name", text: f.name || f.path || "" }),
+        ]);
+        row.addEventListener("click", () => openFilePreview(f.path, f.name));
+        tree.appendChild(row);
+      }
+    } catch (e) {
+      tree.innerHTML = '';
+      tree.appendChild(el("div", { class: "sd-error", text: "加载文件失败：" + (e.message || e) }));
+    }
+  }
+
+  async function openFilePreview (path, name) {
+    const preview = $c("sd-file-preview");
+    const body = $c("sd-files-preview-body");
+    const nameEl = $c("sd-files-preview-name");
+    const subEl = $c("sd-files-preview-sub");
+    if (!preview || !body) return;
+    if (nameEl) nameEl.textContent = name || path;
+    if (subEl) subEl.textContent = path || "";
+    preview.hidden = false;
+    body.innerHTML = '<div class="sd-loading">加载预览…</div>';
+    try {
+      const d = await cApi(`/api/mobile/file?path=${encodeURIComponent(path)}&max=20000`);
+      const text = (d && (d.text || d.content)) || "";
+      body.innerHTML = '';
+      if (isImageName(name)) {
+        body.appendChild(el("img", { class: "sd-preview-img", src: `/api/mobile/thumb?path=${encodeURIComponent(path)}`, alt: name || "" }));
+      } else if (text) {
+        body.appendChild(el("pre", { class: "sd-preview-pre", text: text.slice(0, 20000) }));
+      } else {
+        body.appendChild(el("div", { class: "sd-empty", text: "无可预览内容" }));
+      }
+    } catch (e) {
+      body.innerHTML = '';
+      body.appendChild(el("div", { class: "sd-error", text: formatApiError(e, "加载文件失败") }));
+    }
+  }
+
+  function loadChangesTab () {
+    const sess = CS.currentSession;
+    const list = $c("sd-changes-list");
+    if (!list) return;
+    list.innerHTML = '';
+    const changed = (sess && sess.changedFileCount) || 0;
+    if (changed === 0) {
+      list.appendChild(el("div", { class: "sd-empty" }, [
+        el("div", { class: "sd-empty-title", text: "暂无文件变更" }),
+        el("div", { class: "sd-empty-sub", text: "当 Agent 修改文件后，这里会显示变更列表" }),
+      ]));
+      return;
+    }
+    list.appendChild(el("div", { class: "sd-changes-summary", text: `${changed} 个文件被修改` }));
+    list.appendChild(el("div", { class: "sd-empty-sub", text: "详细 diff 视图将在后续版本提供" }));
+  }
+
+  function canSendFollowup (sess) {
+    if (!sess) return false;
+    if (sess.source === "mobile-draft" || sess.status === "draft") return true;
+    if (sess.status === "running" || sess.status === "waiting_input") {
+      const perms = (CS.sessionHub && CS.sessionHub.host && CS.sessionHub.host.permissions) || [];
+      return perms.includes("desktop_control");
+    }
+    return false;
+  }
+
+  function followupBlockedReason (sess) {
+    if (!sess) return "";
+    if (sess.source === "mobile-draft" || sess.status === "draft") return "";
+    if (sess.status === "failed") return "Session 已失败";
+    if (sess.status === "done" || sess.status === "exited") return "Agent 已退出";
+    const perms = (CS.sessionHub && CS.sessionHub.host && CS.sessionHub.host.permissions) || [];
+    if (!perms.includes("desktop_control")) return "需要桌面控制权限";
+    return "暂不可发送";
+  }
+
+  function sdFileIcon (name) {
+    if (!name) return "📄";
+    const lower = name.toLowerCase();
+    if (lower.endsWith(".pdf")) return "📕";
+    if (lower.match(/\.(docx?|odt)$/)) return "📘";
+    if (lower.match(/\.(xlsx?|ods|csv)$/)) return "📗";
+    if (lower.match(/\.(pptx?|odp)$/)) return "📙";
+    if (lower.match(/\.(md|markdown)$/)) return "📝";
+    if (lower.match(/\.(js|ts|tsx|jsx|py|go|rs|java|c|cpp|h|cs|rb|php|sh|ps1|json|yaml|yml|toml|xml|html|css|scss)$/)) return "💻";
+    if (lower.match(/\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)$/)) return "🖼️";
+    if (lower.match(/\.(zip|rar|7z|tar|gz)$/)) return "🗜️";
+    if (lower.endsWith(".txt")) return "📄";
+    return "📄";
+  }
+
+  function isImageName (name) {
+    if (!name) return false;
+    return /\.(png|jpe?g|gif|svg|webp|bmp|ico)$/i.test(name);
+  }
+
+  async function sendChatFollowup () {
+    const sess = CS.currentSession;
+    if (!sess) return;
+    const input = $c("sd-input");
+    const sendBtn = $c("sd-send");
+    const hint = $c("sd-input-hint");
+    if (!input) return;
+    const msg = (input.value || "").trim();
+    if (!msg) return;
+    if (!canSendFollowup(sess)) {
+      if (hint) hint.textContent = followupBlockedReason(sess);
+      return;
+    }
+    sendBtn.disabled = true;
+    input.disabled = true;
+    if (hint) hint.textContent = "发送中…";
+    try {
+      if (sess.source === "desktop-terminal") {
+        await cApi(`/api/mobile/desktop-agents/${encodeURIComponent(sess.id)}/input`, {
+          method: "POST",
+          body: JSON.stringify({ text: msg }),
+        });
+      } else {
+        await cApi(`/api/mobile/sessions/${encodeURIComponent(sess.id)}/timeline`, {
+          method: "POST",
+          body: JSON.stringify({ text: msg }),
+        });
+      }
+      input.value = "";
+      if (hint) hint.textContent = "已送达";
+      setTimeout(() => {
+        loadChatTab();
+        input.disabled = false;
+      }, 600);
+    } catch (e) {
+      if (hint) hint.textContent = "发送失败：" + (e.message || e);
+      input.disabled = false;
+    } finally {
+      sendBtn.disabled = !canSendFollowup(sess);
+    }
+  }
+
+  async function sendTerminalInput (sess, text) {
+    const head = $c("sd-term-head");
+    try {
+      await cApi(`/api/mobile/desktop-agents/${encodeURIComponent(sess.id)}/input`, {
+        method: "POST",
+        body: JSON.stringify({ text }),
+      });
+      if (head) head.textContent = "已送达 · " + shortTime(Date.now());
+      setTimeout(() => loadTerminalTab(), 600);
+    } catch (e) {
+      if (head) head.textContent = "发送失败：" + (e.message || e);
+    }
+  }
+
+  async function searchWorkspace (q) {
+    const tree = $c("sd-file-tree");
+    const sess = CS.currentSession;
+    const cwd = (sess && sess.cwd) || (CS.currentProject && CS.currentProject.cwd) || "";
+    if (!tree) return;
+    if (!q) { if (cwd) loadFilesTab(); return; }
+    tree.innerHTML = '<div class="sd-loading">搜索中…</div>';
+    try {
+      const d = await cApi(`/api/mobile/search?q=${encodeURIComponent(q)}&cwd=${encodeURIComponent(cwd)}`);
+      const items = (d && d.items) || [];
+      tree.innerHTML = '';
+      if (items.length === 0) {
+        tree.appendChild(el("div", { class: "sd-empty", text: "无匹配文件" }));
+        return;
+      }
+      for (const f of items) {
+        const row = el("button", {
+          class: "sd-file-row",
+          type: "button",
+          role: "listitem",
+          "data-path": f.path || "",
+        }, [
+          el("span", { class: "sd-file-icon", text: sdFileIcon(f.name) }),
+          el("span", { class: "sd-file-name", text: f.name || f.path || "" }),
+        ]);
+        row.addEventListener("click", () => openFilePreview(f.path, f.name));
+        tree.appendChild(row);
+      }
+    } catch (e) {
+      tree.innerHTML = '';
+      tree.appendChild(el("div", { class: "sd-error", text: "搜索失败：" + (e.message || e) }));
+    }
+  }
+
+  function populateSettings () {
+    const app = CS.appState || {};
+    const hub = CS.sessionHub || {};
+    const host = hub.host || {};
+    const server = app.server || {};
+    const auth = app.auth || {};
+    const conn = app.connection || {};
+    const nameEl = $c("set-host-name");
+    if (nameEl) nameEl.textContent = host.name || server.name || "—";
+    const serverEl = $c("set-host-server");
+    if (serverEl) serverEl.textContent = (server.serverId || server.version) ? `${server.serverId || ""} v${server.version || ""}`.trim() : "—";
+    const lanEl = $c("set-host-lan");
+    if (lanEl) lanEl.textContent = server.primaryLanUrl || "—";
+    const connEl = $c("set-host-conn");
+    if (connEl) connEl.textContent = conn.state || (host.online !== false ? "connected" : "offline");
+    const permsBox = $c("set-perms");
+    if (permsBox) {
+      permsBox.innerHTML = '';
+      const perms = host.permissions || [];
+      if (perms.length === 0) {
+        permsBox.appendChild(el("div", { class: "settings-perms-empty", text: "—" }));
+      } else {
+        for (const p of perms) {
+          permsBox.appendChild(el("div", { class: "settings-perm-chip", role: "listitem", text: PERM_LABELS[p] || p }));
+        }
+      }
+    }
+    const pairEl = $c("set-diag-pairing");
+    if (pairEl) pairEl.textContent = auth.paired ? "active" : "inactive";
+    const devEl = $c("set-diag-device");
+    if (devEl) devEl.textContent = auth.deviceName || auth.deviceId || "—";
+    // Lazy-load app-state if missing
+    if (!CS.appState) {
+      loadAppState().then(() => populateSettings());
+    }
+  }
+
+  function openSettings () {
+    stopHomePoll();
+    stopDetailPoll();
+    switchContractView("settings");
+    populateSettings();
+  }
+
+  function wireHub () {
+    const newBtn = $c("hub-new");
+    if (newBtn) newBtn.addEventListener("click", () => openNewChatModal());
+    qsa(".hub-bottombar-btn[data-go]").forEach(btn => {
+      const target = btn.getAttribute("data-go");
+      btn.addEventListener("click", () => {
+        if (target === "settings") openSettings();
+      });
+    });
+  }
+
+  function wireSessionDetail () {
+    const backBtn = $c("sd-back");
+    if (backBtn) backBtn.addEventListener("click", goBack);
+    qsa(".sd-tab").forEach(tab => {
+      tab.addEventListener("click", () => switchSessionDetailTab(tab.getAttribute("data-tab")));
+    });
+    const sendBtn = $c("sd-send");
+    if (sendBtn) sendBtn.addEventListener("click", sendChatFollowup);
+    const input = $c("sd-input");
+    if (input) {
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          sendChatFollowup();
+        }
+      });
+    }
+    const termInput = $c("sd-term-input");
+    if (termInput) {
+      termInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const sess = CS.currentSession;
+          if (!sess || !canSendFollowup(sess)) return;
+          const v = (termInput.value || "").trim();
+          if (!v) return;
+          termInput.value = "";
+          sendTerminalInput(sess, v);
+        }
+      });
+    }
+    const filesQ = $c("sd-files-q");
+    if (filesQ) {
+      filesQ.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          searchWorkspace((filesQ.value || "").trim());
+        }
+      });
+    }
+    const filesPreviewClose = $c("sd-files-preview-close");
+    if (filesPreviewClose) {
+      filesPreviewClose.addEventListener("click", () => {
+        const p = $c("sd-file-preview");
+        if (p) p.hidden = true;
+      });
+    }
+  }
+
+  function wireSettingsDebug () {
+    const toggle = $c("set-debug-toggle");
+    const nav = $c("set-debug-nav");
+    if (!toggle || !nav) return;
+    toggle.addEventListener("click", () => {
+      const isOpen = !nav.hasAttribute("hidden");
+      if (isOpen) { nav.setAttribute("hidden", ""); toggle.setAttribute("aria-expanded", "false"); }
+      else { nav.removeAttribute("hidden"); toggle.setAttribute("aria-expanded", "true"); }
+    });
+    qsa(".settings-debug-item").forEach(btn => {
+      const target = btn.getAttribute("data-go");
+      btn.addEventListener("click", () => {
+        if (target === "home-cockpit") openHome();
+        else if (target === "safety") openSafety();
+        else if (target === "projects") openProjects();
+        else if (target === "files") openFiles();
+        else {
+          stopHomePoll();
+          stopDetailPoll();
+          switchContractView(target);
+        }
+      });
+    });
+  }
+
   /* ---- Expose minimal API ---- */
-  return { start: startContractMode, openHome, openDesktopAgent, openMobileSession, openSafety, openProjects, openFiles };
+  return { start: startContractMode, openHome, openDesktopAgent, openMobileSession, openSafety, openProjects, openFiles, openSettings, openSessionDetail, loadSessionHub };
 })();

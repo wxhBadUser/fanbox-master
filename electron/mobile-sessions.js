@@ -484,7 +484,7 @@ async function listSessions(opts) {
   };
 }
 
-async function getSessionById(id) {
+async function getSessionById(id, opts) {
   const target = String(id || '');
   // 1) 先在 mobile sessions 中按 sessionId 找（保留 messages）
   const mobileRaw = await readMobileSessionsObj();
@@ -501,6 +501,63 @@ async function getSessionById(id) {
   const all = await listAllSessions();
   for (const s of all) {
     if (s.sessionId === target) return scrubSessionDetail(s);
+  }
+  // 3) Mobile-Paseo-R1-Fix: project-memory sessions (desktop .claude/projects /
+  //    .codex/sessions). Lazy-require project-memory to avoid circular-import
+  //    at module load. Returns a scrubSessionDetail-shaped object so the existing
+  //    /sessions/:id/timeline endpoint can serve project-memory ids (with empty
+  //    events[] — the mobile layer does not parse .jsonl message logs).
+  const isAllowedCwd = (opts && typeof opts.isAllowedCwd === 'function') ? opts.isAllowedCwd : null;
+  const isForbidden = (opts && typeof opts.isForbidden === 'function') ? opts.isForbidden : null;
+  if (isAllowedCwd && isForbidden) {
+    try {
+      const projectMemory = require('./project-memory');
+      const data = await projectMemory.scanProjectMemory({ isAllowedCwd, isForbidden });
+      for (const item of (data.items || [])) {
+        if (!item || !Array.isArray(item.sessions)) continue;
+        for (const s of item.sessions) {
+          if (!s || s.id !== target) continue;
+          // Synthesize a scrubSessionDetail-compatible object from the project-memory session.
+          const lastActiveAt = (typeof s.lastActiveAt === 'number') ? s.lastActiveAt : 0;
+          const synthesized = {
+            sessionId: s.id,
+            source: 'desktop-project-memory',
+            agentId: s.agentId || 'unknown',
+            kind: 'agent',
+            cwd: item.cwd || '',
+            cwdLabel: item.name || '',
+            title: s.title || '',
+            status: s.status || 'idle',
+            createdAt: lastActiveAt,
+            updatedAt: lastActiveAt,
+            lastActiveAt: lastActiveAt,
+            messageCount: s.messageCount || 0,
+            // changedFileCount is not part of scrubSessionSummary output but is preserved below
+            canContinue: !!s.canResume,
+            canStart: undefined,
+            initialMessageLength: 0,
+            tokenEstimate: 0,
+            approvalState: 'none',
+            unread: false,
+            summary: { lastMessagePreview: '', outputTail: '', lastRole: 'agent' },
+            context: { files: [], skills: Array.isArray(s.tags) ? s.tags.slice(0, 5) : [] },
+            messages: [],
+          };
+          const detail = scrubSessionDetail(synthesized);
+          // Preserve changedFileCount + titleSource on the detail object for the hub contract.
+          if (typeof s.changedFileCount === 'number') detail.changedFileCount = s.changedFileCount;
+          if (typeof s.titleSource === 'string') detail.titleSource = s.titleSource;
+          // Mobile-Paseo-R1-Fix-Strict: preserve internal-only sourceFile so
+          // readSessionTimelineMobile can call buildProjectMemoryTimeline. NEVER
+          // serialized to the API response — readSessionTimelineMobile consumes
+          // it server-side and returns only safe events.
+          if (typeof s.sourceFile === 'string' && s.sourceFile) detail.sourceFile = s.sourceFile;
+          return detail;
+        }
+      }
+    } catch (_e) {
+      // fall through to null — caller will see session_not_found
+    }
   }
   return null;
 }

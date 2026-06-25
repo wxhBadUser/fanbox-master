@@ -72,6 +72,9 @@ async function parseClaudeSession(fp, st) {
     userMsgs: 0,
     files: [],
     skills: [],
+    // Mobile-Paseo-R1-Fix-Strict: internal-only field. Used by buildProjectMemoryTimeline
+    // to read the original .jsonl for the Chat tab. NEVER exposed to the frontend hub projection.
+    sourceFile: fp,
   };
   const filesSet = new Set();
   const skillsSet = new Set();
@@ -140,6 +143,8 @@ async function parseCodexSession(fp, st) {
     userMsgs: 0,
     files: [],
     skills: [],
+    // Mobile-Paseo-R1-Fix-Strict: internal-only. Used by buildProjectMemoryTimeline.
+    sourceFile: fp,
   };
   try {
     const txt = await fsp.readFile(fp, 'utf8');
@@ -281,6 +286,20 @@ function safeProjectId(cwd) {
   return 'pm_' + crypto.createHash('sha1').update(cwd).digest('hex').slice(0, 16);
 }
 
+// Sanitize a session title label: strip control chars, collapse whitespace, truncate.
+// Used for the parser's first-user-message title (already 160-char truncated by the parser)
+// before exposing it via the mobile project-memory projection.
+function safeTitleLabel(v, max) {
+  if (v == null) return '';
+  let s = String(v);
+  // Strip control chars (keep \t; newline -> space via the next step)
+  s = s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+  // Collapse whitespace runs (incl. newlines/tabs) into a single space
+  s = s.replace(/\s+/g, ' ').trim();
+  if (max && s.length > max) s = s.slice(0, max);
+  return s;
+}
+
 /**
  * Scan desktop agent session logs and return the mobile project-memory read model.
  * This is a READ-ONLY safe projection — no raw prompts, no tokens, no raw PTY.
@@ -300,24 +319,34 @@ async function scanProjectMemory(opts) {
     // Scan sessions for this project
     const rawSessions = await scanProjectSessions(p.cwd);
     const sessions = rawSessions.map((s) => {
-      // R2: Do NOT expose raw prompt text as title.
-      // Desktop UI can show the first user message locally, but mobile projection
-      // must derive a safe label from non-sensitive metadata (agent + files + date).
+      // Mobile-Paseo-R1-Fix: the first-user-message title (parser's `s.title`,
+      // already 160-char truncated) is a session LABEL aligned with the desktop
+      // sidebar. "Raw prompt" leakage refers to full untruncated prompt bodies /
+      // tool inputs, NOT this 160-char label. Sanitize it (strip control chars,
+      // collapse whitespace) before exposing; fall back to agent+file / agent+date.
       const agentLabel = s.agent === 'claude' ? 'Claude' : s.agent === 'codex' ? 'Codex' : 'Session';
-      let safeTitle;
+      let safeTitle = '';
+      let titleSource = 'agent-date';
+      const rawTitle = safeTitleLabel(s.title || '', 160);
       const firstFile = (s.files || [])[0];
-      if (firstFile) {
+      if (rawTitle) {
+        safeTitle = rawTitle;
+        titleSource = 'first-message';
+      } else if (firstFile) {
         const fileBase = path.basename(firstFile);
         safeTitle = (agentLabel + ' · ' + fileBase).slice(0, 160);
+        titleSource = 'agent-file';
       } else {
         // Derive a date label from lastT (ms → YYYY-MM-DD)
         const d = new Date(s.lastT || 0);
         const dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
         safeTitle = (agentLabel + ' session · ' + dateStr).slice(0, 160);
+        titleSource = 'agent-date';
       }
       return {
       id: s.id,
       title: safeTitle,
+      titleSource,
       agentId: s.agent === 'claude' ? 'claude' : s.agent === 'codex' ? 'codex' : 'unknown',
       status: 'idle', // desktop logs don't track live status; mobile sessions have their own status
       lastActiveAt: s.lastT || 0,
@@ -326,6 +355,10 @@ async function scanProjectMemory(opts) {
       tags: (s.skills || []).slice(0, 20),
       canResume: true,
       reason: 'ready',
+      // Mobile-Paseo-R1-Fix-Strict: internal-only. NEVER serialized to the hub response.
+      // The hub handler in mobile.js MUST strip this before sending. buildProjectMemoryTimeline
+      // reads it to project a safe Chat timeline from the original .jsonl.
+      sourceFile: s.sourceFile || '',
       };
     });
     const riskFlags = [];
@@ -354,12 +387,225 @@ async function scanProjectMemory(opts) {
   return { ok: true, items };
 }
 
+// --- Mobile-Paseo-R1-Fix-Strict: read-only .jsonl timeline projection ---
+//
+// Reads the original session .jsonl (Claude or Codex) and projects a SAFE timeline
+// for the mobile Chat tab. This is the fix for "Chat shows friendly empty state".
+// Real history must be displayed; only when the file is missing/unreadable/empty
+// may the caller show the friendly empty state.
+//
+// Safety rules (hard):
+//   - user/assistant text is truncated to MAX_EVENT_TEXT chars
+//   - tool_use (Write/Edit/MultiEdit/NotebookEdit) → "修改了 <basename>" summary only
+//   - Bash/Read/BashOutput etc. → "运行了 <tool>" summary only
+//   - binary/base64/over-long content is redacted
+//   - token/tokenHash/Authorization/Bearer/API key/env secret patterns are scrubbed
+//   - raw PTY / raw JSON / raw tool_use input object are NEVER echoed
+//   - at most MAX_EVENTS per session
+//   - every event has source: "desktop-project-memory"
+
+const MAX_EVENT_TEXT = 2000;
+const MAX_EVENTS = 80;
+const SECRET_RE = /(sk-[A-Za-z0-9]{16,}|Bearer\s+[A-Za-z0-9._-]+|Authorization\s*:\s*Bearer\s+[^\s"'']+|ANTHROPIC_API_KEY\s*=\s*\S+|OPENAI_API_KEY\s*=\s*\S+|token\s*=\s*[A-Za-z0-9._-]{8,})/gi;
+
+function scrubSecrets(s) {
+  if (!s) return '';
+  return String(s).replace(SECRET_RE, '[redacted]');
+}
+
+function truncateText(s, max) {
+  s = String(s || '');
+  if (s.length > max) s = s.slice(0, max) + '…';
+  return s;
+}
+
+function safeBase(p) {
+  try { return path.basename(String(p || '')); } catch { return ''; }
+}
+
+// Project one parsed line of a Claude .jsonl into a safe event (or null to skip).
+function projectClaudeLine(d, idx, sessionId) {
+  if (!d || typeof d !== 'object') return null;
+  const ts = d.timestamp ? (Date.parse(d.timestamp) || 0) : 0;
+  const type = d.type;
+  const msg = d.message || {};
+  const role = msg.role || '';
+  const content = msg.content;
+  // user text message
+  if (type === 'user' && role === 'user' && !d.isMeta && !d.tool_use_id) {
+    let text = '';
+    if (typeof content === 'string') text = content;
+    else if (Array.isArray(content)) {
+      const t = content.find((x) => x && x.type === 'text');
+      text = (t && t.text) || '';
+    }
+    if (!text) return null;
+    text = scrubSecrets(text);
+    text = truncateText(text, MAX_EVENT_TEXT);
+    return {
+      id: 'pm-cl-' + idx + '-' + sessionId,
+      type: 'message',
+      role: 'user',
+      text,
+      timestamp: ts || 0,
+      source: 'desktop-project-memory',
+    };
+  }
+  // assistant message: may contain text and/or tool_use
+  if (type === 'assistant' && role === 'assistant') {
+    if (Array.isArray(content)) {
+      // text part
+      const textPart = content.find((x) => x && x.type === 'text' && typeof x.text === 'string' && x.text.trim());
+      if (textPart) {
+        let text = scrubSecrets(textPart.text);
+        text = truncateText(text, MAX_EVENT_TEXT);
+        return {
+          id: 'pm-cl-' + idx + '-' + sessionId,
+          type: 'message',
+          role: 'assistant',
+          text,
+          timestamp: ts || 0,
+          source: 'desktop-project-memory',
+        };
+      }
+      // tool_use part → safe summary (no raw input)
+      const tu = content.find((x) => x && x.type === 'tool_use' && x.name);
+      if (tu) {
+        const name = String(tu.name);
+        const input = (tu.input && typeof tu.input === 'object') ? tu.input : {};
+        let summary = '';
+        if (/^(Write|Edit|MultiEdit|NotebookEdit)$/.test(name) && input.file_path) {
+          summary = '修改了 ' + safeBase(input.file_path);
+        } else if (name === 'Bash' || name === 'BashOutput') {
+          summary = '运行了 ' + name;
+        } else if (name === 'Read') {
+          summary = input.file_path ? ('读取了 ' + safeBase(input.file_path)) : ('运行了 Read');
+        } else {
+          summary = '调用了 ' + name;
+        }
+        summary = truncateText(summary, 200);
+        return {
+          id: 'pm-cl-' + idx + '-' + sessionId,
+          type: 'tool',
+          role: 'assistant',
+          text: summary,
+          timestamp: ts || 0,
+          source: 'desktop-project-memory',
+          meta: { toolName: name, fileName: input.file_path ? safeBase(input.file_path) : undefined },
+        };
+      }
+    }
+    return null;
+  }
+  // system / other
+  if (type === 'system' || type === 'summary') {
+    let text = typeof content === 'string' ? content : '';
+    if (!text) return null;
+    text = scrubSecrets(text);
+    text = truncateText(text, MAX_EVENT_TEXT);
+    return {
+      id: 'pm-cl-' + idx + '-' + sessionId,
+      type: 'system',
+      text,
+      timestamp: ts || 0,
+      source: 'desktop-project-memory',
+    };
+  }
+  return null;
+}
+
+// Project one parsed line of a Codex rollout .jsonl into a safe event (or null).
+function projectCodexLine(d, idx, sessionId) {
+  if (!d || typeof d !== 'object') return null;
+  const payload = d.payload || d;
+  const ts = d.timestamp || payload.timestamp || 0;
+  // Codex message line: { type: "message", role, content: [{type:"input_text"|"output_text", text}] }
+  if (payload.type === 'message' && (payload.role === 'user' || payload.role === 'assistant')) {
+    const content = Array.isArray(payload.content) ? payload.content : [];
+    const texts = content
+      .filter((x) => x && (x.type === 'input_text' || x.type === 'output_text') && typeof x.text === 'string')
+      .map((x) => x.text);
+    let text = texts.join(' ').trim();
+    if (!text) return null;
+    text = scrubSecrets(text);
+    text = truncateText(text, MAX_EVENT_TEXT);
+    return {
+      id: 'pm-cx-' + idx + '-' + sessionId,
+      type: 'message',
+      role: payload.role,
+      text,
+      timestamp: typeof ts === 'number' ? ts : 0,
+      source: 'desktop-project-memory',
+    };
+  }
+  // Tool/event lines → safe summary
+  if (payload.type === 'function_call' && payload.name) {
+    const name = String(payload.name);
+    let summary = '调用了 ' + name;
+    // arguments may be a JSON string; do not echo, just peek file_path if present
+    try {
+      const args = typeof payload.arguments === 'string' ? JSON.parse(payload.arguments) : payload.arguments;
+      if (args && typeof args === 'object' && args.file_path) {
+        if (/write|edit|multiedit|notebook/i.test(name)) summary = '修改了 ' + safeBase(args.file_path);
+        else if (/read/i.test(name)) summary = '读取了 ' + safeBase(args.file_path);
+      }
+    } catch { /* ignore */ }
+    summary = truncateText(summary, 200);
+    return {
+      id: 'pm-cx-' + idx + '-' + sessionId,
+      type: 'tool',
+      role: 'assistant',
+      text: summary,
+      timestamp: typeof ts === 'number' ? ts : 0,
+      source: 'desktop-project-memory',
+      meta: { toolName: name },
+    };
+  }
+  return null;
+}
+
+/**
+ * Read a project-memory session's .jsonl and project a safe timeline.
+ * @param {string} sourceFile - absolute path to the .jsonl
+ * @param {string} sessionId - session id (for stable event ids)
+ * @param {object} [opts] - { limit }
+ * @returns {Promise<{events: Array}>} events array (may be empty if file missing/empty)
+ */
+async function buildProjectMemoryTimeline(sourceFile, sessionId, opts) {
+  if (!sourceFile || typeof sourceFile !== 'string') return { events: [] };
+  const limit = Math.max(1, Math.min(MAX_EVENTS, Number(opts && opts.limit) || MAX_EVENTS));
+  let txt;
+  try {
+    txt = await fsp.readFile(sourceFile, 'utf8');
+  } catch { return { events: [] }; }
+  if (!txt || !txt.trim()) return { events: [] };
+  const isCodex = /rollout-.*\.jsonl$/i.test(sourceFile) || path.basename(sourceFile).startsWith('rollout-');
+  const events = [];
+  const lines = txt.split('\n');
+  for (let i = 0; i < lines.length && events.length < MAX_EVENTS; i++) {
+    const line = lines[i];
+    if (!line || !line.trim()) continue;
+    let d;
+    try { d = JSON.parse(line); } catch { continue; }
+    const evt = isCodex ? projectCodexLine(d, i, sessionId) : projectClaudeLine(d, i, sessionId);
+    if (evt) events.push(evt);
+  }
+  // Sort ascending by timestamp; keep stable order for equal timestamps
+  events.sort((a, b) => (a.timestamp - b.timestamp) || 0);
+  // Take the most recent `limit` events
+  const sliced = events.slice(-limit);
+  return { events: sliced };
+}
+
 module.exports = {
   scanProjectMemory,
   scanAgentProjects,
   scanProjectSessions,
+  buildProjectMemoryTimeline,
   // Exported for testing
   _mungeClaudeDir: mungeClaudeDir,
   _normalizeProjectPathForCompare: normalizeProjectPathForCompare,
   _readCwdFromHead: readCwdFromHead,
+  _scrubSecrets: scrubSecrets,
+  _truncateText: truncateText,
 };

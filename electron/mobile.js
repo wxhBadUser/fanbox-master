@@ -1653,12 +1653,45 @@ function timelineEventFromMessage(sessionId, message, index) {
   };
 }
 
-async function readSessionTimelineMobile(sessionId, limitRaw) {
-  const sess = await mobileSessions.getSessionById(sessionId);
+async function readSessionTimelineMobile(sessionId, limitRaw, opts) {
+  const sess = await mobileSessions.getSessionById(sessionId, opts);
   if (!sess) return { ok: false, error: 'session_not_found', status: 404 };
   const limit = Math.max(1, Math.min(200, Number(limitRaw) || 100));
+  // Mobile-Paseo-R1-Fix-Strict: project-memory sessions have no mobile messages store.
+  // Instead of returning an empty events[] (the old "friendly empty state" compromise),
+  // read the original .jsonl via buildProjectMemoryTimeline and project a SAFE timeline.
+  // Only when the file is missing/unreadable/empty may events stay empty (→ friendly
+  // empty state in the frontend). This makes the Chat tab show real history.
+  if (sess.source === 'desktop-project-memory' && sess.sourceFile) {
+    const projectMemory = require('./project-memory');
+    const tl = await projectMemory.buildProjectMemoryTimeline(sess.sourceFile, sess.sessionId, { limit });
+    const pmEvents = Array.isArray(tl && tl.events) ? tl.events : [];
+    return {
+      ok: true,
+      sessionId: sess.sessionId,
+      id: sess.sessionId,
+      title: sess.title || '',
+      name: sess.title || '',
+      agentId: sess.agentId || 'unknown',
+      status: sess.status || 'idle',
+      cwd: sess.cwd || '',
+      cwdLabel: sess.cwdLabel || '',
+      events: pmEvents,
+      nextCursor: null,
+      hasMore: false,
+      meta: {
+        contract: 'mobile-b1',
+        source: 'project-memory-jsonl-projection',
+        timestamp: Date.now(),
+        eventCount: pmEvents.length,
+      },
+    };
+  }
   const msgs = await mobileSessions.getSessionMessages(sessionId, limit).catch(() => ({ messages: [] }));
-  const messages = Array.isArray(msgs.messages) ? msgs.messages : [];
+  // Mobile-Paseo-R1-Fix: msgs may be null for project-memory sessions (no mobile
+  // messages store). Treat null/undefined as "no messages" — returns ok:true with
+  // empty events[] so the frontend shows a friendly empty state.
+  const messages = Array.isArray(msgs && msgs.messages) ? msgs.messages : [];
   const events = messages.map((m, idx) => timelineEventFromMessage(sess.sessionId, m, idx));
   if (sess.source === 'mobile-draft') {
     const titleLen = typeof sess.title === 'string' ? sess.title.length : 0;
@@ -2922,6 +2955,197 @@ async function handleMobileApiV2(req, res, url) {
     }
   }
 
+  // /api/mobile/session-hub —— Mobile-Paseo-R1: session-first read model
+  // Aggregates host + projects (with nested sessions) + runningAgents into a single
+  // authoritative projection for the mobile Sessions home screen.
+  // READ-ONLY: no writes, no new storage. Reuses scanProjectMemory + buildDesktopContinuableAgents.
+  // Security: no token/tokenHash/raw prompt/raw PTY/forbidden path; no drive roots in projects[].
+  if (pathOnly === '/api/mobile/session-hub') {
+    const t = await requireMobileAuth(req, res); if (!t) return;
+    try {
+      // 1) Gather primitives in parallel (reuse dashboard/app-state sources)
+      const [desktopAgents, pmData, mobileResult] = await Promise.all([
+        buildDesktopContinuableAgents().catch(() => []),
+        projectMemory.scanProjectMemory({
+          isAllowedCwd: (cwd) => pathInAllowed(cwd),
+          isForbidden: (cwd) => isForbiddenPath(cwd),
+        }).catch(() => ({ ok: true, items: [] })),
+        mobileSessions.listSessions({ limit: 200 }).catch(() => ({ items: [] })),
+      ]);
+
+      // 2) host — reuse app-state server.name + device scopes
+      const deviceScopes = Array.isArray(t.device && t.device.scopes) ? t.device.scopes : [];
+      const host = {
+        name: 'FanBox Windows Edition',
+        online: true,
+        permissions: deviceScopes.length > 0 ? deviceScopes.slice() : ['read:status', 'read:files'],
+      };
+
+      // 3) projects[] — primarily from project-memory; re-validate each cwd (defense-in-depth)
+      const isDriveRoot = (cwd) => !!(cwd && typeof cwd === 'string' && /^[A-Z]:\\?$/i.test(cwd));
+      const hubSafeProjectId = (cwd) => {
+        try {
+          return 'p_' + crypto.createHash('sha1').update('hub:' + String(cwd || '')).digest('hex').slice(0, 16);
+        } catch (_e) {
+          return 'p_' + String(cwd || '').replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40);
+        }
+      };
+      // Mobile-Paseo-R1-Fix: helper to resolve desktopAgentId for a project-memory session
+      // by matching cwd + agentId against desktopContinuableAgents. Returns the safe
+      // `term-<hash>` id, or null when no running agent matches.
+      const findDesktopAgentId = (cwd, agentId) => {
+        if (!cwd || !agentId) return null;
+        const cwdNorm = String(cwd).replace(/\\/g, '/').toLowerCase();
+        for (const a of desktopAgents) {
+          if (!a || typeof a.cwd !== 'string' || !a.cwd) continue;
+          if (a.cwd.replace(/\\/g, '/').toLowerCase() !== cwdNorm) continue;
+          if (String(a.agentId || 'unknown') !== String(agentId)) continue;
+          // Only return safe `term-<hash>` ids (defense-in-depth: never raw pty id)
+          if (typeof a.id === 'string' && /^term-[0-9a-f]{12}$/.test(a.id)) return a.id;
+          return null;
+        }
+        return null;
+      };
+      const projects = [];
+      const cwdKeyToProject = new Map();
+
+      for (const item of (pmData.items || [])) {
+        if (!item || typeof item.cwd !== 'string' || !item.cwd) continue;
+        if (isDriveRoot(item.cwd)) continue;          // never expose drive roots
+        if (isForbiddenPath(item.cwd)) continue;      // defense-in-depth
+        if (!pathInAllowed(item.cwd)) continue;       // defense-in-depth
+        const key = item.cwd.replace(/\\/g, '/').toLowerCase();
+        if (cwdKeyToProject.has(key)) continue;        // dedupe by cwd
+        const sessions = (Array.isArray(item.sessions) ? item.sessions : []).map((s) => {
+          const sid = String(s.id || '');
+          const agentId = String(s.agentId || 'unknown');
+          return {
+            id: sid,
+            title: String(s.title || ''),
+            // Mobile-Paseo-R1-Fix: real first-user-message title provenance
+            titleSource: (s.titleSource === 'first-message' || s.titleSource === 'agent-file' || s.titleSource === 'agent-date')
+              ? s.titleSource
+              : 'agent-date',
+            agentId,
+            status: String(s.status || 'unknown'),
+            lastActiveAt: (typeof s.lastActiveAt === 'number') ? s.lastActiveAt : 0,
+            canResume: !!s.canResume,
+            source: 'desktop-project-memory',
+            messageCount: (typeof s.messageCount === 'number') ? s.messageCount : undefined,
+            changedFileCount: (typeof s.changedFileCount === 'number') ? s.changedFileCount : undefined,
+            // Mobile-Paseo-R1-Fix: routing metadata for the frontend
+            cwd: item.cwd,
+            timelineKind: 'project-memory',
+            timelineId: sid,
+            desktopAgentId: findDesktopAgentId(item.cwd, agentId),
+          };
+        }).filter((s) => s.id);
+        const proj = {
+          id: String(item.id || hubSafeProjectId(item.cwd)),
+          name: String(item.name || path.basename(item.cwd) || item.cwd),
+          cwd: item.cwd,
+          lastActiveAt: (typeof item.lastActiveAt === 'number') ? item.lastActiveAt : 0,
+          sessions,
+        };
+        projects.push(proj);
+        cwdKeyToProject.set(key, proj);
+      }
+
+      // 4) Fold in mobile-draft sessions (from listSessions) by cwd
+      const mobileItems = Array.isArray(mobileResult.items) ? mobileResult.items : [];
+      for (const s of mobileItems) {
+        if (!s || typeof s.cwd !== 'string' || !s.cwd) continue;
+        if (s.source !== 'mobile-draft' && s.source !== 'mobile') continue; // only mobile-originated
+        if (isDriveRoot(s.cwd) || isForbiddenPath(s.cwd) || !pathInAllowed(s.cwd)) continue;
+        const key = s.cwd.replace(/\\/g, '/').toLowerCase();
+        const sid = String(s.sessionId || '');
+        if (!sid) continue;
+        const hubSession = {
+          id: sid,
+          title: String(s.title || ''),
+          // Mobile-draft titles come from the user-provided draft title; mark as first-message
+          // provenance (it is a user-entered label, not a synthesized agent+date label).
+          titleSource: 'first-message',
+          agentId: String(s.agentId || 'unknown'),
+          status: String(s.status || 'unknown'),
+          lastActiveAt: (typeof s.lastActiveAt === 'number') ? s.lastActiveAt : 0,
+          canResume: !!s.canContinue,
+          source: 'mobile-draft',
+          messageCount: (typeof s.messageCount === 'number') ? s.messageCount : undefined,
+          changedFileCount: undefined,
+          // Mobile-Paseo-R1-Fix: routing metadata for the frontend
+          cwd: s.cwd,
+          timelineKind: 'mobile-draft',
+          timelineId: sid,
+          desktopAgentId: null, // mobile-draft sessions have no associated desktop agent
+        };
+        let proj = cwdKeyToProject.get(key);
+        if (proj) {
+          if (!proj.sessions.some((x) => x.id === hubSession.id)) proj.sessions.push(hubSession);
+        } else {
+          // synthetic project for a mobile-only cwd (name = basename)
+          proj = {
+            id: hubSafeProjectId(s.cwd),
+            name: path.basename(s.cwd) || s.cwd,
+            cwd: s.cwd,
+            lastActiveAt: hubSession.lastActiveAt,
+            sessions: [hubSession],
+          };
+          projects.push(proj);
+          cwdKeyToProject.set(key, proj);
+        }
+      }
+
+      // 5) runningAgents[] from desktop continuable agents (reuse applyCanSendFollowup)
+      const runningAgents = desktopAgents.map((a) => {
+        const withFollowup = applyCanSendFollowup(a, t.device);
+        const aid = String(a.id || '');
+        return {
+          id: aid,
+          agentId: String(a.agentId || 'unknown'),
+          label: String(a.label || ''),
+          cwd: String(a.cwd || ''),
+          status: String(a.status || 'unknown'),
+          lastActiveAt: (typeof a.lastActiveAt === 'number') ? a.lastActiveAt : 0,
+          canSendFollowup: !!withFollowup.canSendFollowup,
+          // Mobile-Paseo-R1-Fix: routing metadata — a running agent row maps
+          // directly to the /desktop-agents/:id/timeline endpoint.
+          titleSource: 'agent-date',
+          timelineKind: 'desktop-agent',
+          timelineId: aid,
+          desktopAgentId: aid,
+        };
+      });
+
+      // 6) Sort: projects by lastActiveAt desc; sessions within each project by lastActiveAt desc
+      for (const proj of projects) {
+        proj.sessions.sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0));
+        const topSession = proj.sessions[0];
+        if (topSession && (topSession.lastActiveAt || 0) > (proj.lastActiveAt || 0)) {
+          proj.lastActiveAt = topSession.lastActiveAt;
+        }
+      }
+      projects.sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0));
+
+      // 7) Response (meta reuses mobileContractMeta → contract "mobile-b1")
+      return sendJson(res, 200, {
+        ok: true,
+        host,
+        projects,
+        runningAgents,
+        meta: mobileContractMeta('session-hub-projection'),
+      });
+    } catch (e) {
+      return sendJson(res, 200, {
+        ok: true,
+        host: { name: 'FanBox Windows Edition', online: true, permissions: ['read:status', 'read:files'] },
+        projects: [],
+        runningAgents: [],
+        meta: mobileContractMeta('session-hub-projection'),
+      });
+    }
+  }
+
   // /api/mobile/file?path=&max=
   if (pathOnly === '/api/mobile/file') {
     const t = await requireMobileAuth(req, res); if (!t) return;
@@ -3332,7 +3556,12 @@ async function handleMobileApiV2A(req, res, url) {
     const m = pathOnly.match(/^\/api\/mobile\/sessions\/([A-Za-z0-9._\-+]{1,128})\/timeline$/);
     const sessionId = m ? m[1] : '';
     const u = new URL(url, 'http://x');
-    const r = await readSessionTimelineMobile(sessionId, u.searchParams.get('limit'));
+    // Mobile-Paseo-R1-Fix: pass path validators so getSessionById can resolve
+    // project-memory session ids via scanProjectMemory (3rd branch).
+    const r = await readSessionTimelineMobile(sessionId, u.searchParams.get('limit'), {
+      isAllowedCwd: (cwd) => pathInAllowed(cwd),
+      isForbidden: (cwd) => isForbiddenPath(cwd),
+    });
     if (!r.ok) return sendMobileError(res, r.status || 400, r.error || 'bad_timeline', 'Unable to read mobile session timeline.'), true;
     return sendJson(res, 200, r), true;
   }
@@ -3349,7 +3578,8 @@ async function handleMobileApiV2A(req, res, url) {
     const reqSince = parseInt(u.searchParams.get('since') || '0', 10);
     const result = await getDesktopAgentTimeline(agentIdParam, { limit: reqLimit, since: reqSince });
     if (!result.found) {
-      return sendJson(res, 404, { ok: false, error: 'desktop_agent_not_found' }), true;
+      // Mobile-Paseo-R1-Fix: reconcile error envelope with /sessions/:id/timeline (object form).
+      return sendMobileError(res, 404, 'desktop_agent_not_found', 'Desktop agent not found.'), true;
     }
     const safeAgent = applyCanSendFollowup(result.agent, t.device);
     let followupBlockedReason = '';

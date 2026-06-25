@@ -608,13 +608,15 @@ function containsSensitiveAuditData(value) {
   }
 
   // Test 404 for non-existent desktop agent
+  // Mobile-Paseo-R1-Fix: error envelope is now the stable object form
+  // ({ ok:false, error:{ code, message } }) — matches /sessions/:id/timeline's 404.
   const badTimeline = asJson(await request({
     path: '/api/mobile/desktop-agents/nonexistent-1234/timeline',
     method: 'GET',
     headers: auth
   }));
   ok('non-existent desktop agent returns 404',
-    badTimeline.ok === false && badTimeline.error === 'desktop_agent_not_found',
+    badTimeline.ok === false && isStableError(badTimeline, 'desktop_agent_not_found'),
     JSON.stringify(badTimeline));
 
   // Test: desktop-agents without auth returns 401
@@ -1480,8 +1482,12 @@ function containsSensitiveAuditData(value) {
   const claudeProjectDir = path.join(claudeProjRoot, mungeClaudeDir(fixtureProjectCwd));
   fs.mkdirSync(claudeProjectDir, { recursive: true });
   const claudeSessionFile = path.join(claudeProjectDir, 'abc123.jsonl');
+  // Mobile-Paseo-R1-Fix: first user message is a recognizable session-label string
+  // (a markdown heading like the desktop sidebar would show). The parser captures
+  // this as `s.title`; the hub now exposes it (sanitized) with titleSource:"first-message".
+  const claudeFirstMessage = '# AGENTS.md instructions';
   const claudeSessionContent = [
-    JSON.stringify({ type: 'user', message: { role: 'user', content: 'Fix the auth bug in mobile.js' }, timestamp: new Date(now - 3600000).toISOString(), cwd: fixtureProjectCwd }),
+    JSON.stringify({ type: 'user', message: { role: 'user', content: claudeFirstMessage }, timestamp: new Date(now - 3600000).toISOString(), cwd: fixtureProjectCwd }),
     JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu1', name: 'Write', input: { file_path: path.join(fixtureProjectCwd, 'fix.js') } }] } }),
     JSON.stringify({ type: 'user', message: { role: 'user', content: 'Thanks' }, timestamp: new Date(now - 3500000).toISOString(), isMeta: false }),
   ].join('\n') + '\n';
@@ -1579,6 +1585,384 @@ function containsSensitiveAuditData(value) {
   const oldProjText = JSON.stringify(oldProjData.items || []);
   ok('R2-32: old /api/mobile/projects no longer returns root source items', !oldProjText.includes('"source":"root"'), 'still has root source');
   ok('R2-33: old /api/mobile/projects no longer contains C:/D:/E: drive roots', !/"name"\s*:\s*"[C-Z]:"/.test(oldProjText), oldProjText.substring(0, 200));
+
+  section('5g) Mobile-Paseo-R1: Session Hub');
+
+  // --- Test: GET /api/mobile/session-hub without auth returns 401 ---
+  const shNoAuth = asJson(await request({ path: '/api/mobile/session-hub', method: 'GET' }));
+  ok('SH-1: session-hub without auth returns 401',
+    shNoAuth.ok === false && isStableError(shNoAuth, 'unauthorized'),
+    JSON.stringify(shNoAuth).substring(0, 120));
+
+  // --- Test: GET /api/mobile/session-hub with auth returns 200 ---
+  const shRes = await request({ path: '/api/mobile/session-hub', method: 'GET', headers: auth });
+  const shData = asJson(shRes);
+  ok('SH-2a: session-hub returns 200', shRes.status === 200, 'status=' + shRes.status);
+  ok('SH-2b: session-hub returns ok:true', shData.ok === true, JSON.stringify(shData).substring(0, 120));
+
+  // --- Test: top-level shape (host/projects/runningAgents/meta) ---
+  ok('SH-2c: session-hub has host', !!shData.host && typeof shData.host === 'object');
+  ok('SH-2d: session-hub has projects array', Array.isArray(shData.projects), 'type=' + typeof shData.projects);
+  ok('SH-2e: session-hub has runningAgents array', Array.isArray(shData.runningAgents), 'type=' + typeof shData.runningAgents);
+  ok('SH-2f: session-hub meta.contract === mobile-b1', shData.meta && shData.meta.contract === 'mobile-b1', JSON.stringify(shData.meta));
+  ok('SH-2g: session-hub meta.source === session-hub-projection', shData.meta && shData.meta.source === 'session-hub-projection', JSON.stringify(shData.meta));
+
+  // --- Test: host fields ---
+  ok('SH-3a: host.name is string', typeof shData.host.name === 'string' && shData.host.name.length > 0, JSON.stringify(shData.host));
+  ok('SH-3b: host.online is boolean', typeof shData.host.online === 'boolean', JSON.stringify(shData.host));
+  ok('SH-3c: host.permissions is array', Array.isArray(shData.host.permissions), JSON.stringify(shData.host));
+
+  // --- Test: each project cwd passes pathInAllowed + !isForbiddenPath ---
+  const shProjects = shData.projects || [];
+  let allCwdsValid = true;
+  let anySessionMissingFields = false;
+  for (const p of shProjects) {
+    if (!mobile.pathInAllowed(p.cwd) || mobile.isForbiddenPath(p.cwd)) { allCwdsValid = false; }
+    // --- Test: each session has id/title/agentId/status/canResume/source ---
+    if (!Array.isArray(p.sessions)) { anySessionMissingFields = true; continue; }
+    for (const s of p.sessions) {
+      if (typeof s.id !== 'string' || !s.id) anySessionMissingFields = true;
+      if (typeof s.title !== 'string') anySessionMissingFields = true;
+      if (typeof s.agentId !== 'string') anySessionMissingFields = true;
+      if (typeof s.status !== 'string') anySessionMissingFields = true;
+      if (typeof s.canResume !== 'boolean') anySessionMissingFields = true;
+      if (typeof s.source !== 'string') anySessionMissingFields = true;
+    }
+  }
+  ok('SH-4: every project cwd passes pathInAllowed + !isForbiddenPath', allCwdsValid, 'invalid cwd present');
+  ok('SH-7: every session has id/title/agentId/status/canResume/source', !anySessionMissingFields, 'missing session fields');
+
+  // --- Test: NO drive roots / user-folder projects (resilient: array + none is drive root) ---
+  const shProjectsText = JSON.stringify(shProjects);
+  ok('SH-5a: projects is array (resilient — empty allowed)', Array.isArray(shProjects), 'type=' + typeof shProjects);
+  ok('SH-5b: no project cwd is a bare drive root', !/"cwd"\s*:\s*"[C-Z]:\\\\"/.test(shProjectsText), shProjectsText.substring(0, 200));
+  ok('SH-5c: no project named "Downloads"', !shProjectsText.includes('"name":"Downloads"'), shProjectsText.substring(0, 200));
+  ok('SH-5d: no project named "Desktop"', !shProjectsText.includes('"name":"Desktop"'), shProjectsText.substring(0, 200));
+  ok('SH-5e: no project named "Pictures"', !shProjectsText.includes('"name":"Pictures"'), shProjectsText.substring(0, 200));
+
+  // --- Test: fixture projects appear (fanbox-master and/or docs and/or project-a) ---
+  const shNames = shProjects.map((p) => p.name);
+  const hasFixture = shNames.includes('fanbox-master') || shNames.includes('docs') || shNames.includes('project-a');
+  ok('SH-6: at least one fixture project appears (fanbox-master/docs/project-a)',
+    shProjects.length === 0 || hasFixture,
+    'projects=' + JSON.stringify(shNames).substring(0, 120));
+
+  // --- Test: no sensitive field names leak (JSON-stringify scan) ---
+  const shFullText = JSON.stringify(shData);
+  ok('SH-8a: session-hub does not expose tokenHash field', !/"tokenHash"\s*:/.test(shFullText), 'leaked tokenHash');
+  ok('SH-8b: session-hub does not expose resumeToken field', !/"resumeToken"\s*:/.test(shFullText), 'leaked resumeToken');
+  ok('SH-8c: session-hub does not expose raw_pty field', !/"raw_pty"\s*:/.test(shFullText), 'leaked raw_pty');
+  ok('SH-8d: session-hub does not expose raw_prompt field', !/"raw_prompt"\s*:/.test(shFullText), 'leaked raw_prompt');
+  ok('SH-8e: session-hub does not expose forbidden field name', !/"forbidden"\s*:/.test(shFullText), 'leaked forbidden field');
+  ok('SH-8f: session-hub does not expose Bearer token', !/Bearer\s/i.test(shFullText), 'leaked Bearer');
+  ok('SH-8g: session-hub does not expose .claude/projects path', !shFullText.includes('.claude' + path.sep + 'projects'), 'leaked internal path');
+  ok('SH-8h: session-hub does not expose .codex/sessions path', !shFullText.includes('.codex' + path.sep + 'sessions'), 'leaked internal path');
+
+  // --- Test: projects sorted by lastActiveAt desc ---
+  let shSorted = true;
+  for (let i = 1; i < shProjects.length; i++) {
+    if ((shProjects[i - 1].lastActiveAt || 0) < (shProjects[i].lastActiveAt || 0)) { shSorted = false; break; }
+  }
+  ok('SH-9: projects sorted by lastActiveAt desc', shSorted, 'order=' + shProjects.map((p) => p.lastActiveAt).join(','));
+
+  // ============================================================
+  // Mobile-Paseo-R1-Fix: title + routing metadata assertions (SH-10+)
+  // ============================================================
+
+  // Collect ALL sessions (project-memory + mobile-draft) + runningAgents into one list
+  const shAllSessions = [];
+  for (const p of shProjects) {
+    if (!Array.isArray(p.sessions)) continue;
+    for (const s of p.sessions) {
+      shAllSessions.push({ ...s, _projectCwd: p.cwd, _kind: 'session' });
+    }
+  }
+  const shAllRunning = Array.isArray(shData.runningAgents) ? shData.runningAgents : [];
+  for (const a of shAllRunning) {
+    shAllSessions.push({ ...a, _kind: 'running-agent' });
+  }
+
+  // SH-10: every session has titleSource in the allowed enum
+  const allowedTitleSources = new Set(['first-message', 'agent-file', 'agent-date']);
+  let shTitleSourceOk = true;
+  let shTitleSourceBad = '';
+  for (const s of shAllSessions) {
+    if (!allowedTitleSources.has(s.titleSource)) {
+      shTitleSourceOk = false;
+      shTitleSourceBad = JSON.stringify(s).substring(0, 200);
+      break;
+    }
+  }
+  ok('SH-10: every session has titleSource in ["first-message","agent-file","agent-date"]',
+    shTitleSourceOk, shTitleSourceBad || 'all sessions checked (' + shAllSessions.length + ')');
+
+  // SH-11: every session has timelineKind in the allowed enum
+  const allowedTimelineKinds = new Set(['project-memory', 'mobile-draft', 'desktop-terminal', 'desktop-agent']);
+  let shTimelineKindOk = true;
+  let shTimelineKindBad = '';
+  for (const s of shAllSessions) {
+    if (!allowedTimelineKinds.has(s.timelineKind)) {
+      shTimelineKindOk = false;
+      shTimelineKindBad = JSON.stringify(s).substring(0, 200);
+      break;
+    }
+  }
+  ok('SH-11: every session has timelineKind in ["project-memory","mobile-draft","desktop-terminal","desktop-agent"]',
+    shTimelineKindOk, shTimelineKindBad || 'all sessions checked (' + shAllSessions.length + ')');
+
+  // SH-12: every session has non-empty timelineId
+  let shTimelineIdOk = true;
+  let shTimelineIdBad = '';
+  for (const s of shAllSessions) {
+    if (typeof s.timelineId !== 'string' || !s.timelineId) {
+      shTimelineIdOk = false;
+      shTimelineIdBad = JSON.stringify(s).substring(0, 200);
+      break;
+    }
+  }
+  ok('SH-12: every session has non-empty timelineId (string)',
+    shTimelineIdOk, shTimelineIdBad || 'all sessions checked');
+
+  // SH-13: every session has cwd (string, may be empty for legacy rows but must be present)
+  let shCwdOk = true;
+  let shCwdBad = '';
+  for (const s of shAllSessions) {
+    if (typeof s.cwd !== 'string') {
+      shCwdOk = false;
+      shCwdBad = JSON.stringify(s).substring(0, 200);
+      break;
+    }
+  }
+  ok('SH-13: every session has cwd (string)', shCwdOk, shCwdBad || 'all sessions checked');
+
+  // SH-14: project-memory sessions — desktopAgentId is null OR matches /^term-[0-9a-f]{12}$/
+  // (never a raw UUID, never a non-term string)
+  let shPmDesktopAgentIdOk = true;
+  let shPmDesktopAgentIdBad = '';
+  const termIdRe = /^term-[0-9a-f]{12}$/;
+  for (const p of shProjects) {
+    if (!Array.isArray(p.sessions)) continue;
+    for (const s of p.sessions) {
+      if (s.source !== 'desktop-project-memory') continue;
+      const da = s.desktopAgentId;
+      if (da !== null && da !== undefined && !(typeof da === 'string' && termIdRe.test(da))) {
+        shPmDesktopAgentIdOk = false;
+        shPmDesktopAgentIdBad = JSON.stringify(s).substring(0, 200);
+        break;
+      }
+    }
+    if (!shPmDesktopAgentIdOk) break;
+  }
+  ok('SH-14: source==="desktop-project-memory" sessions have desktopAgentId null-or-term-<hash>',
+    shPmDesktopAgentIdOk, shPmDesktopAgentIdBad || 'all pm sessions checked');
+
+  // SH-15: desktop-terminal / desktop-agent rows — desktopAgentId matches /^term-[0-9a-f]{12}$/
+  // and timelineId === desktopAgentId
+  let shDtDesktopAgentIdOk = true;
+  let shDtDesktopAgentIdBad = '';
+  for (const s of shAllSessions) {
+    if (s.timelineKind !== 'desktop-terminal' && s.timelineKind !== 'desktop-agent') continue;
+    const da = s.desktopAgentId;
+    if (!(typeof da === 'string' && termIdRe.test(da))) {
+      shDtDesktopAgentIdOk = false;
+      shDtDesktopAgentIdBad = 'invalid desktopAgentId: ' + JSON.stringify(s).substring(0, 200);
+      break;
+    }
+    if (s.timelineId !== da) {
+      shDtDesktopAgentIdOk = false;
+      shDtDesktopAgentIdBad = 'timelineId !== desktopAgentId: ' + JSON.stringify(s).substring(0, 200);
+      break;
+    }
+  }
+  ok('SH-15: timelineKind==="desktop-terminal"|"desktop-agent" rows have desktopAgentId=term-<hash> and timelineId===desktopAgentId',
+    shDtDesktopAgentIdOk, shDtDesktopAgentIdBad || 'no desktop rows present (vacuously true)');
+
+  // SH-16: fixture first-message session — title === "# AGENTS.md instructions" AND titleSource === "first-message"
+  // (the parser's first-user-message title, sanitized, exposed per the new contract)
+  let shFirstMsgSession = null;
+  for (const p of shProjects) {
+    if (!Array.isArray(p.sessions)) continue;
+    for (const s of p.sessions) {
+      if (s.title === '# AGENTS.md instructions' && s.titleSource === 'first-message') {
+        shFirstMsgSession = s;
+        break;
+      }
+    }
+    if (shFirstMsgSession) break;
+  }
+  ok('SH-16: fixture session with title "# AGENTS.md instructions" + titleSource="first-message" appears in hub',
+    !!shFirstMsgSession, 'looking for first-message session in ' + JSON.stringify(shProjects.map((p) => p.sessions.map((s) => s.title))).substring(0, 200));
+
+  // SH-17: the first-message title is NOT in the synthesized "Claude session · <date>" / "Codex session · <date>" form
+  const synthesizedTitleRe = /(Claude|Codex) session · \d{4}-\d{2}-\d{2}/;
+  let shNoSynthesized = true;
+  let shSynthesizedBad = '';
+  for (const s of shAllSessions) {
+    if (synthesizedTitleRe.test(s.title || '')) {
+      // Only allowed when titleSource === "agent-date" (the fallback path).
+      // first-message and agent-file sessions must NOT have the synthesized date form.
+      if (s.titleSource !== 'agent-date') {
+        shNoSynthesized = false;
+        shSynthesizedBad = JSON.stringify(s).substring(0, 200);
+        break;
+      }
+    }
+  }
+  ok('SH-17: no first-message/agent-file session title matches "(Claude|Codex) session · <date>" synthesized form',
+    shNoSynthesized, shSynthesizedBad || 'all sessions checked');
+  if (shFirstMsgSession) {
+    ok('SH-17b: the "# AGENTS.md instructions" session title does NOT match the synthesized date form',
+      !synthesizedTitleRe.test(shFirstMsgSession.title), 'title=' + shFirstMsgSession.title);
+  } else {
+    ok('SH-17b: the "# AGENTS.md instructions" session title does NOT match the synthesized date form', false, 'first-message session not found');
+  }
+
+  // SH-18: project-memory timeline — GET /api/mobile/sessions/<a-project-memory-session-id>/timeline
+  // returns 200 ok:true with events as an array (may be empty).
+  let shPmSessionIdForTimeline = null;
+  for (const p of shProjects) {
+    if (!Array.isArray(p.sessions)) continue;
+    for (const s of p.sessions) {
+      if (s.source === 'desktop-project-memory' && s.timelineId) {
+        shPmSessionIdForTimeline = s.timelineId;
+        break;
+      }
+    }
+    if (shPmSessionIdForTimeline) break;
+  }
+  if (shPmSessionIdForTimeline) {
+    const pmTimelineRes = await request({
+      path: '/api/mobile/sessions/' + encodeURIComponent(shPmSessionIdForTimeline) + '/timeline',
+      method: 'GET',
+      headers: auth,
+    });
+    const pmTimelineData = asJson(pmTimelineRes);
+    ok('SH-18a: project-memory session timeline returns 200',
+      pmTimelineRes.status === 200, 'status=' + pmTimelineRes.status + ' body=' + JSON.stringify(pmTimelineData).substring(0, 200));
+    ok('SH-18b: project-memory session timeline returns ok:true',
+      pmTimelineData.ok === true, 'body=' + JSON.stringify(pmTimelineData).substring(0, 200));
+    ok('SH-18c: project-memory session timeline returns events as array',
+      Array.isArray(pmTimelineData.events), 'events type=' + typeof pmTimelineData.events);
+    // SH-18d (Strict): events MUST be non-empty when the fixture jsonl has messages.
+    // The old "friendly empty state" compromise is rejected — Chat must show real history.
+    ok('SH-18d: project-memory session timeline events array is NON-empty (jsonl message parser)',
+      Array.isArray(pmTimelineData.events) && pmTimelineData.events.length > 0,
+      'events length=' + (Array.isArray(pmTimelineData.events) ? pmTimelineData.events.length : 'N/A'));
+    ok('SH-18e: project-memory session timeline sessionId matches requested id',
+      pmTimelineData.sessionId === shPmSessionIdForTimeline,
+      'sessionId=' + pmTimelineData.sessionId + ' expected=' + shPmSessionIdForTimeline);
+    // SH-18j: every event has the safe timeline shape (id/type/text/timestamp/source)
+    const pmEvents = Array.isArray(pmTimelineData.events) ? pmTimelineData.events : [];
+    const sh18jOk = pmEvents.length > 0 && pmEvents.every((e) =>
+      e && typeof e.id === 'string' && typeof e.type === 'string' &&
+      typeof e.text === 'string' && typeof e.timestamp === 'number' &&
+      typeof e.source === 'string');
+    ok('SH-18j: every timeline event has safe shape {id,type,text,timestamp,source}',
+      sh18jOk, 'bad event=' + JSON.stringify(pmEvents.find((e) => !sh18jOk || !(e && typeof e.id === 'string' && typeof e.type === 'string' && typeof e.text === 'string' && typeof e.timestamp === 'number' && typeof e.source === 'string')) || {}).substring(0, 200));
+    // SH-18k: every event has source === "desktop-project-memory" (no leak of internal source names)
+    ok('SH-18k: every timeline event source === "desktop-project-memory"',
+      pmEvents.length > 0 && pmEvents.every((e) => e && e.source === 'desktop-project-memory'),
+      'bad sources=' + JSON.stringify(pmEvents.map((e) => e && e.source)).substring(0, 200));
+    // SH-18l: the fixture user message "# AGENTS.md instructions" appears in some event text
+    const sh18lHit = pmEvents.find((e) => e && typeof e.text === 'string' && e.text.includes('# AGENTS.md instructions'));
+    ok('SH-18l: timeline contains fixture user message "# AGENTS.md instructions"',
+      !!sh18lHit, 'events=' + JSON.stringify(pmEvents.map((e) => e && e.text).filter(Boolean).slice(0, 3)).substring(0, 200));
+    // SH-18m: the fixture user "Thanks" appears in some event text
+    const sh18mHit = pmEvents.find((e) => e && typeof e.text === 'string' && e.text.includes('Thanks'));
+    ok('SH-18m: timeline contains fixture user message "Thanks"',
+      !!sh18mHit, 'events=' + JSON.stringify(pmEvents.map((e) => e && e.text).filter(Boolean).slice(0, 3)).substring(0, 200));
+    // SH-18n: tool_use / file edits are shown as SAFE SUMMARY, not raw input JSON.
+    // The fixture assistant has a Write tool_use with file_path fix.js — the timeline
+    // must mention the file name but MUST NOT echo the raw tool_use input JSON object.
+    const sh18nText = JSON.stringify(pmTimelineData);
+    const hasToolSummary = pmEvents.some((e) => e && typeof e.text === 'string' && /fix\.js/i.test(e.text));
+    ok('SH-18n: timeline shows tool/file-edit summary mentioning fix.js (safe summary, not raw JSON)',
+      hasToolSummary, 'no event mentions fix.js; events=' + JSON.stringify(pmEvents.map((e) => e && e.text).filter(Boolean).slice(0, 3)).substring(0, 200));
+    // SH-18o: timeline does NOT echo raw tool_use input JSON (no "tool_use_id":"tu1" / "input":{...})
+    ok('SH-18o: timeline does NOT echo raw tool_use input JSON',
+      !/tool_use_id"\s*:\s*"tu1"/.test(sh18nText) && !/"input"\s*:\s*\{\s*"file_path"/.test(sh18nText),
+      'leaked raw tool_use JSON');
+    // SH-18p: every event text is length-bounded (<= 2000 chars — user/assistant text truncation)
+    const sh18pBad = pmEvents.find((e) => e && typeof e.text === 'string' && e.text.length > 2000);
+    ok('SH-18p: every timeline event text is truncated to <= 2000 chars',
+      !sh18pBad, 'long event text length=' + (sh18pBad ? sh18pBad.text.length : 'N/A'));
+    // SH-18q: timeline response total body size is bounded (sanity upper limit 256 KB)
+    ok('SH-18q: project-memory timeline response body size <= 256KB',
+      sh18nText.length <= 256 * 1024, 'body size=' + sh18nText.length);
+    // SH-18r: at most 80 events returned (per-session cap)
+    ok('SH-18r: project-memory timeline returns at most 80 events',
+      pmEvents.length <= 80, 'events length=' + pmEvents.length);
+    // Leak scan on the project-memory timeline response
+    const pmTimelineText = sh18nText;
+    ok('SH-18f: project-memory session timeline does not expose tokenHash',
+      !/"tokenHash"\s*:/.test(pmTimelineText), 'leaked tokenHash');
+    ok('SH-18g: project-memory session timeline does not expose Bearer token',
+      !/Bearer\s/i.test(pmTimelineText), 'leaked Bearer');
+    ok('SH-18h: project-memory session timeline does not expose .claude/projects path',
+      !pmTimelineText.includes('.claude' + path.sep + 'projects'), 'leaked internal path');
+    ok('SH-18i: project-memory session timeline does not expose .codex/sessions path',
+      !pmTimelineText.includes('.codex' + path.sep + 'sessions'), 'leaked internal path');
+    // SH-18s: timeline does not expose Authorization header value / API key patterns
+    ok('SH-18s: project-memory timeline does not expose Authorization/API key patterns',
+      !/(sk-[A-Za-z0-9]{16,}|Authorization\s*:\s*Bearer|ANTHROPIC_API_KEY\s*=\s*\S+)/i.test(pmTimelineText),
+      'leaked API key/Authorization');
+    // SH-18t: timeline does not expose raw PTY / raw stdout field names
+    ok('SH-18t: project-memory timeline does not expose raw PTY/stdout field names',
+      !/"rawPty"\s*:|"rawStdout"\s*:|"raw_pty"\s*:/.test(pmTimelineText),
+      'leaked raw PTY/stdout');
+  } else {
+    ok('SH-18a: project-memory session timeline (need a project-memory session id)', false, 'no project-memory session found in hub');
+  }
+
+  // SH-19: GET /api/mobile/desktop-agents/<bogus-id>/timeline returns 404 with object-form error envelope
+  const bogusAgentId = 'term-bogusnonexist99';
+  const bogusTimelineRes = await request({
+    path: '/api/mobile/desktop-agents/' + bogusAgentId + '/timeline',
+    method: 'GET',
+    headers: auth,
+  });
+  const bogusTimelineData = asJson(bogusTimelineRes);
+  ok('SH-19a: bogus desktop-agent timeline returns 404',
+    bogusTimelineRes.status === 404, 'status=' + bogusTimelineRes.status);
+  ok('SH-19b: bogus desktop-agent timeline returns ok:false',
+    bogusTimelineData.ok === false, 'body=' + JSON.stringify(bogusTimelineData).substring(0, 200));
+  ok('SH-19c: bogus desktop-agent timeline error is an OBJECT (not a bare string)',
+    !!bogusTimelineData.error && typeof bogusTimelineData.error === 'object' && !Array.isArray(bogusTimelineData.error),
+    'error type=' + typeof bogusTimelineData.error);
+  ok('SH-19d: bogus desktop-agent timeline error.code === "desktop_agent_not_found"',
+    bogusTimelineData.error && bogusTimelineData.error.code === 'desktop_agent_not_found',
+    'error=' + JSON.stringify(bogusTimelineData.error || {}).substring(0, 200));
+  ok('SH-19e: bogus desktop-agent timeline error.message is a non-empty string',
+    bogusTimelineData.error && typeof bogusTimelineData.error.message === 'string' && bogusTimelineData.error.message.length > 0,
+    'message=' + JSON.stringify(bogusTimelineData.error && bogusTimelineData.error.message));
+  // Belt-and-suspenders: ensure the error is NOT a bare string (the OLD shape we reconciled away from)
+  ok('SH-19f: bogus desktop-agent timeline error is NOT a bare string',
+    !(typeof bogusTimelineData.error === 'string'),
+    'error was bare string: ' + JSON.stringify(bogusTimelineData).substring(0, 200));
+
+  // SH-20: leak-scan on the full session-hub response (mirror SH-8 but applied to the new fields)
+  // desktopAgentId values must never leak raw pty ids — they must be either null or term-<hash>.
+  const shHubText = JSON.stringify(shData);
+  ok('SH-20a: session-hub desktopAgentId values never expose raw pty ids (no "pty-" prefix)',
+    !/"desktopAgentId"\s*:\s*"pty-/.test(shHubText), 'leaked pty- id');
+  ok('SH-20b: session-hub desktopAgentId values never expose raw UUIDs (v4 shape in desktopAgentId)',
+    !/"desktopAgentId"\s*:\s*"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/.test(shHubText),
+    'leaked raw UUID');
+  ok('SH-20c: session-hub timelineId values never expose raw UUIDs',
+    !/"timelineId"\s*:\s*"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/.test(shHubText),
+    'leaked raw UUID in timelineId');
+  ok('SH-20d: session-hub response body does not contain "tokenHash"',
+    !/"tokenHash"\s*:/.test(shHubText), 'leaked tokenHash');
+  ok('SH-20e: session-hub response body does not contain "Bearer "',
+    !/Bearer\s/i.test(shHubText), 'leaked Bearer');
+  // SH-20f: session-hub NEVER exposes internal sourceFile (the .jsonl path) — it's internal-only.
+  ok('SH-20f: session-hub does not expose internal sourceFile field',
+    !/"sourceFile"\s*:/.test(shHubText), 'leaked sourceFile');
+  // SH-20g: session-hub NEVER exposes .claude/projects / .codex/sessions internal paths
+  ok('SH-20g: session-hub does not expose .claude/projects internal path',
+    !shHubText.includes('.claude' + path.sep + 'projects'), 'leaked .claude/projects');
+  ok('SH-20h: session-hub does not expose .codex/sessions internal path',
+    !shHubText.includes('.codex' + path.sep + 'sessions'), 'leaked .codex/sessions');
 
   section('6) Syntax checks');
   ok('node -c electron/mobile.js already loaded', typeof mobile.createMobileServer === 'function');

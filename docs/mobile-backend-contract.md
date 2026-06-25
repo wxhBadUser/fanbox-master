@@ -163,6 +163,74 @@ Response fields:
 
 B2A adds `desktopContinuableAgents` from the injected desktop terminal provider. `runningAgents` remains session-derived for backward compatibility. When no terminal provider is injected (standalone/test mode), `desktopContinuableAgents` is an empty array.
 
+### `GET /api/mobile/session-hub`
+
+Purpose: single authoritative session-first read model for the mobile Sessions home screen. Aggregates `host` + `projects` (with nested `sessions`) + `runningAgents` in one request so the phone can render the full sessions list without calling multiple endpoints.
+
+Auth: mobile bearer token required, LAN-only. Returns `401 unauthorized` (stable error envelope `{ ok:false, error:{ code:"unauthorized", ... } }`) without a valid token.
+
+Response shape:
+
+```ts
+type MobileSessionHub = {
+  ok: true;
+  host: {
+    name: string;            // server display name (same as app-state server.name)
+    online: boolean;          // always true when reachable
+    permissions: string[];   // current device scopes, or ["read:status","read:files"] default
+  };
+  projects: MobileHubProject[];
+  runningAgents: {
+    id: string;
+    agentId: string;
+    label: string;
+    cwd: string;
+    status: string;
+    lastActiveAt: number;
+    canSendFollowup: boolean;   // reuses applyCanSendFollowup(agent, device)
+  }[];
+  meta: MobileContractMeta;     // contract "mobile-b1", source "session-hub-projection"
+};
+```
+
+Data sourcing (read-only, no writes, no new storage):
+
+- `projects[]` PRIMARILY from `scanProjectMemory({ isAllowedCwd, isForbidden })` — same projection as `/api/mobile/project-memory`. Each project-memory session is mapped to a hub session with `source: "desktop-project-memory"`.
+- Mobile-draft sessions from `mobileSessions.listSessions({ limit: 200 })` whose `source` is `mobile-draft` (or `mobile`) are folded in: if their `cwd` matches an existing project-memory project, they are appended under that project as `source: "mobile-draft"`; otherwise a synthetic project (`name = basename(cwd)`) is created, provided the cwd passes allowed + !forbidden.
+- `runningAgents[]` from `buildDesktopContinuableAgents()` (same primitive as dashboard `desktopContinuableAgents`), each projected through `applyCanSendFollowup(agent, device)`.
+- `host.name` reuses the app-state server name; `permissions` comes from the paired device scopes.
+
+Title sourcing (Mobile-Paseo-R1-Fix):
+
+- `title` for `desktop-project-memory` sessions now comes from the project-memory parser's first-user-message title (already 160-char truncated + control-char scrubbed by `safeTitleLabel`), aligned with the desktop sidebar label — NOT a synthesized `Claude session · <YYYY-MM-DD>` string.
+- `titleSource` distinguishes provenance:
+  - `"first-message"` — the parser's first user message (sanitized 160-char label).
+  - `"agent-file"` — fallback `agentLabel + " · " + basename(firstFile)` when no first-message title.
+  - `"agent-date"` — fallback `agentLabel + " session · " + dateStr` when neither first-message nor file is available.
+- Mobile-draft sessions use `titleSource: "first-message"` (the user-entered draft title is a user-originated label).
+- Running-agent rows use `titleSource: "agent-date"` (no per-session title at the agent level).
+
+Routing metadata (Mobile-Paseo-R1-Fix):
+
+Each hub session (and each `runningAgents[]` entry) now carries routing fields so the frontend knows which timeline endpoint+id to call:
+
+- `timelineKind: "project-memory" | "mobile-draft" | "desktop-terminal" | "desktop-agent"` — determines the endpoint shape.
+- `timelineId: string` — the id to pass to the timeline endpoint. For `project-memory`/`mobile-draft` this is the session id; for `desktop-terminal`/`desktop-agent` it is the safe `term-<hash>` desktop agent id.
+- `desktopAgentId: string | null` — for `desktop-terminal`/`desktop-agent` rows: the `term-<hash>` for the Terminal tab. For `project-memory` sessions: resolved by matching the session's `cwd`+`agentId` against `desktopContinuableAgents` (returns the matching `term-<hash>` or `null` when no running agent matches). For `mobile-draft` sessions: always `null`.
+- `cwd: string` — the project's cwd, passed through from `scanProjectMemory` / the mobile-draft session.
+
+Sorting: `projects` sorted by `lastActiveAt` desc; `sessions` within each project sorted by `lastActiveAt` desc.
+
+Security rules (hard):
+
+- The response MUST NOT contain: `token`, `tokenHash`, raw prompt text, raw PTY buffer, raw terminal id/pid, or any forbidden path.
+- Session summaries reuse the existing `scrubSessionSummary` projection. The first-user-message title (160-char, control-char-scrubbed) is a session LABEL aligned with the desktop sidebar; "raw prompt" leakage refers to full untruncated prompt bodies / tool inputs, NOT this 160-char title label.
+- `projects[]` MUST NEVER include drive roots (`C:\`, `D:\`, …) or user-folder projects named `Downloads` / `Desktop` / `Pictures`.
+- Every project `cwd` is re-validated against `pathInAllowed(cwd) && !isForbiddenPath(cwd)` (defense-in-depth, even though `scanProjectMemory` already filters). A bare drive root is also rejected explicitly.
+- `mobileAllowedRoots()` is NEVER used for project sourcing — that function enumerates drive roots `C:-Z:` and is reserved for the file browser `/api/mobile/roots`.
+- `runningAgents[].id` is the safe opaque hash id from `buildDesktopContinuableAgents`, never the raw pty/terminal id.
+- `desktopAgentId` is always either `null` or a value matching `/^term-[0-9a-f]{12}$/` — never a raw pty id, never a bare UUID, never a non-term string.
+
 ### `GET /api/mobile/sessions/:id/timeline`
 
 Purpose: stable append-only projection for the session detail page.
@@ -206,6 +274,8 @@ Response:
 ```
 
 B1 fixes `text` as the renderable event body field. `content` is not used in this contract. The current source is still a scrubbed messages projection, but events reserve fields for future `tool`, `approval`, `file`, `status`, and `system` events.
+
+Mobile-Paseo-R1-Fix: `/sessions/:id/timeline` now also resolves project-memory session ids (the same ids returned by `/api/mobile/session-hub` for `source: "desktop-project-memory"` sessions). Resolution is performed by the extended `mobileSessions.getSessionById(id, { isAllowedCwd, isForbidden })` 3rd branch, which calls `scanProjectMemory` and matches the requested id against each project-memory session's `id`. When found, the endpoint returns `ok:true` with an empty `events[]` (the mobile layer does not parse `.jsonl` message logs — that is intentionally out of scope); the frontend shows a friendly empty state. When not found in any source (mobile/wechat/desktop/project-memory), the endpoint returns the stable `404 session_not_found` error envelope.
 
 ### `GET /api/mobile/desktop-agents/:id/timeline` (B2A stub, B2B full)
 
@@ -349,6 +419,74 @@ type MobileDashboard = {
   meta: MobileContractMeta;
 };
 ```
+
+### `MobileSessionHub` (Mobile-Paseo-R1)
+
+Single session-first read model for the mobile Sessions home screen. Aggregates host + projects (with nested sessions) + runningAgents.
+
+```ts
+type MobileSessionHub = {
+  ok: true;
+  host: {
+    name: string;
+    online: boolean;
+    permissions: string[];
+  };
+  projects: MobileHubProject[];
+  runningAgents: MobileHubRunningAgent[];
+  meta: MobileContractMeta;   // contract "mobile-b1", source "session-hub-projection"
+};
+
+type MobileHubProject = {
+  id: string;                  // safe opaque id (sha1 prefix); never raw path
+  name: string;                // project display name (basename of cwd)
+  cwd: string;                 // must pass pathInAllowed && !isForbiddenPath; never a drive root
+  lastActiveAt: number;        // unix epoch ms
+  sessions: MobileHubSession[];
+};
+
+type MobileHubSession = {
+  id: string;
+  title: string;
+  // Mobile-Paseo-R1-Fix: title provenance — distinguishes the parser's first-user-message
+  // label from the synthesized agent-file / agent-date fallbacks.
+  titleSource: "first-message" | "agent-file" | "agent-date";
+  agentId: string;
+  status: string;
+  lastActiveAt: number;
+  canResume: boolean;
+  source: "desktop-project-memory" | "mobile-draft" | "desktop-terminal";
+  messageCount?: number;
+  changedFileCount?: number;
+  // Mobile-Paseo-R1-Fix: routing metadata — tells the frontend which timeline endpoint+id to call.
+  // - "project-memory"  → GET /api/mobile/sessions/:timelineId/timeline (sessions endpoint)
+  // - "mobile-draft"    → GET /api/mobile/sessions/:timelineId/timeline (sessions endpoint)
+  // - "desktop-terminal" → GET /api/mobile/desktop-agents/:desktopAgentId/timeline (desktop endpoint)
+  // - "desktop-agent"    → same as desktop-terminal, used on runningAgents[] rows
+  timelineKind: "project-memory" | "mobile-draft" | "desktop-terminal" | "desktop-agent";
+  timelineId: string;             // the id to pass to the timeline endpoint (= session id for project-memory/mobile; = term-<hash> for desktop)
+  desktopAgentId: string | null;  // the term-<hash> for the Terminal tab; null when no running desktop agent matches
+  cwd: string;                    // the project's cwd (pass-through from scanProjectMemory / mobile-draft session)
+};
+
+type MobileHubRunningAgent = {
+  id: string;                  // safe opaque hash id, never raw pty/terminal id
+  agentId: string;
+  label: string;
+  cwd: string;
+  status: string;
+  lastActiveAt: number;
+  canSendFollowup: boolean;    // via applyCanSendFollowup(agent, device)
+  // Mobile-Paseo-R1-Fix: routing metadata — a running-agent row maps directly to
+  // GET /api/mobile/desktop-agents/:timelineId/timeline.
+  titleSource: "agent-date";
+  timelineKind: "desktop-agent";
+  timelineId: string;             // = agent.id (term-<hash>)
+  desktopAgentId: string;         // = agent.id (term-<hash>)
+};
+```
+
+Security: see the `GET /api/mobile/session-hub` section above for the hard rules (no token/tokenHash/raw prompt/raw PTY/forbidden path; no drive roots in `projects[]`; `cwd` re-validated against `pathInAllowed` + `!isForbiddenPath`; `mobileAllowedRoots()` never used for project sourcing).
 
 ### `MobileAgent`
 
@@ -673,6 +811,8 @@ B1 keeps the existing REST plus SSE shape. B2 can make the stream more explicit 
 > Legacy mobile endpoints still include flat-string error responses (`{ ok: false, error: "xxx" }`) instead of the unified envelope (`{ ok: false, error: { code, message } }`) declared in this contract. This is a pre-B1 inconsistency affecting roughly 40+ call sites (LAN-only guard, method_not_allowed, not_found, legacy status/files 401, session_not_found on older routes, thumb/file errors, etc.). It is not a security leak (no tokens/secrets are exposed), but it violates the declared contract shape and forces clients to handle two error formats.
 >
 > **Do not change before UI1A unless a verifier test requires it.** A bulk rewrite risks destabilizing legacy routes that UI1A does not yet touch. The B1-B3B contract endpoints (app-state, dashboard, timeline, files/recent, devices, audit, desktop-agents, sessions/draft, sessions/:id/start) already use the stable envelope; the flat-string sites are confined to legacy/edge routes.
+>
+> Mobile-Paseo-R1-Fix note: `/api/mobile/desktop-agents/:id/timeline` was reconciled to the stable object envelope — its 404 `desktop_agent_not_found` response now uses `sendMobileError(...)` producing `{ ok:false, error:{ code:"desktop_agent_not_found", message:"Desktop agent not found." } }`, matching the shape returned by `/api/mobile/sessions/:id/timeline`'s 404. Both timeline endpoints now return identical error envelope shapes.
 
 ## Verification
 
