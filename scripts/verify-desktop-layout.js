@@ -182,9 +182,18 @@ assert('app.js AGENT 用量含总用量文案', APP.indexOf('总量') !== -1 || 
 // D. 文件区隐藏/展开
 assert('index.html 含文件区隐藏按钮', HTML.indexOf('file-pane-toggle') !== -1 || HTML.indexOf('toggle-file-pane') !== -1 || HTML.indexOf('btn-filepane') !== -1, '无文件区隐藏按钮');
 assert('app.js 含 file-pane localStorage key', /localStorage.*(file.?pane|fm.?collapse|file.?hidden)/i.test(APP) || APP.indexOf('fb_file_pane') !== -1, '无 file-pane localStorage');
-// E. 终端网格布局
-assert('app.js 含终端布局模式', APP.indexOf('term-grid') !== -1 || APP.indexOf('terminal-layout') !== -1 || APP.indexOf('grid-') !== -1, '无终端布局模式');
-assert('app.js 最多 4 个终端限制仍存在', /sessions\.length\s*>=\s*4/.test(APP), '无 4 终端限制');
+// E. 终端：撤销多宫格，单 active 显示，最多 10 个后台 session（R2A）
+assert('index.html 不含 term-grid 多终端宫格按钮', HTML.indexOf('term-grid') === -1, '仍有 term-grid 按钮');
+assert('app.js 不含 setTermGrid / GRID_MODES 多终端宫格逻辑', APP.indexOf('setTermGrid') === -1 && APP.indexOf('GRID_MODES') === -1, '仍含多终端宫格逻辑');
+assert('style.css 不含 term-grid-dual / term-grid-quad 宫格 CSS', CSS.indexOf('term-grid-dual') === -1 && CSS.indexOf('term-grid-quad') === -1, '仍含宫格 CSS');
+assert('app.js 含 MAX_TERMINAL_SESSIONS 常量且为 10', /MAX_TERMINAL_SESSIONS\s*=\s*10/.test(APP), '无 MAX_TERMINAL_SESSIONS=10 常量');
+assert('app.js 不含「最多同时打开 4 个终端会话」文案', APP.indexOf('最多同时打开 4 个终端会话') === -1, '仍含 4 终端文案');
+assert('app.js 含「最多同时打开 10 个终端会话」文案', APP.indexOf('最多同时打开 10 个终端会话') !== -1, '无 10 终端文案');
+assert('app.js newTab 使用 10 上限', /newTab[^]*MAX_TERMINAL_SESSIONS/.test(APP.replace(/\s+/g, ' ')), 'newTab 未用 10 上限');
+assert('app.js launchAgent 使用 10 上限', /launchAgent[^]*MAX_TERMINAL_SESSIONS/.test(APP.replace(/\s+/g, ' ')), 'launchAgent 未用 10 上限');
+assert('style.css terminal-session-menu 有滚动', /terminal-session-menu[^]*overflow-y:\s*auto/.test(CSS.replace(/\s+/g, ' ')), '会话下拉无滚动');
+assert('app.js 仍含 terminal-session-switcher', APP.indexOf('terminal-session-switcher') !== -1, '会话下拉丢失');
+assert('app.js 仍含 term-newtab 新建终端按钮', APP.indexOf('term-newtab') !== -1, '新建终端按钮丢失');
 
 console.log('\n[10] Settings 回归保护');
 assert('settings-panel 仍存在', posOf('settings-panel') !== -1, 'settings-panel 丢失');

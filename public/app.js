@@ -3127,36 +3127,6 @@ function bindEvents() {
   shotTray.init();
   $('#skills-entry').onclick = () => skillsView.show();
   $('#term-newtab').onclick = () => { wechatView.close(); term.newTab(); };
-  // 终端网格布局：单面板 → 双面板 → 四宫格 → 单面板，复用已有 xterm host，不重建 PTY
-  const GRID_MODES = ['single', 'dual', 'quad'];
-  function setTermGrid(mode) {
-    const host = $('#xterm-host');
-    if (!host) return;
-    host.classList.remove('term-grid-single', 'term-grid-dual', 'term-grid-quad');
-    host.classList.add('term-grid-' + mode);
-    localStorage.setItem('fb_term_grid', mode);
-    $('#term-grid')?.classList.toggle('on', mode !== 'single');
-    if (mode === 'single') {
-      // 单面板：只显示 active
-      term.sessions.forEach((s) => s.host.classList.toggle('show', s.id === term.active));
-    } else {
-      // 双面板/四宫格：显示所有 session（最多 4 个），active 加高亮边框
-      term.sessions.forEach((s) => s.host.classList.add('show'));
-    }
-    // 切换布局后所有可见终端重新 fit
-    requestAnimationFrame(() => { term.sessions.forEach((s) => { if (s.fit) try { s.fit.fit(); } catch { /* */ } }); });
-  }
-  $('#term-grid').onclick = () => {
-    const cur = localStorage.getItem('fb_term_grid') || 'single';
-    const idx = GRID_MODES.indexOf(cur);
-    let next = GRID_MODES[(idx + 1) % GRID_MODES.length];
-    // 自动适配：session 数量不足时降级
-    const n = term.sessions.length;
-    if (next === 'quad' && n < 3) next = 'dual';
-    if (next === 'dual' && n < 2) next = 'single';
-    setTermGrid(next);
-    toast('终端布局：' + (next === 'single' ? '单面板' : next === 'dual' ? '双面板' : '四宫格'));
-  };
   $('#term-max').onclick = () => term.toggleMax();
   // 双击终端顶栏空白处（避开标签/按钮/输入框）= 铺满终端：agent 交互窗口最重要，给它一键放到最大
   $('.term-head').addEventListener('dblclick', (ev) => {
@@ -3766,6 +3736,8 @@ async function confirmLongPaste(len) {
   });
 }
 
+// 终端会话上限：后台最多 10 个并行 session，右侧只显示当前 active 的一个
+const MAX_TERMINAL_SESSIONS = 10;
 const term = {
   sessions: [], seq: 0, active: null, maximized: false,
   dock: localStorage.getItem('fb_term_dock') || 'right',
@@ -3874,7 +3846,7 @@ const term = {
   // 一键在终端启动 coding agent：当前标签是空闲 shell 就地启动；正跑着东西（claude/codex/任何前台程序）
   // 则新开标签，不打断也不把命令打进别的程序里
   async launchAgent(cmd) {
-    if (this.sessions.length >= 4) { toast('最多同时打开 4 个终端会话，请先关闭一个', true); return; }
+    if (this.sessions.length >= MAX_TERMINAL_SESSIONS) { toast('最多同时打开 10 个终端会话，请先关闭一个', true); return; }
     if (!this.available()) { openWith(state.cwd, 'terminal'); return; } // 网页版降级到系统终端
     let sess = null;
     if (this.sessions.length) {
@@ -4100,7 +4072,7 @@ const term = {
     } catch { /* 取不到就保持原标题 */ }
   },
   async newTab(cwdOverride) {
-    if (this.sessions.length >= 4) { toast('最多同时打开 4 个终端会话，请先关闭一个', true); return null; }
+    if (this.sessions.length >= MAX_TERMINAL_SESSIONS) { toast('最多同时打开 10 个终端会话，请先关闭一个', true); return null; }
     const startDir = cwdOverride || state.cwd;
     const id = 't' + (++this.seq);
     const host = document.createElement('div');
@@ -6348,9 +6320,6 @@ async function init() {
   await navigate(state.home, false);
   // 恢复上次终端开合状态（dock 方位已由 applyDock 自带记忆）
   if (localStorage.getItem('fb_term_open') === '1' && term.available()) term.open();
-  // 恢复上次终端网格布局
-  const savedGrid = localStorage.getItem('fb_term_grid');
-  if (savedGrid && savedGrid !== 'single') { const host = $('#xterm-host'); if (host) { host.classList.add('term-grid-' + savedGrid); $('#term-grid')?.classList.add('on'); } }
   maybeShowGuide();
   bindUpdateNotice();
 }

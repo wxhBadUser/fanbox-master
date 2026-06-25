@@ -1595,7 +1595,7 @@ body.file-pane-collapsed #terminal-resizer { display: none; }
 .terminal-session-menu {
   position: absolute; left: 0; top: calc(100% + 6px); z-index: 80; width: 380px; max-width: calc(100vw - 24px);
   padding: 6px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px;
-  box-shadow: var(--shadow); color: var(--text); max-height: min(480px, calc(100vh - 120px));
+  box-shadow: var(--shadow); color: var(--text); max-height: min(640px, calc(100vh - 120px));
   overflow-y: auto; scrollbar-width: thin;
 }
 .terminal-session-menu.hidden { display: none; }
@@ -1711,15 +1711,6 @@ body.file-pane-collapsed #terminal-resizer { display: none; }
 .xterm-instance { position: absolute; inset: 4px 2px 2px 8px; display: none; }
 .xterm-instance.show { display: block; }
 .xterm-instance .xterm { height: 100%; }
-/* 终端网格布局：复用已有 xterm host，不重建 PTY */
-#xterm-host.term-grid-dual { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; gap: 2px; }
-#xterm-host.term-grid-dual .xterm-instance { position: relative; inset: 0; }
-#xterm-host.term-grid-quad { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; }
-#xterm-host.term-grid-quad .xterm-instance { position: relative; inset: 0; }
-/* active 面板高亮边框 */
-#xterm-host.term-grid-dual .xterm-instance.show,
-#xterm-host.term-grid-quad .xterm-instance.show { border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
-#term-grid.on { color: var(--accent); }
 
 /* ---------- 桌面 app：交通灯避让 + 顶部可拖拽 ---------- */
 /* hiddenInset 标题栏的红绿灯坐在左上角，给侧栏 logo 让出空间（浏览器版无此问题，不受影响）*/
