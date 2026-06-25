@@ -514,6 +514,11 @@ kbd {
 .sess-icon.codex { background: #10a37f; }
 .sess-title { flex: 1 1 auto; min-width: 0; font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
 .sess-time { flex: none; font-size: 10.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sess-tokens { flex: none; font-size: 10px; color: var(--text-faint); font-variant-numeric: tabular-nums; white-space: nowrap; padding: 0 4px; border-radius: 4px; background: var(--bg-3); }
+/* 文件区隐藏：file-pane-collapsed 时 #filemgmt 隐藏，终端区自动变宽 */
+body.file-pane-collapsed #filemgmt { display: none; }
+body.file-pane-collapsed #terminal-resizer { display: none; }
+#btn-filepane-toggle.on { color: var(--accent); }
 .sess-resume { flex: none; border: 1px solid var(--border); background: var(--bg-3); color: var(--text-dim); font-size: 10px; padding: 1px 7px; border-radius: 999px; cursor: pointer; transition: 0.12s; }
 .sess-resume:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 .proj-sess-more { padding: 4px 6px; font-size: 11px; color: var(--text-faint); cursor: pointer; border-radius: 6px; }
@@ -1706,6 +1711,15 @@ kbd {
 .xterm-instance { position: absolute; inset: 4px 2px 2px 8px; display: none; }
 .xterm-instance.show { display: block; }
 .xterm-instance .xterm { height: 100%; }
+/* 终端网格布局：复用已有 xterm host，不重建 PTY */
+#xterm-host.term-grid-dual { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; gap: 2px; }
+#xterm-host.term-grid-dual .xterm-instance { position: relative; inset: 0; }
+#xterm-host.term-grid-quad { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; }
+#xterm-host.term-grid-quad .xterm-instance { position: relative; inset: 0; }
+/* active 面板高亮边框 */
+#xterm-host.term-grid-dual .xterm-instance.show,
+#xterm-host.term-grid-quad .xterm-instance.show { border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+#term-grid.on { color: var(--accent); }
 
 /* ---------- 桌面 app：交通灯避让 + 顶部可拖拽 ---------- */
 /* hiddenInset 标题栏的红绿灯坐在左上角，给侧栏 logo 让出空间（浏览器版无此问题，不受影响）*/

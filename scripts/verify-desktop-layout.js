@@ -169,6 +169,23 @@ assert('app.js session 仍含时间', APP.indexOf('sess-time') !== -1, '无时�
 assert('app.js session 仍含续上按钮', APP.indexOf('sess-resume') !== -1, '无续上按钮');
 assert('app.js session 仍含图标', APP.indexOf('sess-icon') !== -1, '无图标');
 
+console.log('\n[11] R2 工作台布局增强');
+// A. SKILLS 透视标题前有图标
+const skillsSec = HTML.indexOf('data-sidebar-section="skills"');
+assert('SKILLS 透视 section 有 section-title-icon 或 svg', skillsSec !== -1 && /section-title-icon|<svg/.test(HTML.slice(skillsSec, skillsSec + 400)), 'SKILLS 无图标');
+// B. session 用量：app.js 含 tokens 格式化 + session 行显示 tokens
+assert('app.js 含 tokens 格式化函数', APP.indexOf('formatTokens') !== -1 || APP.indexOf('fmtTok') !== -1, '无 tokens 格式化');
+assert('app.js session 行支持 tokens 显示', APP.indexOf('sess-tokens') !== -1 || APP.indexOf('sess-usage') !== -1, 'session 无 tokens 显示');
+assert('server.js parseClaudeSession 返回 tokens 字段', fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8').indexOf('tokens') !== -1, 'server 无 tokens 字段');
+// C. AGENT 用量含总用量
+assert('app.js AGENT 用量含总用量文案', APP.indexOf('总量') !== -1 || APP.indexOf('total') !== -1, '无总用量');
+// D. 文件区隐藏/展开
+assert('index.html 含文件区隐藏按钮', HTML.indexOf('file-pane-toggle') !== -1 || HTML.indexOf('toggle-file-pane') !== -1 || HTML.indexOf('btn-filepane') !== -1, '无文件区隐藏按钮');
+assert('app.js 含 file-pane localStorage key', /localStorage.*(file.?pane|fm.?collapse|file.?hidden)/i.test(APP) || APP.indexOf('fb_file_pane') !== -1, '无 file-pane localStorage');
+// E. 终端网格布局
+assert('app.js 含终端布局模式', APP.indexOf('term-grid') !== -1 || APP.indexOf('terminal-layout') !== -1 || APP.indexOf('grid-') !== -1, '无终端布局模式');
+assert('app.js 最多 4 个终端限制仍存在', /sessions\.length\s*>=\s*4/.test(APP), '无 4 终端限制');
+
 console.log('\n[10] Settings 回归保护');
 assert('settings-panel 仍存在', posOf('settings-panel') !== -1, 'settings-panel 丢失');
 assert('#theme-switch 在 settings-panel 内', isInside('theme-switch', 'div', 'settings-panel'), '皮肤未进 settings');

@@ -2523,8 +2523,23 @@ function buildSessItem(s, i, dirPath) {
     const cmd = s.agent === 'codex' ? `codex resume ${s.id}` : `claude --dangerously-skip-permissions --resume ${s.id}`;
     term.runInDir(dirPath, cmd, '已在终端续上会话');
   };
-  li.append(icon, title, time, resume);
+  // 用量：有 tokens 才显示，不写假数据
+  if (s.tokens > 0) {
+    const tok = document.createElement('span');
+    tok.className = 'sess-tokens';
+    tok.textContent = formatTokens(s.tokens);
+    tok.title = `${s.tokens} tokens`;
+    li.append(icon, title, tok, time, resume);
+  } else {
+    li.append(icon, title, time, resume);
+  }
   return li;
+}
+// token 格式化：162000 → 162K，1200000 → 1.2M
+function formatTokens(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(n < 1e7 ? 1 : 0) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+  return String(n);
 }
 // session 标题缩短：中文 ≤18 字、英文 ≤6 词，超长省略
 function shortSessTitle(t, fallback) {
@@ -3112,6 +3127,36 @@ function bindEvents() {
   shotTray.init();
   $('#skills-entry').onclick = () => skillsView.show();
   $('#term-newtab').onclick = () => { wechatView.close(); term.newTab(); };
+  // 终端网格布局：单面板 → 双面板 → 四宫格 → 单面板，复用已有 xterm host，不重建 PTY
+  const GRID_MODES = ['single', 'dual', 'quad'];
+  function setTermGrid(mode) {
+    const host = $('#xterm-host');
+    if (!host) return;
+    host.classList.remove('term-grid-single', 'term-grid-dual', 'term-grid-quad');
+    host.classList.add('term-grid-' + mode);
+    localStorage.setItem('fb_term_grid', mode);
+    $('#term-grid')?.classList.toggle('on', mode !== 'single');
+    if (mode === 'single') {
+      // 单面板：只显示 active
+      term.sessions.forEach((s) => s.host.classList.toggle('show', s.id === term.active));
+    } else {
+      // 双面板/四宫格：显示所有 session（最多 4 个），active 加高亮边框
+      term.sessions.forEach((s) => s.host.classList.add('show'));
+    }
+    // 切换布局后所有可见终端重新 fit
+    requestAnimationFrame(() => { term.sessions.forEach((s) => { if (s.fit) try { s.fit.fit(); } catch { /* */ } }); });
+  }
+  $('#term-grid').onclick = () => {
+    const cur = localStorage.getItem('fb_term_grid') || 'single';
+    const idx = GRID_MODES.indexOf(cur);
+    let next = GRID_MODES[(idx + 1) % GRID_MODES.length];
+    // 自动适配：session 数量不足时降级
+    const n = term.sessions.length;
+    if (next === 'quad' && n < 3) next = 'dual';
+    if (next === 'dual' && n < 2) next = 'single';
+    setTermGrid(next);
+    toast('终端布局：' + (next === 'single' ? '单面板' : next === 'dual' ? '双面板' : '四宫格'));
+  };
   $('#term-max').onclick = () => term.toggleMax();
   // 双击终端顶栏空白处（避开标签/按钮/输入框）= 铺满终端：agent 交互窗口最重要，给它一键放到最大
   $('.term-head').addEventListener('dblclick', (ev) => {
@@ -3138,6 +3183,16 @@ function bindEvents() {
     };
   }
   $('#btn-sidebar').onclick = () => toggleSidebar();
+  // 文件区隐藏 / 展开：隐藏后终端区自动变宽，状态存 localStorage
+  const toggleFilePane = () => {
+    const collapsed = document.body.classList.toggle('file-pane-collapsed');
+    localStorage.setItem('fb_file_pane', collapsed ? '0' : '1');
+    $('#btn-filepane-toggle')?.classList.toggle('on', collapsed);
+    // 隐藏/展开后 xterm 要重新 fit
+    requestAnimationFrame(() => { if (typeof term !== 'undefined') term.sessions.forEach((s) => { if (s.fit) try { s.fit.fit(); } catch { /* */ } }); });
+  };
+  $('#btn-filepane-toggle')?.addEventListener('click', toggleFilePane);
+  if (localStorage.getItem('fb_file_pane') === '0') { document.body.classList.add('file-pane-collapsed'); $('#btn-filepane-toggle')?.classList.add('on'); }
   // 设置面板开关（settings-btn / settings-close 都切换 settings-panel 显隐）
   const toggleSettings = () => $('#settings-panel')?.classList.toggle('hidden');
   $('#settings-btn')?.addEventListener('click', toggleSettings);
@@ -6293,6 +6348,9 @@ async function init() {
   await navigate(state.home, false);
   // 恢复上次终端开合状态（dock 方位已由 applyDock 自带记忆）
   if (localStorage.getItem('fb_term_open') === '1' && term.available()) term.open();
+  // 恢复上次终端网格布局
+  const savedGrid = localStorage.getItem('fb_term_grid');
+  if (savedGrid && savedGrid !== 'single') { const host = $('#xterm-host'); if (host) { host.classList.add('term-grid-' + savedGrid); $('#term-grid')?.classList.add('on'); } }
   maybeShowGuide();
   bindUpdateNotice();
 }

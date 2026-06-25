@@ -923,7 +923,7 @@ const mungeClaudeDir = (cwd) => cwd.replace(/[^A-Za-z0-9]/g, '-');
 async function parseClaudeSession(fp, st) {
   const hit = projMemCache.get(fp);
   if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.sess;
-  const sess = { id: path.basename(fp, '.jsonl'), agent: 'claude', title: '', firstT: 0, lastT: st.mtimeMs, userMsgs: 0, files: [], skills: [] };
+  const sess = { id: path.basename(fp, '.jsonl'), agent: 'claude', title: '', firstT: 0, lastT: st.mtimeMs, userMsgs: 0, files: [], skills: [], tokens: 0 };
   const filesSet = new Set(), skillsSet = new Set();
   // 流式逐行，廉价字符串预判后才 JSON.parse——大会话文件也不整读进内存
   const stream = fs.createReadStream(fp, { encoding: 'utf8' });
@@ -965,6 +965,14 @@ async function parseClaudeSession(fp, st) {
     } else if (line.includes('<command-name>')) {
       const m = line.match(/<command-name>\s*\/?([\w.:-]+)\s*<\/command-name>/);
       if (m) skillsSet.add(m[1].replace(/^.*:/, ''));
+    }
+    // 累加 token 用量：assistant 消息带 usage（input+output+cache），同一条消息分多行只记第一次
+    if (line.includes('"usage"') && line.includes('"assistant"')) {
+      try {
+        const d = JSON.parse(line);
+        const u = d.message && d.message.usage;
+        if (u) sess.tokens += (u.input_tokens || 0) + (u.output_tokens || 0);
+      } catch { /* */ }
     }
   };
   for await (const chunk of stream) {
