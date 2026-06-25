@@ -2430,7 +2430,13 @@ async function loadAgentProjects() {
     // 把文件夹展开箭头改成「展开最近 session」——agent 项目关心的是对话历史，不是子目录
     const twirl = li.querySelector('.twirl');
     twirl.title = '展开最近会话';
-    twirl.onclick = (ev) => { ev.stopPropagation(); toggleProjectSessions(li, pj.path, twirl); };
+    // 项目行点击也展开/收起 session（不只箭头）；navDirLi 原本的 li.onclick=navigate 会被覆盖
+    const onToggle = (ev) => { ev.stopPropagation(); toggleProjectSessions(li, pj.path, twirl); };
+    twirl.onclick = onToggle;
+    li.onclick = onToggle;
+    // 文件夹图标单独保留「打开项目目录」入口（双击或右键）
+    const ico = li.querySelector('.ico');
+    if (ico) { ico.title = '双击打开项目目录'; ico.ondblclick = (ev) => { ev.stopPropagation(); navigate(pj.path); }; }
     const when = document.createElement('span');
     when.className = 'when';
     pj.agents.forEach((a) => {
@@ -2491,23 +2497,23 @@ function renderProjectSessions(ul, dirPath) {
 }
 function buildSessItem(s, i, dirPath) {
   const li = document.createElement('li');
-  li.className = 'proj-sess';
+  li.className = 'proj-sess sess-row';
   li.dataset.sessI = String(i);
   const agentLabel = s.agent === 'codex' ? 'Codex' : 'Claude Code';
+  // 图标已表达 agent 类型，不再写 Claude Code / Codex 文字
   const icon = document.createElement('span');
   icon.className = 'sess-icon ' + (s.agent || 'claude');
   icon.textContent = s.agent === 'codex' ? '>_' : 'C';
   icon.title = agentLabel;
-  const body = document.createElement('div');
-  body.className = 'sess-body';
-  const title = document.createElement('div');
+  // 单行：图标 + 标题 + 时间 + 续上
+  const title = document.createElement('span');
   title.className = 'sess-title';
   title.textContent = shortSessTitle(s.title, agentLabel);
   title.title = s.title || agentLabel;
-  const meta = document.createElement('div');
-  meta.className = 'sess-meta';
-  meta.innerHTML = `<span class="sess-agent">${escapeHtml(agentLabel)}</span> · <span class="sess-time">${escapeHtml(fmtTime(s.lastT))}</span>`;
-  // 续上按钮始终可见（不只 hover），复用 memoryPanel 的 resume 命令
+  const time = document.createElement('span');
+  time.className = 'sess-time';
+  time.textContent = fmtTime(s.lastT);
+  time.title = new Date(s.lastT).toLocaleString();
   const resume = document.createElement('button');
   resume.className = 'sess-resume';
   resume.textContent = '续上';
@@ -2517,9 +2523,7 @@ function buildSessItem(s, i, dirPath) {
     const cmd = s.agent === 'codex' ? `codex resume ${s.id}` : `claude --dangerously-skip-permissions --resume ${s.id}`;
     term.runInDir(dirPath, cmd, '已在终端续上会话');
   };
-  meta.appendChild(resume);
-  body.append(title, meta);
-  li.append(icon, body);
+  li.append(icon, title, time, resume);
   return li;
 }
 // session 标题缩短：中文 ≤18 字、英文 ≤6 词，超长省略

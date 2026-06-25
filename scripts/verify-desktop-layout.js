@@ -148,7 +148,7 @@ assert('.topbar-actions 仍在 topbar 内', HTML.indexOf('topbar-actions') !== -
 const CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'style.css'), 'utf8');
 assert('style.css topbar 不再 flex-direction: column', !/#topbar\s*\{[^}]*flex-direction:\s*column/.test(CSS), 'topbar 仍纵向堆叠');
 
-console.log('\n[9] 左侧项目 session 展开（R1B：默认展开 + 更多记忆 + 续上可见）');
+console.log('\n[9] 左侧项目 session 展开（R1C：所有项目可展开 + 单行紧凑 + 无 agent 文字）');
 assert('agentProjects 仍在 sidebar', order.includes('agentProjects'), 'agentProjects 丢失');
 assert('app.js 含 project session 容器', APP.indexOf('project-session-list') !== -1 || APP.indexOf('data-project-sessions') !== -1, '无 session 容器');
 assert('app.js 含「更多记忆」入口', APP.indexOf('更多记忆') !== -1, '无更多记忆');
@@ -159,6 +159,15 @@ assert('app.js 含 codex resume 续上命令', /codex\s+resume/.test(APP), '无 
 assert('app.js session 默认显示 5 条', /slice\(\s*0\s*,\s*5\s*\)/.test(APP) || APP.indexOf('PROJECT_SESS_PAGE') !== -1, '无 5 条限制');
 assert('app.js 默认展开当前项目', APP.indexOf('expandDefaultProject') !== -1 || APP.indexOf('defaultExpand') !== -1 || /autoExpand|expandCurrent/.test(APP), '无默认展开逻辑');
 assert('app.js 更多记忆打开 memoryPanel', /更多记忆[^]*memoryPanel|memoryPanel[^]*更多记忆/.test(APP.replace(/\s+/g, ' ')) || APP.indexOf('memoryPanel') !== -1, '更多记忆未复用 memoryPanel');
+// R1C 新增：所有项目可展开（toggle 绑定到每个项目，不只默认项目）
+assert('app.js 每个项目绑定 toggle（forEach 内 toggleProjectSessions）', /forEach\([^)]*\)[^]*toggleProjectSessions/.test(APP.replace(/\s+/g, ' ')), '未对每个项目绑定 toggle');
+assert('app.js 项目行点击也能展开（不只箭头）', /li\.onclick|addEventListener\(['"]click/.test(APP) && APP.indexOf('toggleProjectSessions') !== -1, '项目行点击未触发展开');
+// R1C 新增：session 单行紧凑（不再有 sess-meta 第二行 / 不再写 agent 文字）
+assert('app.js session 不再渲染 sess-agent 文字', APP.indexOf('sess-agent') === -1, '仍渲染 agent 文字第二行');
+assert('app.js session 单行结构（sess-row 或 sess-title+sess-time 同级）', APP.indexOf('sess-row') !== -1 || /sess-title[^]*sess-time/.test(APP.replace(/\s+/g, ' ')), '非单行结构');
+assert('app.js session 仍含时间', APP.indexOf('sess-time') !== -1, '无时间');
+assert('app.js session 仍含续上按钮', APP.indexOf('sess-resume') !== -1, '无续上按钮');
+assert('app.js session 仍含图标', APP.indexOf('sess-icon') !== -1, '无图标');
 
 console.log('\n[10] Settings 回归保护');
 assert('settings-panel 仍存在', posOf('settings-panel') !== -1, 'settings-panel 丢失');
