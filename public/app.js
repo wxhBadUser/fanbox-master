@@ -24,14 +24,15 @@ function applyTerminalTypography(xterm) {
   });
 }
 
-// 显示侧 ANSI 对比增强器（只处理 PTY 输出 → xterm.write 之前，不碰用户输入流）
+// 显示侧 ANSI 语义色增强器（只处理 PTY 输出 → xterm.write 之前，不碰用户输入流）
 // 为什么需要它：Claude Code 输出几乎全是 TrueColor（38;2;r;g;b），不走 16 色 palette，
 // 所以改 themes.soft 对它零影响。而 xterm 的 minimumContrastRatio 在浅背景下走
 // increaseLuminance 分支（把淡色往 255 拉），会把珊瑚色/灰蓝/淡紫抹成接近白色，
-// 与白色正文融合 → 「彩色文字完全看不出」。这里在写入前把对比度不足的 TrueColor
-// 前景「加深」（reduceLuminance 方向，保持色相），让淡色在白灰底上可读。
-// 只在柔白主题启用；只改前景 SGR（38;2），不碰背景（48;2 是 Claude Code 的 token 块）、
-// 光标移动、清屏、非颜色序列；不改用户输入、不影响 bracketed paste、不改 PTY 后端。
+// 与白色正文融合 → 「彩色文字完全看不出」。
+// 本增强器不再只做「最低可读 4.5:1」，而是按色相把淡彩 TrueColor / 256 色映射到
+// 高对比语义色（蓝/红/绿/橙/紫/青/灰），让彩色 token 与普通正文有明显层级。
+// 只在柔白主题启用；只改前景 SGR（38;2 / 38;5），不碰背景（48;2 是 Claude Code 的
+// token 块）、光标移动、清屏、非颜色序列；不改用户输入、不影响 bracketed paste、不改 PTY 后端。
 const BOOST_SOFT_TERMINAL_ANSI_CONTRAST = true;
 const _wcagLum = (r, g, b) => {
   const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
@@ -39,30 +40,76 @@ const _wcagLum = (r, g, b) => {
 };
 const _wcagCR = (l1, l2) => { const a = Math.max(l1, l2), b = Math.min(l1, l2); return (a + 0.05) / (b + 0.05); };
 const _SOFT_BG_LUM = _wcagLum(0xfb, 0xfb, 0xfa); // #fbfbfa ≈ 0.964
-const _deepenCache = new Map(); // 「r;g;b」→ 加深后 SGR，避免对 3 万序列重复算
+// 高对比语义目标色（与 themes.soft palette 同族）
+const SOFT_TARGET = {
+  red: [185, 28, 28], orange: [180, 83, 9], green: [4, 120, 87],
+  cyan: [0, 109, 117], blue: [23, 78, 166], magenta: [126, 34, 206], gray: [75, 85, 99],
+};
+const _softBoostCache = new Map(); // 「r;g;b」→ 目标 RGB 或 null，避免重复算色相
+// 把一个 TrueColor 前景映射到高对比语义色；返回 [r,g,b] 或 null（不改动）
+function softSemanticBoost(r, g, b) {
+  const key = r + ';' + g + ';' + b;
+  if (_softBoostCache.has(key)) return _softBoostCache.get(key);
+  let result = null;
+  // 极值保留：近白（≥250）是 Claude Code 在深灰 token 块上的白字，加深会破坏；
+  // 近黑（≤15）已是最深。两者都不动。
+  const nearWhite = r >= 250 && g >= 250 && b >= 250;
+  const nearBlack = r <= 15 && g <= 15 && b <= 15;
+  if (!nearWhite && !nearBlack) {
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), sat = mx - mn;
+    if (sat < 25) {
+      // 灰阶：偏淡（对比度不足 4.5）才映射到可读灰，已够深则保留
+      if (_wcagCR(_wcagLum(r, g, b), _SOFT_BG_LUM) < 4.5) result = SOFT_TARGET.gray;
+    } else {
+      // 按色相分类映射到高对比语义色
+      let hue = mx === r ? ((g - b) / sat) % 6 : (mx === g ? (b - r) / sat + 2 : (r - g) / sat + 4);
+      hue *= 60; if (hue < 0) hue += 360;
+      if (hue < 25 || hue >= 345) result = SOFT_TARGET.red;
+      else if (hue < 50) result = SOFT_TARGET.orange;
+      else if (hue < 70) result = SOFT_TARGET.yellow || SOFT_TARGET.orange;
+      else if (hue < 170) result = SOFT_TARGET.green;
+      else if (hue < 200) result = SOFT_TARGET.cyan;
+      else if (hue < 260) result = SOFT_TARGET.blue;
+      else result = SOFT_TARGET.magenta;
+    }
+  }
+  _softBoostCache.set(key, result);
+  return result;
+}
+// 256 色索引 → RGB（16-231 是 6×6×6 色立方，232-255 是灰阶；0-15 由 palette 管，返回 null）
+function soft256toRGB(n) {
+  if (n < 16 || n > 255) return null;
+  if (n < 232) {
+    const i = n - 16, v = [0, 95, 135, 175, 215, 255];
+    return [v[Math.floor(i / 36)], v[Math.floor((i % 36) / 6)], v[i % 6]];
+  }
+  const gv = 8 + (n - 232) * 10;
+  return [gv, gv, gv];
+}
 function boostSoftAnsiContrast(data) {
   if (!BOOST_SOFT_TERMINAL_ANSI_CONTRAST) return data;
   if (typeof state === 'undefined' || state.theme !== 'soft') return data; // 只在柔白主题
-  if (!data || data.indexOf('\x1b[38;2;') === -1) return data; // 快速路径：无 TrueColor 前景
-  return data.replace(/\x1b\[38;2;(\d+);(\d+);(\d+)m/g, (m, rs, gs, bs) => {
-    const key = rs + ';' + gs + ';' + bs;
-    if (_deepenCache.has(key)) return _deepenCache.get(key);
-    const r = +rs, g = +gs, b = +bs;
-    let out = m;
-    // 跳过极值：纯白/近白（≥250）是 Claude Code 在深灰 token 块上的白字，加深反而破坏；
-    // 纯黑/近黑（≤15）已是最深，无需处理。只加深「淡彩中间色」。
-    const nearWhite = r >= 250 && g >= 250 && b >= 250;
-    const nearBlack = r <= 15 && g <= 15 && b <= 15;
-    if (!nearWhite && !nearBlack && _wcagCR(_wcagLum(r, g, b), _SOFT_BG_LUM) < 4.5) {
-      // 对比度不足：向 0 降通道（reduceLuminance 同向），保持色相比例，直到 ≥ 4.5
-      let o = r, a = g, h = b, steps = 0;
-      while (_wcagCR(_wcagLum(o, a, h), _SOFT_BG_LUM) < 4.5 && (o > 0 || a > 0 || h > 0) && steps < 80) {
-        o -= Math.max(1, Math.ceil(0.1 * o)); a -= Math.max(1, Math.ceil(0.1 * a)); h -= Math.max(1, Math.ceil(0.1 * h)); steps++;
+  if (!data || (data.indexOf('38;2;') === -1 && data.indexOf('38;5;') === -1)) return data; // 快速路径
+  // 解析每个 SGR（\x1b[...m），把其中的 38;2;r;g;b / 38;5;n 前景做语义映射；背景 48;* 不碰
+  return data.replace(/\x1b\[([0-9;]*)m/g, (full, params) => {
+    if (!params) return full;
+    const p = params.split(';');
+    let changed = false;
+    for (let i = 0; i < p.length; i++) {
+      if (p[i] === '38' && p[i + 1] === '2' && p[i + 2] != null && p[i + 3] != null && p[i + 4] != null) {
+        const t = softSemanticBoost(+p[i + 2], +p[i + 3], +p[i + 4]);
+        if (t) { p[i + 2] = t[0]; p[i + 3] = t[1]; p[i + 4] = t[2]; changed = true; }
+        i += 4;
+      } else if (p[i] === '38' && p[i + 1] === '5' && p[i + 2] != null) {
+        const rgb = soft256toRGB(+p[i + 2]);
+        if (rgb) {
+          const t = softSemanticBoost(rgb[0], rgb[1], rgb[2]);
+          if (t) { p.splice(i, 3, '2', t[0], t[1], t[2]); changed = true; }
+        }
+        i += 2;
       }
-      out = '\x1b[38;2;' + o + ';' + a + ';' + h + 'm';
     }
-    _deepenCache.set(key, out);
-    return out;
+    return changed ? '\x1b[' + p.join(';') + 'm' : full;
   });
 }
 
@@ -3582,9 +3629,9 @@ const term = {
       brightBlack: '#57534a', brightRed: '#e8302a', brightGreen: '#00a33e', brightYellow: '#a67c00', brightBlue: '#2222dd', brightMagenta: '#b03aa0', brightCyan: '#008a9a', brightWhite: '#0a0a0a',
     },
     soft: {
-      background: '#fbfbfa', foreground: '#242821', cursor: '#5f7a58', cursorAccent: '#fbfbfa', selectionBackground: 'rgba(95, 122, 88, 0.20)',
-      black: '#2f332d', red: '#b3261e', green: '#137333', yellow: '#8a5a00', blue: '#2457a6', magenta: '#7a3f98', cyan: '#0f6f74', white: '#f2f3ef',
-      brightBlack: '#5f665d', brightRed: '#d33f33', brightGreen: '#1f8f53', brightYellow: '#a66a00', brightBlue: '#2f6bcc', brightMagenta: '#9653b5', brightCyan: '#158894', brightWhite: '#ffffff',
+      background: '#fbfbfa', foreground: '#1f241f', cursor: '#2f5f3a', cursorAccent: '#fbfbfa', selectionBackground: 'rgba(47, 95, 58, 0.22)',
+      black: '#1f241f', red: '#b91c1c', green: '#047857', yellow: '#92400e', blue: '#174ea6', magenta: '#7e22ce', cyan: '#006d75', white: '#f3f4f0',
+      brightBlack: '#4b5563', brightRed: '#dc2626', brightGreen: '#059669', brightYellow: '#b45309', brightBlue: '#1d4ed8', brightMagenta: '#9333ea', brightCyan: '#0891b2', brightWhite: '#ffffff',
     },
   },
   theme() { return this.themes[state.theme] || this.themes.terminal; },
