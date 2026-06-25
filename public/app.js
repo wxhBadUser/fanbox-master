@@ -24,6 +24,48 @@ function applyTerminalTypography(xterm) {
   });
 }
 
+// 显示侧 ANSI 对比增强器（只处理 PTY 输出 → xterm.write 之前，不碰用户输入流）
+// 为什么需要它：Claude Code 输出几乎全是 TrueColor（38;2;r;g;b），不走 16 色 palette，
+// 所以改 themes.soft 对它零影响。而 xterm 的 minimumContrastRatio 在浅背景下走
+// increaseLuminance 分支（把淡色往 255 拉），会把珊瑚色/灰蓝/淡紫抹成接近白色，
+// 与白色正文融合 → 「彩色文字完全看不出」。这里在写入前把对比度不足的 TrueColor
+// 前景「加深」（reduceLuminance 方向，保持色相），让淡色在白灰底上可读。
+// 只在柔白主题启用；只改前景 SGR（38;2），不碰背景（48;2 是 Claude Code 的 token 块）、
+// 光标移动、清屏、非颜色序列；不改用户输入、不影响 bracketed paste、不改 PTY 后端。
+const BOOST_SOFT_TERMINAL_ANSI_CONTRAST = true;
+const _wcagLum = (r, g, b) => {
+  const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+};
+const _wcagCR = (l1, l2) => { const a = Math.max(l1, l2), b = Math.min(l1, l2); return (a + 0.05) / (b + 0.05); };
+const _SOFT_BG_LUM = _wcagLum(0xfb, 0xfb, 0xfa); // #fbfbfa ≈ 0.964
+const _deepenCache = new Map(); // 「r;g;b」→ 加深后 SGR，避免对 3 万序列重复算
+function boostSoftAnsiContrast(data) {
+  if (!BOOST_SOFT_TERMINAL_ANSI_CONTRAST) return data;
+  if (typeof state === 'undefined' || state.theme !== 'soft') return data; // 只在柔白主题
+  if (!data || data.indexOf('\x1b[38;2;') === -1) return data; // 快速路径：无 TrueColor 前景
+  return data.replace(/\x1b\[38;2;(\d+);(\d+);(\d+)m/g, (m, rs, gs, bs) => {
+    const key = rs + ';' + gs + ';' + bs;
+    if (_deepenCache.has(key)) return _deepenCache.get(key);
+    const r = +rs, g = +gs, b = +bs;
+    let out = m;
+    // 跳过极值：纯白/近白（≥250）是 Claude Code 在深灰 token 块上的白字，加深反而破坏；
+    // 纯黑/近黑（≤15）已是最深，无需处理。只加深「淡彩中间色」。
+    const nearWhite = r >= 250 && g >= 250 && b >= 250;
+    const nearBlack = r <= 15 && g <= 15 && b <= 15;
+    if (!nearWhite && !nearBlack && _wcagCR(_wcagLum(r, g, b), _SOFT_BG_LUM) < 4.5) {
+      // 对比度不足：向 0 降通道（reduceLuminance 同向），保持色相比例，直到 ≥ 4.5
+      let o = r, a = g, h = b, steps = 0;
+      while (_wcagCR(_wcagLum(o, a, h), _SOFT_BG_LUM) < 4.5 && (o > 0 || a > 0 || h > 0) && steps < 80) {
+        o -= Math.max(1, Math.ceil(0.1 * o)); a -= Math.max(1, Math.ceil(0.1 * a)); h -= Math.max(1, Math.ceil(0.1 * h)); steps++;
+      }
+      out = '\x1b[38;2;' + o + ';' + a + ';' + h + 'm';
+    }
+    _deepenCache.set(key, out);
+    return out;
+  });
+}
+
 // ---------- SVG 图标系统（替代 emoji，统一矢量审美） ----------
 const SVG = {
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
@@ -3291,7 +3333,7 @@ const player = {
   },
   apply(e) {
     if (!this.xterm) return; // 回放中被关闭/切换会 dispose xterm，这里要挡住空引用
-    if (e.code === 'o') this.xterm.write(e.data);
+    if (e.code === 'o') this.xterm.write(boostSoftAnsiContrast(e.data));
     else if (e.code === 'r') { const m = /^(\d+)x(\d+)$/.exec(e.data); if (m) { try { this.xterm.resize(+m[1], +m[2]); } catch { /* */ } requestAnimationFrame(() => this.rescale()); } }
   },
   seekTo(t) {
@@ -3306,7 +3348,7 @@ const player = {
     let buf = ''; let resized = false;
     for (; this.cursor < this.timeline.length && this.timeline[this.cursor].at <= t; this.cursor++) {
       const e = this.timeline[this.cursor];
-      if (e.code === 'o') buf += e.data;
+      if (e.code === 'o') buf += boostSoftAnsiContrast(e.data);
       else if (e.code === 'r') { if (buf) { this.xterm.write(buf); buf = ''; } const m = /^(\d+)x(\d+)$/.exec(e.data); if (m) { try { this.xterm.resize(+m[1], +m[2]); resized = true; } catch { /* */ } } }
     }
     if (buf) this.xterm.write(buf);
@@ -5987,7 +6029,7 @@ function igniteCard(top, count) {
 
 // pty 数据回流（全局一次）
 if (window.fanboxPty) {
-  window.fanboxPty.onData(({ id, data }) => { const s = term.sessions.find((x) => x.id === id); if (s) { s.xterm.write(data); term.markBusy(s); term.captureOutputForTitle(s, data); } });
+  window.fanboxPty.onData(({ id, data }) => { const s = term.sessions.find((x) => x.id === id); if (s) { s.xterm.write(boostSoftAnsiContrast(data)); term.markBusy(s); term.captureOutputForTitle(s, data); } });
   window.fanboxPty.onExit(({ id }) => {
     const s = term.sessions.find((x) => x.id === id);
     if (s) {
