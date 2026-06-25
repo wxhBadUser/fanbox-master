@@ -202,5 +202,40 @@ assert('#toggle-hidden 在 settings-panel 内', isInside('toggle-hidden', 'input
 assert('#sort-seg 在 settings-panel 内', isInside('sort-seg', 'div', 'settings-panel'), '排序未进 settings');
 assert('#view-seg 在 settings-panel 内', isInside('view-seg', 'div', 'settings-panel'), '视图未进 settings');
 
+console.log('\n[12] R2B 会话下拉标题来源修复（不用 PowerShell banner）');
+// A1. 存在统一标题函数
+assert('app.js 含 sessionDisplayTitle 统一标题函数', APP.indexOf('sessionDisplayTitle') !== -1, '无 sessionDisplayTitle');
+assert('app.js 含 getConversationTitle 标题来源函数', APP.indexOf('getConversationTitle') !== -1, '无 getConversationTitle');
+// A2. tryExtractTitleFromBuffer 的 fallback 只对 agent 会话生效（普通 Terminal 不从输出抓标题）
+assert('app.js tryExtractTitleFromBuffer fallback 限 agent 会话（s.agent && s.agent !== Terminal）',
+  /tryExtractTitleFromBuffer[\s\S]{0,3000}?!userText[^{}]{0,80}?s\.agent[^{}]{0,60}?!== ['"]Terminal['"]/.test(APP),
+  'fallback 未限制为 agent 会话');
+// A3. JUNK 正则过滤 PowerShell banner 关键词
+assert('app.js JUNK 正则含 PowerShell banner 过滤（跨平台 PowerShell / Windows PowerShell / 版权所有 / aka.ms / PS C:）',
+  /JUNK\s*=\s*[\s\S]{0,400}?(跨平台|Windows\s*PowerShell|版权所有|aka\.ms|pscore|PS\s+[A-Z]:)/.test(APP) ||
+  /tryExtractTitleFromBuffer[\s\S]{0,1200}?(跨平台|Windows\s*PowerShell|版权所有|aka\.ms|pscore|PS\s+[A-Z]:)/.test(APP),
+  'JUNK 未过滤 PowerShell banner');
+// A4. 不从终端输出 banner 写入 s.title（s.title 只来自 cwd basename / chatTitle）
+assert('app.js s.title 赋值只来自 cwd basename（baseOf），不从终端输出写入',
+  /s\.title\s*=\s*baseOf/.test(APP) && !/s\.title\s*=\s*[^b]/.test(APP.replace(/s\.title\s*=\s*baseOf/g, '')),
+  's.title 有非 baseOf 赋值');
+
+console.log('\n[13] R2B 文件区隐藏后终端铺满剩余空间');
+// B1. file-pane-collapsed 时 terminal-panel 有 flex:1 / width:auto 规则
+assert('style.css body.file-pane-collapsed #terminal-panel 有 flex:1 1 auto',
+  /body\.file-pane-collapsed\s*#terminal-panel\s*\{[^}]*flex:\s*1\s+1\s+auto/.test(CSS), '无 file-pane-collapsed terminal flex:1 规则');
+assert('style.css body.file-pane-collapsed #terminal-panel 有 width:auto 或 width:100%',
+  /body\.file-pane-collapsed\s*#terminal-panel\s*\{[^}]*(?:width:\s*auto|width:\s*100%)/.test(CSS), '无 file-pane-collapsed terminal width 规则');
+// B2. file-pane-collapsed 时 #filemgmt 仍隐藏（回归保护）
+assert('style.css body.file-pane-collapsed #filemgmt 仍 display:none',
+  /body\.file-pane-collapsed\s*#filemgmt\s*\{\s*display:\s*none/.test(CSS), 'filemgmt 未隐藏');
+// B3. toggleFilePane 切换后调用 xterm fit（回归保护）
+assert('app.js toggleFilePane 切换后调用 s.fit.fit()',
+  /toggleFilePane[\s\S]{0,600}?s\.fit\.fit\(\)/.test(APP.replace(/\s+/g, ' ')) || /toggleFilePane[\s\S]{0,600}?\.fit\.fit\(\)/.test(APP.replace(/\s+/g, ' ')),
+  'toggleFilePane 未调用 fit');
+// B4. R2A 回归保护：仍无 term-grid 多终端宫格
+assert('R2A 回归：app.js 仍无 setTermGrid', APP.indexOf('setTermGrid') === -1, '恢复 setTermGrid');
+assert('R2A 回归：MAX_TERMINAL_SESSIONS 仍为 10', /MAX_TERMINAL_SESSIONS\s*=\s*10/.test(APP), 'MAX_TERMINAL_SESSIONS 不为 10');
+
 console.log('\n=== PASS: ' + PASS + ' / FAIL: ' + FAIL + ' ===');
 process.exit(FAIL === 0 ? 0 : 1);

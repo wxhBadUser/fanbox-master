@@ -515,9 +515,10 @@ kbd {
 .sess-title { flex: 1 1 auto; min-width: 0; font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
 .sess-time { flex: none; font-size: 10.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sess-tokens { flex: none; font-size: 10px; color: var(--text-faint); font-variant-numeric: tabular-nums; white-space: nowrap; padding: 0 4px; border-radius: 4px; background: var(--bg-3); }
-/* 文件区隐藏：file-pane-collapsed 时 #filemgmt 隐藏，终端区自动变宽 */
+/* 文件区隐藏：file-pane-collapsed 时 #filemgmt 隐藏，终端区铺满剩余宽度 */
 body.file-pane-collapsed #filemgmt { display: none; }
 body.file-pane-collapsed #terminal-resizer { display: none; }
+body.file-pane-collapsed #terminal-panel { flex: 1 1 auto; width: auto; }
 #btn-filepane-toggle.on { color: var(--accent); }
 .sess-resume { flex: none; border: 1px solid var(--border); background: var(--bg-3); color: var(--text-dim); font-size: 10px; padding: 1px 7px; border-radius: 999px; cursor: pointer; transition: 0.12s; }
 .sess-resume:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }

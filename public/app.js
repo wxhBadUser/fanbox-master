@@ -4355,9 +4355,11 @@ const term = {
         }
       }
       // 如果没找到 > 开头的行，尝试找最近的有意义文本行
-      if (!userText) {
-        // 从底部往上找，跳过框线、空行、状态行
-        const JUNK = /^(╭|╰|╮|╯|│|├|┤|─|━|┄|┆|┈|·|•|…|\s)*$|esc to interrupt|\? for shortcuts|for commands|bypass|auto-accept|accept edits|plan mode|shift\+tab|context left|tokens used|still running/i;
+      // 仅对 Agent 会话生效（Claude Code/Codex 等 TUI 会回显用户输入）；
+      // 普通 Terminal/PowerShell 的 banner（"尝试新的跨平台 PowerShell..."等）不能当标题
+      if (!userText && s.agent && s.agent !== 'Terminal') {
+        // 从底部往上找，跳过框线、空行、状态行、PowerShell banner
+        const JUNK = /^(╭|╰|╮|╯|│|├|┤|─|━|┄|┆|┈|·|•|…|\s)*$|esc to interrupt|\? for shortcuts|for commands|bypass|auto-accept|accept edits|plan mode|shift\+tab|context left|tokens used|still running|Windows\s+PowerShell|跨平台\s*PowerShell|版权所有|aka\.ms|pscore6|PS\s+[A-Z]:/i;
         for (let i = lines.length - 1; i >= 0; i--) {
           const trimmed = lines[i].trim();
           if (!trimmed || JUNK.test(trimmed)) continue;
