@@ -758,6 +758,37 @@ kbd {
 #topbar.tb-xs .toggle { display: none; }
 #topbar.tb-xxs #view-seg, #topbar.tb-xxs #btn-recent { display: none; }
 #topbar.tb-min #sort-seg { display: none; }
+/* topbar 内的搜索框：长条、占据中间剩余空间 */
+#topbar .cmdk-trigger { flex: 1 1 240px; max-width: 420px; margin: 0; }
+/* 设置入口（sidebar 底部） */
+.settings-btn {
+  display: flex; align-items: center; gap: 7px; width: 100%; padding: 9px 12px;
+  border: none; border-top: 1px solid var(--border); background: transparent;
+  color: var(--text-dim); font-size: 13px; cursor: pointer; font-family: var(--font-ui);
+  transition: 0.12s;
+}
+.settings-btn:hover { background: var(--bg-3); color: var(--text); }
+/* 设置面板（浮层） */
+.settings-panel {
+  position: fixed; top: 56px; right: 16px; z-index: 60; width: 300px; max-height: 78vh; overflow-y: auto;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.16); padding: 14px;
+}
+.settings-panel.hidden { display: none; }
+.settings-panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.settings-panel-title { font-size: 14px; font-weight: 700; color: var(--text); }
+.settings-close { border: none; background: transparent; color: var(--text-faint); font-size: 16px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+.settings-close:hover { background: var(--bg-3); color: var(--text); }
+.settings-group { padding: 10px 0; border-top: 1px solid var(--border); }
+.settings-group:first-of-type { border-top: none; }
+.settings-group-title { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 8px; }
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.settings-row-label { font-size: 12px; color: var(--text-dim); }
+.settings-panel .theme-seg { width: 100%; }
+.settings-panel .seg { flex: none; }
+.settings-panel .nav-list { list-style: none; padding: 0; margin: 0; }
+.settings-panel .nav-list li { padding: 5px 4px; font-size: 13px; color: var(--text-dim); cursor: pointer; border-radius: 6px; }
+.settings-panel .nav-list li:hover { background: var(--bg-3); color: var(--text); }
 .toggle { font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 4px; cursor: pointer; }
 .seg { display: flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
 .seg button {

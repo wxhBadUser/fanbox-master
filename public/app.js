@@ -3037,6 +3037,10 @@ function bindEvents() {
     };
   }
   $('#btn-sidebar').onclick = () => toggleSidebar();
+  // 设置面板开关（settings-btn / settings-close 都切换 settings-panel 显隐）
+  const toggleSettings = () => $('#settings-panel')?.classList.toggle('hidden');
+  $('#settings-btn')?.addEventListener('click', toggleSettings);
+  $('#settings-close')?.addEventListener('click', toggleSettings);
   $('#file-follow').onclick = () => setFileFollow(!follow.on);
   // 定位文件按钮已撤（双击终端 tab 即可定位，见 term.locateCwd / renderTabs 的 ondblclick）
   // 终端随窗口尺寸变化重排，避免 TUI 错位
