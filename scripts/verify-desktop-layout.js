@@ -161,6 +161,7 @@ assert('app.js 默认展开当前项目', APP.indexOf('expandDefaultProject') !=
 assert('app.js 更多记忆打开 memoryPanel', /更多记忆[^]*memoryPanel|memoryPanel[^]*更多记忆/.test(APP.replace(/\s+/g, ' ')) || APP.indexOf('memoryPanel') !== -1, '更多记忆未复用 memoryPanel');
 // R1C 新增：所有项目可展开（toggle 绑定到每个项目，不只默认项目）
 assert('app.js 每个项目绑定 toggle（forEach 内 toggleProjectSessions）', /forEach\([^)]*\)[^]*toggleProjectSessions/.test(APP.replace(/\s+/g, ' ')), '未对每个项目绑定 toggle');
+// R1C：项目行单击触发展开记忆；双击跳转目录的断言见 [14]
 assert('app.js 项目行点击也能展开（不只箭头）', /li\.onclick|addEventListener\(['"]click/.test(APP) && APP.indexOf('toggleProjectSessions') !== -1, '项目行点击未触发展开');
 // R1C 新增：session 单行紧凑（不再有 sess-meta 第二行 / 不再写 agent 文字）
 assert('app.js session 不再渲染 sess-agent 文字', APP.indexOf('sess-agent') === -1, '仍渲染 agent 文字第二行');
@@ -236,6 +237,37 @@ assert('app.js toggleFilePane 切换后调用 s.fit.fit()',
 // B4. R2A 回归保护：仍无 term-grid 多终端宫格
 assert('R2A 回归：app.js 仍无 setTermGrid', APP.indexOf('setTermGrid') === -1, '恢复 setTermGrid');
 assert('R2A 回归：MAX_TERMINAL_SESSIONS 仍为 10', /MAX_TERMINAL_SESSIONS\s*=\s*10/.test(APP), 'MAX_TERMINAL_SESSIONS 不为 10');
+
+console.log('\n[14] R2C sidebar 项目双击跳转 + sidebar 可拖拽');
+// A. 项目主体单击 = 展开记忆；双击 = 跳转目录
+assert('app.js loadAgentProjects 内 li.onclick 仍触发展开（单击=展开记忆）',
+  /li\.onclick\s*=\s*onToggle/.test(APP) || /li\.onclick[\s\S]{0,60}?toggleProjectSessions/.test(APP), '项目主体单击未触发展开');
+assert('app.js loadAgentProjects 内 li.ondblclick 调用 navigate（双击=跳转目录）',
+  /li\.ondblclick\s*=\s*[\s\S]{0,80}?navigate/.test(APP), '项目主体双击未调用 navigate');
+assert('app.js loadAgentProjects 内 twirl.onclick 仍触发展开（箭头 = 展开/收起）',
+  /twirl\.onclick\s*=\s*onToggle/.test(APP) || /twirl\.onclick[\s\S]{0,120}?toggleProjectSessions/.test(APP), '箭头未触发展开');
+// B. session / 续上 / 更多记忆 stopPropagation（不触发项目跳转）
+assert('app.js 续上按钮 stopPropagation',
+  /resume\.onclick[\s\S]{0,200}?stopPropagation/.test(APP.replace(/\s+/g, ' ')), '续上未 stopPropagation');
+assert('app.js 更多记忆 stopPropagation',
+  /更多记忆[\s\S]{0,200}?stopPropagation/.test(APP.replace(/\s+/g, ' ')), '更多记忆未 stopPropagation');
+assert('app.js session 行 stopPropagation（sess-row 防冒泡）',
+  /sess-row[\s\S]{0,600}?stopPropagation/.test(APP.replace(/\s+/g, ' ')) || /proj-sess[\s\S]{0,400}?stopPropagation/.test(APP.replace(/\s+/g, ' ')), 'session 行未 stopPropagation');
+// C. sidebar resizer 移出 sidebar（避免 backdrop-filter containing block 破坏 fixed 定位）
+assert('index.html #sidebar-resizer 存在', posOf('sidebar-resizer') !== -1, '无 resizer');
+assert('index.html #sidebar-resizer 不在 #sidebar 内', !isInside('sidebar-resizer', 'aside', 'sidebar'), 'resizer 仍在 sidebar 内');
+// D. 拖拽逻辑
+assert('style.css #sidebar-resizer 有 col-resize',
+  /#sidebar-resizer\s*\{[^}]*col-resize/.test(CSS), '无 col-resize');
+assert('app.js 含 fb_sidebar_w localStorage key', APP.indexOf('fb_sidebar_w') !== -1, '无 localStorage key');
+assert('app.js 含 bindSidebarResizer 函数', APP.indexOf('bindSidebarResizer') !== -1, '无 resizer 绑定');
+assert('app.js 含 mousemove 拖拽逻辑', /mousemove/.test(APP), '无 mousemove');
+assert('app.js bindSidebarResizer 含 dblclick 恢复默认宽度',
+  /bindSidebarResizer[\s\S]{0,1500}?dblclick/.test(APP), 'resizer 无 dblclick 恢复');
+assert('app.js 含 min/max 宽度 clamp', /Math\.min\(\s*\d{3}\s*,\s*Math\.max\(\s*\d{3}/.test(APP), '无 min/max clamp');
+// E. 移除 soft 主题 resizer 偏移 hack（resizer 已移出 sidebar，不需要补偿）
+assert('style.css 不再有 soft 主题 #sidebar-resizer +19px 偏移 hack',
+  !/\[data-theme="soft"\]\s*#sidebar-resizer\s*\{\s*left:\s*calc\(var\(--sidebar-w[^)]*\)\s*\+\s*19px/.test(CSS), '仍有 soft 偏移 hack');
 
 console.log('\n=== PASS: ' + PASS + ' / FAIL: ' + FAIL + ' ===');
 process.exit(FAIL === 0 ? 0 : 1);

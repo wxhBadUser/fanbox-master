@@ -1759,7 +1759,6 @@ body.file-pane-collapsed #terminal-panel { flex: 1 1 auto; width: auto; }
 }
 .desktop[data-theme="soft"] #terminal-panel { background-color: #f3efea; }
 [data-theme="soft"] #app.sidebar-collapsed #main { border-radius: 0; }
-[data-theme="soft"] #sidebar-resizer { left: calc(var(--sidebar-w, 248px) + 19px); }
 
 /* 文件跟随：纯图标按钮（文字已撤） */
 .term-actions #file-follow { display: inline-flex; align-items: center; }

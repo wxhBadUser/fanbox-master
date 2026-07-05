@@ -119,8 +119,9 @@
       </div>
       <button id="settings-btn" class="settings-btn" data-testid="settings-btn" title="显示设置">⚙ 设置</button>
       <div class="sidebar-foot">本地运行 · 数据不出本机<a id="lang-toggle" class="lang-toggle"></a></div>
-      <div id="sidebar-resizer" title="拖动调整侧栏宽度"></div>
     </aside>
+    <!-- R2C：resizer 移出 sidebar，避免 sidebar 的 backdrop-filter 创建 containing block 破坏 fixed 定位 -->
+    <div id="sidebar-resizer" title="拖动调整侧栏宽度" aria-hidden="true"></div>
 
     <!-- 主区 -->
     <main id="main">

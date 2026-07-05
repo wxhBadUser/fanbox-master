@@ -1365,6 +1365,16 @@ function bindSidebarResizer() {
     apply();
     localStorage.setItem('fb_sidebar_w', state.sidebarW);
   });
+  // R2C：双击拖拽条恢复默认宽度
+  const SIDEBAR_DEFAULT_W = 248;
+  handle.addEventListener('dblclick', (e) => {
+    if (state.sidebarCollapsed) return;
+    e.preventDefault(); e.stopPropagation();
+    state.sidebarW = SIDEBAR_DEFAULT_W;
+    applyLayout();
+    if (typeof term !== 'undefined') term.fitActive();
+    localStorage.setItem('fb_sidebar_w', state.sidebarW);
+  });
 }
 // 预览尺寸随 dock 翻转：终端在右→预览在下方用高度，否则用宽度
 function applyPreviewSize() {
@@ -2430,13 +2440,11 @@ async function loadAgentProjects() {
     // 把文件夹展开箭头改成「展开最近 session」——agent 项目关心的是对话历史，不是子目录
     const twirl = li.querySelector('.twirl');
     twirl.title = '展开最近会话';
-    // 项目行点击也展开/收起 session（不只箭头）；navDirLi 原本的 li.onclick=navigate 会被覆盖
+    // R2C：单击项目主体 = 展开/收起最近记忆；双击项目主体 = 进入项目文件夹（跳转目录）
     const onToggle = (ev) => { ev.stopPropagation(); toggleProjectSessions(li, pj.path, twirl); };
     twirl.onclick = onToggle;
     li.onclick = onToggle;
-    // 文件夹图标单独保留「打开项目目录」入口（双击或右键）
-    const ico = li.querySelector('.ico');
-    if (ico) { ico.title = '双击打开项目目录'; ico.ondblclick = (ev) => { ev.stopPropagation(); navigate(pj.path); }; }
+    li.ondblclick = (ev) => { ev.stopPropagation(); navigate(pj.path); };
     const when = document.createElement('span');
     when.className = 'when';
     pj.agents.forEach((a) => {
@@ -2499,6 +2507,8 @@ function buildSessItem(s, i, dirPath) {
   const li = document.createElement('li');
   li.className = 'proj-sess sess-row';
   li.dataset.sessI = String(i);
+  // R2C：session 行点击不触发项目跳转（防御性 stopPropagation，防止结构变更后冒泡到项目行）
+  li.onclick = (ev) => ev.stopPropagation();
   const agentLabel = s.agent === 'codex' ? 'Codex' : 'Claude Code';
   // 图标已表达 agent 类型，不再写 Claude Code / Codex 文字
   const icon = document.createElement('span');

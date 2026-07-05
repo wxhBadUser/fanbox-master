@@ -11,6 +11,71 @@
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-07-05
+
+> 桌面驾驶舱侧栏 / 终端 / soft 主题迭代 + 移动端项目记忆会话真实历史消息。从 2.4.0 跨过来，重点是把 6 月底做的桌面 layout 重构和移动端 chat/terminal 时间线修复一次性发出来。
+
+### Added
+- **桌面：工作区占用透视 + 终端网格**（`feat(desktop): add workspace usage, collapsible file pane, and terminal grid`）
+  - 文件区可整体折叠（`toggleFilePane`），腾出空间给终端；折叠状态进入 `body.file-pane-collapsed`，终端面板自动 `flex: 1 1 auto` 撑满
+  - 状态条新增当前文件夹的真实占用（`du` 口径）与文件计数显示
+  - `server.js` 增加工作区占用查询接口，前端按需拉取
+- **桌面：侧栏堆叠式搜索 + 最近项目会话浮现**（`feat(desktop): stack header search and show recent project sessions`）
+  - 顶栏搜索框改为堆叠式布局，结果区内直接展示「最近活跃的 agent 项目会话」
+  - 侧栏新增「最近项目会话」聚合区，每个项目默认展开 Top 5 session
+  - 恢复侧栏搜索框（前一版被收进设置后用户反馈找不到）
+- **桌面：侧栏重构，控件移入设置面板**（`feat(desktop): reorganize sidebar and move controls into settings`）
+  - 侧栏底部「语言切换 / 显示设置」等控件统一收进设置面板，侧栏留出更多空间给项目与会话列表
+- **桌面：soft 主题终端配色对比度四轮迭代**（4 个 `style(desktop):` 提交）
+  - 改进 soft 主题下终端 ANSI 颜色对比度
+  - 加强色块对比、加深中性文字
+  - 新增 `scripts/verify-soft-terminal-colors.js` 守护配色不回退
+- **桌面：sidebar resizer 增强（未提交修改入库）**
+  - 双击 resizer 恢复默认宽度 248px
+  - 项目行**单击** = 展开/收起最近记忆；**双击** = 跳转项目目录
+  - session 行 / 续上按钮 / 更多记忆按钮 `stopPropagation`，避免误触发项目跳转
+  - resizer 从 `#sidebar` 内移到 `#sidebar` 外（aside 同级），消除 `backdrop-filter` 创建 containing block 破坏 `fixed` 定位的问题；同步移除 soft 主题 `+19px` 偏移 hack
+  - `verify-desktop-layout.js` 增加 R2C 段 14 条断言守护上述行为
+- **移动端：项目记忆会话 Chat tab 显示真实历史消息**（`Fix mobile project-memory chat timeline and terminal binding`）
+  - 解析桌面端 Claude / Codex 的 JSONL 会话日志（`~/.claude/projects/**/*.jsonl`、`~/.codex/sessions/**/rollout-*.jsonl`）并投影为安全消息时间线
+  - 工具调用 / 文件编辑事件只展示安全摘要（如「修改 fix.js」），剥掉 raw JSON 输入、token / cookie / API key 等敏感字段
+  - 每条消息截断到 2000 字符，单次最多返回 80 条最近事件，控制响应体大小
+  - session-hub session 模型新增 `titleSource` / `timelineKind` / `timelineId` / `desktopAgentId` 字段：
+    - 项目记忆 session 的 `titleSource: 'desktop-project-memory'`，标题与桌面端项目记忆一致
+    - 历史项目记忆 session 不再带假的 `desktopAgentId`
+    - Chat tab 按 `timelineKind`（`mobile-session` / `project-memory` / `desktop-agent`）分流加载消息
+  - Terminal tab 区分历史会话（显示友好空状态，不再请求 `desktop_agent_not_found`）与正在运行的桌面 agent（仅当 `desktopAgentId` 存在时才请求 `/desktop-agents/:id/timeline`）
+  - 项目记忆时间线端点要求 token 鉴权，不泄露 raw prompt / token / PTY
+  - 新增 `docs/mobile-backend-contract.md` 后端契约文档
+  - 新增 `experiments/mobile-paseo-r1-fix/screenshot-smoke.js` + 6 张真实设备截图作为发版证据
+
+### Fixed
+- **桌面：终端视图恢复单窗 + 上限 10 个 session**（`fix(desktop): restore single terminal view and allow 10 sessions`）
+  - 前一版终端网格回归后用户反馈割裂，恢复为单终端主视图，`MAX_TERMINAL_SESSIONS = 10`，回归测试断言不再出现 `setTermGrid`
+- **桌面：终端标签标题与项目记忆对齐**（`fix(desktop): align terminal titles with memory and expand collapsed terminal`）
+  - 终端 tab 标题改为读取桌面项目记忆标题，不再生成「Claude session · [日期]」式占位
+  - 切换会话时自动展开被折叠的终端，避免「明明在跑却看不到」
+- **桌面：侧栏最近会话按项目折叠 + Top 5 加载**（`fix(desktop): compact sidebar project sessions and load top 5 per project`）
+  - 项目会话不再平铺一大串，按项目分组默认展示最近 5 条，点击项目展开看更多
+
+### Changed
+- 顶包版本 `2.4.0` → `2.6.0`（`package.json`）
+- `verify-desktop-layout.js` 累计新增 ~240 行断言覆盖侧栏 / resizer / 项目行点击 / session 防冒泡 / soft 主题 resizer hack 移除等
+
+### Constraints (still satisfied)
+- ❌ 不自动安装任何 CLI
+- ❌ 不读取 / 不外发任何 token / cookie / API key（移动端项目记忆时间线已显式 scrub）
+- ❌ 不修改 Claude / Codex 原启动命令
+- ❌ 移动端不删除旧功能代码，仅从主界面隐藏
+- ❌ 项目记忆会话不请求桌面 agent 端点；历史会话不伪造 `desktopAgentId`
+
+### Verified
+- `scripts/verify-desktop-layout.js` PASS（含 R2C 新增 14 条断言）
+- `scripts/verify-soft-terminal-colors.js` PASS
+- `scripts/verify-mobile-backend-contract.js` PASS（项目记忆时间线返回非空事件）
+- `scripts/verify-mobile-ui-smoke.js` PASS（Chat tab 显示可见历史消息，非空状态）
+- 移动端 paseo-r1 真机截图 6 张全部通过断言
+
 ## [2.4.0] - 2026-06-20
 
 > Windows Edition release。详细 release notes 见 [`docs/release-windows-mvp.md`](docs/release-windows-mvp.md)。
