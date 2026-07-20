@@ -3,7 +3,7 @@
  *
  * 解析 public/index.html，断言：
  *  - 搜索框从 sidebar 移到 topbar
- *  - sidebar 主菜单顺序：Agent项目 / 收藏 / Skills / 用量 / Mobile
+ *  - sidebar 主菜单顺序：Agent项目 / 收藏 / Skills / 用量
  *  - sidebar 不再含 快速入口 / 皮肤
  *  - 新增 #settings-btn 在 sidebar 底部
  *  - 新增 #settings-panel 含 皮肤 / 隐藏文件 / 排序 / 视图 / 快捷入口
@@ -99,17 +99,16 @@ const sbText = sbRange ? HTML.slice(sbRange[0], sbRange[1]) : '';
 const order = [];
 const re = /data-sidebar-section="([^"]+)"/g; let m;
 while ((m = re.exec(sbText)) !== null) order.push(m[1]);
-const want = ['agentProjects', 'favorites', 'skills', 'usage', 'mobile'];
+const want = ['agentProjects', 'favorites', 'skills', 'usage'];
 assert('sidebar 含 agentProjects', order.includes('agentProjects'), order.join(','));
 assert('sidebar 含 favorites', order.includes('favorites'));
 assert('sidebar 含 skills', order.includes('skills'));
 assert('sidebar 含 usage', order.includes('usage'));
-assert('sidebar 含 mobile', order.includes('mobile'));
 assert('sidebar 不含 quick', !order.includes('quick'), '仍含 quick');
 assert('sidebar 不含 skins', !order.includes('skins'), '仍含 skins');
 // 顺序检查
 const gotOrder = want.filter(x => order.includes(x));
-assert('主菜单顺序 = Agent项目/收藏/Skills/用量/Mobile', JSON.stringify(gotOrder) === JSON.stringify(want), JSON.stringify(gotOrder));
+assert('主菜单顺序 = Agent项目/收藏/Skills/用量', JSON.stringify(gotOrder) === JSON.stringify(want), JSON.stringify(gotOrder));
 
 console.log('\n[3] Settings 入口与面板');
 assert('#settings-btn 存在', posOf('settings-btn') !== -1, '无 settings-btn');
