@@ -18,7 +18,7 @@
  *   ③ 运行 electron-rebuild
  *   ④ 恢复 winpty.gyp 原始内容
  *
- * GetVer.bat 内容：@call shared\UpdateGenVersion.bat %*
+ * GetVer.bat 内容：@cd shared && UpdateGenVersion.bat %*（cd 改变工作目录，确保 GenVersion.h 生成到 src/gen/）
  *
  * == 不影响 ==
  * macOS / Linux：直接透传 electron-rebuild，完全不做任何操作。
@@ -33,7 +33,7 @@ const PTY_DIR = path.join(ROOT, 'node_modules', MODULE);
 const WINPTY_GYP = path.join(PTY_DIR, 'deps', 'winpty', 'src', 'winpty.gyp');
 const GETVER_BAT = path.join(PTY_DIR, 'deps', 'winpty', 'src', 'GetVer.bat');
 const OLD_GET = 'cd shared && GetCommitHash.bat';
-const NEW_GET = '.\\GetCommitHash.bat';
+const NEW_GET = '.\\shared\\GetCommitHash.bat';
 const OLD_UPD = 'cd shared && UpdateGenVersion.bat';
 const NEW_UPD = '.\\GetVer.bat';
 
@@ -74,9 +74,9 @@ function ensureGetVerBat() {
   if (!fs.existsSync(path.dirname(GETVER_BAT))) return;
   if (fs.existsSync(GETVER_BAT)) {
     const cur = fs.readFileSync(GETVER_BAT, 'utf8').trim();
-    if (cur === '@call shared\\UpdateGenVersion.bat %*') return; // 已存在且正确
+    if (cur === '@cd shared && UpdateGenVersion.bat %*') return; // 已存在且正确
   }
-  fs.writeFileSync(GETVER_BAT, '@call shared\\UpdateGenVersion.bat %*\r\n', 'utf8');
+  fs.writeFileSync(GETVER_BAT, '@cd shared && UpdateGenVersion.bat %*\r\n', 'utf8');
   console.log('[rebuild] 创建 GetVer.bat ✓');
 }
 
