@@ -19,7 +19,7 @@
     "check:vendor-patch": "grep -q '20===e.keyCode||229===e.keyCode' public/vendor/xterm/xterm.js",
     "predist": "npm run check:vendor-patch",
     "dist": "electron-builder --mac",
-    "dist:win": "electron-builder --win",
+    "dist:win": "electron-builder --win --config.win.signAndEditExecutable=false",
     "test:e2e": "node tests/e2e/windows-smoke.spec.js",
     "test:e2e:windows": "node tests/e2e/windows-smoke.spec.js"
   },
