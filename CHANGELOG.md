@@ -11,6 +11,26 @@
 
 ## [Unreleased]
 
+### Removed
+- **删除废弃根目录 `main.js`**：真入口唯一为 `electron/main.js`（`chore: delete orphaned root main.js`）
+- **移除移动端残留**：`public/mobile/` 空壳目录、大量 `basic-languages/monaco` 未映射语言、10 个未使用的 monaco locale（`nls.messages.*.js`）
+- **移除开发/过程资产出包**：electron-builder 白名单，`.trae/`、`design-demos/`、`experiments/`、`docs/`、`tests/`、`src-vendor/`、`素材/` 不再进发布包（仓库仍保留，供开发/历史）
+
+### Security
+- **不再读取 Claude OAuth Token / 不请求 Anthropic 官方 API**：移除 `claudeOAuthToken`/`curlSysProxyLine`/`claudeOfficialLimits`，用量统计仅读本地 JSONL
+- **Electron 边界加固**：新窗口默认拒绝非 http(s) 协议、增加 CSP、21 个高权限 IPC 加 sender 校验 + 参数校验、跨盘移动/符号链接边界检查（`safe-path.js`）
+
+### Changed
+- **终端录制默认关闭**（`recordingEnabled` 需显式开启），录像上限 60 文件/800MB → 20 文件/200MB，默认不记用户输入
+- **终端数量上限 10**；PTY 输出缓冲硬上限 64KB
+- **缩略图缓存上限 400MB → 150MB**，设置页新增"存储/缓存"分组（占用显示 + 一键清理）
+- 启动时清理 `fanbox-drops` 临时拖拽文件（>24h）
+
+### Added
+- **`verify:desktop` 生产包守卫**（`scripts/verify-desktop-package.js`）+ Windows CI（`.github/workflows/windows-desktop.yml`）
+
+> 微信 ClawBot 作为 Windows 桌面端功能**继续保留**（`electron/wechat/` 全套 + `qrcode` 依赖 + 前端 UI），未移除。
+
 ## [2.6.0] - 2026-07-05
 
 > 桌面驾驶舱侧栏 / 终端 / soft 主题迭代 + 移动端项目记忆会话真实历史消息。从 2.4.0 跨过来，重点是把 6 月底做的桌面 layout 重构和移动端 chat/terminal 时间线修复一次性发出来。

@@ -13,7 +13,7 @@
 <div align="center">
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-2.4.0-blue)](https://github.com/wxhBadUser/fanbox-master/releases/latest)
+[![Release](https://img.shields.io/badge/Release-2.6.0-blue)](https://github.com/wxhBadUser/fanbox-master/releases/latest)
 [![Platform](https://img.shields.io/badge/Windows-win64-black?logo=windows)](https://github.com/wxhBadUser/fanbox-master/releases/latest)
 [![Runtime](https://img.shields.io/badge/Runtime-no--build-blueviolet)](#architecture)
 
@@ -119,6 +119,8 @@ FanBox 想做的就是把这条路打通：
 - 使用微信 ClawBot 需要用户**自己扫码登录**自己的微信账号。
 - **FanBox 不上传、不托管、不分发用户微信/Claude/Codex 凭据**。所有数据存储在用户本机。
 - **FanBox 不内置任何账号、token、API key**。
+- **FanBox 是 Windows 桌面端本地 AI Coding Cockpit**，只提供桌面 UI，**不提供移动端 / 手机端**（移动端工作区已移除）。
+- **不读取 Claude/Codex OAuth Token**，用量统计仅读本地 JSONL 文件、不联网（见「数据与隐私」）。
 - **OpenCode / Qoder CLI 不自动安装**。未装时点击入口会弹 toast 提示，不会偷偷帮你装。
 
 ## Windows 构建环境
@@ -166,7 +168,7 @@ npm run dist:win   # 产物在 dist/（FanBox 2.4.0.exe + win-unpacked/）
 - **agent 调用发生在用户本机**：所有 Claude/Codex/OpenCode/Qoder 进程在用户本机运行。
 - **不读取、不上传、不分发用户文件**：FanBox 只在你的本机读写文件。
 - **不上传截图**：截图面板内容仅留在本机；不外发。
-- **不上传 Claude/Codex 本地记录**：用量统计只读本地文件，不联网（Claude 限额查询只发往 `api.anthropic.com` 用于 `/usage` 同源数据）。
+- **不上传 Claude/Codex 本地记录**：用量统计只读本地 JSONL 文件，不联网；FanBox 不发任何请求到 Anthropic 官方 API（不读取你的 OAuth Token）。
 - **回收站删除不是永久删除**：删除到回收站后文件仍可恢复；永久删除请用资源管理器。
 - **HTML 预览隔离**：独立端口 + sandbox + 主目录白名单 + 点目录黑名单（防读 `~/.ssh` 等点目录）。
 - **不自动安装任何 CLI**：OpenCode / Qoder 未装时只弹 toast 提示，不替用户装东西。
