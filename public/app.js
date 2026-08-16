@@ -3168,9 +3168,30 @@ function bindEvents() {
   $('#btn-filepane-toggle')?.addEventListener('click', toggleFilePane);
   if (localStorage.getItem('fb_file_pane') === '0') { document.body.classList.add('file-pane-collapsed'); $('#btn-filepane-toggle')?.classList.add('on'); }
   // 设置面板开关（settings-btn / settings-close 都切换 settings-panel 显隐）
-  const toggleSettings = () => $('#settings-panel')?.classList.toggle('hidden');
+  const toggleSettings = () => { $('#settings-panel')?.classList.toggle('hidden'); if (!$('#settings-panel')?.classList.contains('hidden')) refreshThumbStats(); };
   $('#settings-btn')?.addEventListener('click', toggleSettings);
   $('#settings-close')?.addEventListener('click', toggleSettings);
+  // 缩略图缓存：打开设置面板时刷新占用，一键清理
+  async function refreshThumbStats() {
+    const sizeEl = $('#cache-thumb-size'), clearBtn = $('#cache-thumb-clear');
+    if (!sizeEl) return;
+    sizeEl.textContent = '…';
+    try {
+      const r = await api('/api/thumb-stats');
+      if (r && r.ok) sizeEl.textContent = r.bytes > 0 ? fmtSize(r.bytes) : '空';
+      else sizeEl.textContent = '—';
+    } catch { sizeEl.textContent = '—'; }
+    if (clearBtn) clearBtn.disabled = false;
+  }
+  $('#cache-thumb-clear')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget; btn.disabled = true;
+    try {
+      const r = await apiPost('/api/thumb-clear', {});
+      if (r && r.ok) toast(`已清理 ${r.removed || 0} 个缩略图缓存`, false);
+      else toast('清理失败', true);
+    } catch { toast('清理失败', true); }
+    refreshThumbStats();
+  });
   $('#file-follow').onclick = () => setFileFollow(!follow.on);
   // 定位文件按钮已撤（双击终端 tab 即可定位，见 term.locateCwd / renderTabs 的 ondblclick）
   // 终端随窗口尺寸变化重排，避免 TUI 错位

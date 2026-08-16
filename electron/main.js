@@ -166,6 +166,15 @@ app.whenReady().then(() => {
     console.log('[lid] 视图 子菜单 =', view ? JSON.stringify(view.submenu.items.map((x) => x.label || `<${x.type}>`)) : '没找到视图菜单');
   } catch (e) { console.log('[lid] dump menu 出错:', e.message); }
   createWindow();
+  // 启动时清掉 fanbox-drops 里超过 24h 的临时拖拽文件（截图浮窗等无真实路径时落这里，久了会堆积）
+  try {
+    const dropDir = path.join(app.getPath('temp'), 'fanbox-drops');
+    const dropNames = fs.readdirSync(dropDir);
+    for (const name of dropNames) {
+      const fp = path.join(dropDir, name);
+      try { const st = fs.statSync(fp); if (Date.now() - st.mtimeMs > 24 * 3600 * 1000) fs.rmSync(fp, { force: true }); } catch { /* 单文件清理失败不影响启动 */ }
+    }
+  } catch { /* 目录不存在等，忽略 */ }
   // 临时调试：dev 实例强制抢到最前，避免和正式版搞混
   setTimeout(() => { try { app.focus({ steal: true }); if (win && !win.isDestroyed()) { win.show(); win.focus(); win.setAlwaysOnTop(true); setTimeout(() => win.setAlwaysOnTop(false), 1500); } } catch { /* */ } }, 1200);
   startShotWatch();

@@ -1584,7 +1584,7 @@ async function generateThumb(src, e, size, cacheFile, isImg) {
   } finally { fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {}); }
 }
 // 缩略图缓存按总体积上限做 LRU 裁剪（同一文件改一次就多一个缓存键，不清会无限涨）
-async function pruneThumbs(maxBytes = 400 * 1024 * 1024) {
+async function pruneThumbs(maxBytes = 150 * 1024 * 1024) {
   try {
     const files = await fsp.readdir(THUMB_DIR);
     const stats = (await Promise.all(files.map(async (f) => {
@@ -2456,6 +2456,30 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/thumb') {
       return serveThumb(req, res, qp.get('path'), parseInt(qp.get('w') || '240', 10));
+    }
+    if (p === '/api/thumb-stats') {
+      // 缩略图缓存占用统计：字节数 + 文件数（设置页显示用）
+      let count = 0, bytes = 0;
+      try {
+        const names = await fsp.readdir(THUMB_DIR);
+        const sts = await Promise.all(names.map(async (f) => {
+          try { const s = await fsp.stat(path.join(THUMB_DIR, f)); return s.isFile() ? s.size : 0; } catch { return 0; }
+        }));
+        count = sts.length; bytes = sts.reduce((a, b) => a + b, 0);
+      } catch { /* 目录不存在视为 0 */ }
+      return sendJSON(res, 200, { ok: true, count, bytes });
+    }
+    if (p === '/api/thumb-clear' && req.method === 'POST') {
+      // 一键清空缩略图缓存（重建成本低：下次浏览图片自动重新生成）
+      let removed = 0;
+      try {
+        const names = await fsp.readdir(THUMB_DIR);
+        for (const f of names) {
+          if (f.startsWith('_ql_') || f === '_thumb.ps1') continue; // 保留脚本类辅助文件
+          try { await fsp.unlink(path.join(THUMB_DIR, f)); removed++; } catch { /* */ }
+        }
+      } catch { /* 目录不存在 */ }
+      return sendJSON(res, 200, { ok: true, removed });
     }
     if (p === '/api/search') {
       return sendJSON(res, 200, await searchFiles(qp.get('q'), qp.get('root') || HOME));
