@@ -41,7 +41,7 @@ const has = (p) => list.some((l) => l === p || l.startsWith(p + '/') || l.starts
 
 console.log('\n【必须存在】');
 const mustExist = [
-  'electron/main.js', 'electron/preload.js', 'electron/atomic-json.js',
+  'electron/main.js', 'electron/preload.js', 'electron/atomic-json.js', 'electron/safe-path.js',
   'electron/wechat/bridge.js', 'electron/wechat/driver.js', 'electron/wechat/env.js',
   'electron/wechat/ilink.js', 'electron/wechat/memory.js', 'electron/wechat/test-server.js',
   'server.js', 'public/index.html', 'public/app.js', 'public/style.css',
