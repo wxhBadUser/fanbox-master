@@ -34,6 +34,33 @@
     "asarUnpack": [
       "**/node_modules/node-pty/**"
     ],
+    "files": [
+      "electron/main.js",
+      "electron/preload.js",
+      "electron/atomic-json.js",
+      "electron/wechat/**",
+      "server.js",
+      "public/index.html",
+      "public/app.js",
+      "public/style.css",
+      "public/i18n.js",
+      "public/i18n-dict.js",
+      "public/assets/**",
+      "public/vendor/**",
+      "node_modules/**",
+      "package.json",
+      "!**/*.map",
+      "!**/*.test.js",
+      "!**/*.spec.js",
+      "!**/trae/**",
+      "!**/design-demos/**",
+      "!**/experiments/**",
+      "!**/docs/**",
+      "!**/tests/**",
+      "!**/src-vendor/**",
+      "!**/素材/**",
+      "!**/build/resources/**"
+    ],
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
