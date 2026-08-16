@@ -30,6 +30,7 @@ const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
 const { writeJsonAtomicSync, readJsonSafe } = require('./atomic-json');
+const { isInside } = require('./safe-path');
 
 // 复用现有后端：require 即 listen 127.0.0.1:PORT，不自动开浏览器
 process.env.FANBOX_NO_OPEN = '1';
@@ -531,9 +532,12 @@ app.on('before-quit', (e) => {
 app.on('window-all-closed', () => {
   terminals.forEach((p) => { try { p.kill(); } catch { /* */ } });
   terminals.clear();
+  termTails.clear(); termMeta.clear(); termEvents.clear(); // B2B 状态一并清
   if (lidActive) { trySetDisableSleep(false); lidActive = false; } // 终端没了，别让 Mac 一直不睡
   recorders.forEach((r) => { try { r.stream.end(); } catch { /* */ } }); // 收尾刷盘，别丢最后几行
   recorders.clear();
+  watchers.forEach((w) => { try { w.close(); } catch { /* */ } }); // 关文件监听，防句柄泄漏
+  watchers.clear();
   if (process.platform !== 'darwin') app.quit();
 });
 // 退出兜底：无论怎么退（⌘Q、崩溃前的正常退出），都恢复系统休眠，绝不留禁休眠的烂摊子
@@ -599,6 +603,7 @@ function recStop(id) {
 }
 
 // ---------- 终端 IPC（node-pty）----------
+const MAX_TERMINALS = 10; // 主进程终端数量硬上限（Phase 5.2）
 ipcMain.handle('pty:spawn', (e, { id, cwd, cols, rows, theme }) => {
   assertTrustedSender(e);
   if (!validators.id(id)) return { ok: false, error: 'bad_id' };
@@ -606,6 +611,8 @@ ipcMain.handle('pty:spawn', (e, { id, cwd, cols, rows, theme }) => {
   if (rows !== undefined && !validators.rows(rows)) return { ok: false, error: 'bad_rows' };
   if (cwd !== undefined && !validators.pathStr(cwd)) return { ok: false, error: 'bad_cwd' };
   if (!pty) return { ok: false, error: 'node-pty 未编译，跑：npm run rebuild' };
+  if (terminals.size >= MAX_TERMINALS) return { ok: false, error: 'max_terminals_reached' };
+  if (terminals.has(id)) return { ok: false, error: 'duplicate_id' };
   const shellPath = process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
   const startCwd = cwd && fs.existsSync(cwd) ? cwd : os.homedir();
   // login shell（-l）：GUI 启动的进程只继承精简 PATH，不读 .zprofile/.zlogin，
@@ -665,8 +672,8 @@ ipcMain.handle('pty:spawn', (e, { id, cwd, cols, rows, theme }) => {
     const meta = termMeta.get(id);
     const tnow = Date.now();
     if (meta) { meta.lastActiveAt = tnow; }
-    // B2B: accumulate output for throttled event generation
-    outputBuf += data;
+    // B2B: accumulate output for throttled event generation (hard cap 64KB)
+    outputBuf = (outputBuf + data).slice(-64 * 1024);
     const lastOut = meta ? meta.lastOutputEventAt : 0;
     if (!outputFlushTimer && (tnow - lastOut) >= TERM_OUTPUT_THROTTLE_MS) {
       // Schedule flush after a short debounce so we batch rapid output
@@ -896,7 +903,7 @@ ipcMain.handle('clip:save-paste-text', (e, { dir, name, content }) => {
     } else {
       absDir = path.join(homeDir, '.fanbox', 'paste');
     }
-    if (!absDir.startsWith(homeDir)) absDir = path.join(homeDir, '.fanbox', 'paste');
+    if (!isInside(absDir, homeDir)) absDir = path.join(homeDir, '.fanbox', 'paste');
     const pasteDir = path.join(absDir, '.fanbox-paste');
     fs.mkdirSync(pasteDir, { recursive: true });
     const safeName = String(name || 'clipboard.md').replace(/[/\\:]/g, '-');

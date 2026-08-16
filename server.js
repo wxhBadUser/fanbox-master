@@ -1258,7 +1258,22 @@ async function movePath(src, dstDir) {
   }
   try { await fsp.rename(s, dst); }
   catch (e) {
-    if (e.code === 'EXDEV') { await fsp.copyFile(s, dst); await fsp.unlink(s); }
+    if (e.code === 'EXDEV') {
+      // 跨盘：目录递归复制，符号链接重建，全部成功后删源；失败不动源
+      try {
+        const st = await fsp.lstat(s);
+        if (st.isSymbolicLink()) {
+          const target = await fsp.readlink(s);
+          await fsp.symlink(target, dst);
+        } else if (st.isDirectory()) {
+          await fsp.cp(s, dst, { recursive: true, errorOnExist: true });
+          await fsp.rm(s, { recursive: true, force: true });
+        } else {
+          await fsp.copyFile(s, dst);
+          await fsp.unlink(s);
+        }
+      } catch (e2) { return { ok: false, error: e2.message }; }
+    }
     else return { ok: false, error: e.message };
   }
   return { ok: true, path: dst };
