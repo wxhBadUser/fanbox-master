@@ -36,6 +36,25 @@ process.env.FANBOX_NO_OPEN = '1';
 const PORT = Number(process.env.FANBOX_PORT) || 4567;
 require('../server.js');
 
+// ---------- IPC 安全边界：sender 校验 + 参数校验（Phase 4.5 / 4.6） ----------
+// 只信任来自本窗口（加载的是本地后端地址）的 IPC 调用，防任意 WebContents 越权触发高权限操作。
+function assertTrustedSender(event, allowedOrigins) {
+  const url = event.senderFrame ? event.senderFrame.url : '';
+  const allowed = allowedOrigins || [`http://localhost:${PORT}`, `http://127.0.0.1:${PORT}`];
+  if (!url || !allowed.some((o) => url.startsWith(o))) {
+    throw new Error('untrusted_sender');
+  }
+}
+// 轻量参数校验（不引入 schema 库）：所有 IPC 入参先过一遍类型/长度/边界
+const validators = {
+  id: (v) => typeof v === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(v),
+  pathStr: (v) => typeof v === 'string' && v.length > 0 && v.length < 4096 && !v.includes('\0'),
+  cols: (v) => Number.isInteger(v) && v >= 10 && v <= 400,
+  rows: (v) => Number.isInteger(v) && v >= 2 && v <= 200,
+  bufLen: (v) => typeof v === 'string' && v.length <= 50 * 1024 * 1024, // 50MB
+  filename: (v) => typeof v === 'string' && v.length > 0 && v.length < 255 && !/[<>:"/\\|?*\x00]/.test(v),
+};
+
 // node-pty 是原生模块，需 electron-rebuild 编译过；未就绪时终端能力降级但 app 仍可用
 let pty = null;
 try { pty = require('node-pty'); }
@@ -138,9 +157,15 @@ function createWindow() {
   setTimeout(load, 250);
 
   // 外部链接走系统浏览器，不在 app 里开新窗口
+  // 安全策略：http(s) 链接用系统浏览器打开（终端里点 URL 是核心功能）；其余协议
+  // （javascript: / file: / data: / blob: / 未知）一律拒绝，防协议注入在 app 内执行。
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/.test(url)) { shell.openExternal(url); return { action: 'deny' }; }
-    return { action: 'allow' };
+    if (/^https?:/i.test(url)) { shell.openExternal(url); return { action: 'deny' }; }
+    return { action: 'deny' };
+  });
+  // 主窗口只允许停留在本地后端地址，阻止被导航到任意外部页面
+  win.webContents.on('will-navigate', (e, url) => {
+    if (!/^http:\/\/(localhost|127\.0\.0\.1):\d+/.test(url)) e.preventDefault();
   });
 
   win.on('closed', () => { win = null; });
@@ -166,6 +191,31 @@ app.whenReady().then(() => {
     console.log('[lid] 视图 子菜单 =', view ? JSON.stringify(view.submenu.items.map((x) => x.label || `<${x.type}>`)) : '没找到视图菜单');
   } catch (e) { console.log('[lid] dump menu 出错:', e.message); }
   createWindow();
+  // CSP：本地渲染层只允许同源资源 + 本机后端 connect；Monaco/Milkdown 内联样式需要
+  // style-src 'unsafe-inline'；截图缩略图走 blob:；Monaco 语言服务 worker 经 blob URL
+  // 创建（见 mona.load 的 getWorkerUrl），故 worker-src 需放行 blob:；
+  // 阻止 frame 嵌套 / base 重定向。
+  try {
+    session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
+      cb({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [
+            "default-src 'self'",
+            "script-src 'self'",
+            "worker-src 'self' blob:",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: blob:",
+            "font-src 'self'",
+            "connect-src 'self' http://localhost:* http://127.0.0.1:*",
+            "object-src 'none'",
+            "frame-ancestors 'none'",
+            "base-uri 'none'",
+          ].join('; '),
+        },
+      });
+    });
+  } catch (e) { console.error('[csp] setup failed:', e.message); }
   // 启动时清掉 fanbox-drops 里超过 24h 的临时拖拽文件（截图浮窗等无真实路径时落这里，久了会堆积）
   try {
     const dropDir = path.join(app.getPath('temp'), 'fanbox-drops');
@@ -295,7 +345,7 @@ async function checkUpdate(opts) {
     }
   }
 }
-ipcMain.handle('update:open', (e, { url }) => { if (/^https:\/\/github\.com\//.test(String(url))) shell.openExternal(url); });
+ipcMain.handle('update:open', (e, { url }) => { assertTrustedSender(e); if (/^https:\/\/github\.com\//.test(String(url))) shell.openExternal(url); });
 ipcMain.handle('update:get', () => pendingUpdate);
 
 // 点完成通知把 app 拉到前台（渲染层 window.focus() 唤不醒最小化/被遮挡的窗口）
@@ -494,7 +544,7 @@ app.on('will-quit', () => { if (process.platform === 'darwin') trySetDisableSlee
 // 绝不把异常抛回 PTY 数据通路。所有「聪明」（压缩/变速/导出）都推迟到回放层做。
 const recorders = new Map(); // id -> { stream, start, path }
 const REC_DIR = () => path.join(app.getPath('userData'), 'recordings');
-function recEnabled() { return process.env.FANBOX_NO_RECORD !== '1'; }
+function recEnabled() { try { return readConfig().recordingEnabled === true; } catch { return false; } } // 默认关闭（Phase 4.2）
 // 常开录制不能让磁盘无限涨：保留最近 60 个 / 总量 800MB，超了从最旧删起（正在录的跳过）
 function recPrune() {
   try {
@@ -505,7 +555,7 @@ function recPrune() {
       .map((n) => path.join(dir, n)).filter((f) => !live.has(f))
       .map((f) => { try { return { f, st: fs.statSync(f) }; } catch { return null; } }).filter(Boolean)
       .sort((a, b) => a.st.mtimeMs - b.st.mtimeMs); // 旧→新
-    const MAX_FILES = 60, MAX_BYTES = 800 * 1024 * 1024;
+    const MAX_FILES = 20, MAX_BYTES = 200 * 1024 * 1024;
     let total = files.reduce((s, x) => s + x.st.size, 0), count = files.length;
     for (const x of files) {
       if (count <= MAX_FILES && total <= MAX_BYTES) break;
@@ -536,6 +586,8 @@ function recStart(id, { cols, rows, cwd, theme }) {
 function recEvent(id, code, data) {
   const r = recorders.get(id);
   if (!r) return;
+  // 默认只记输出，不记用户输入（回放隐私）；显式开启 recordingInput 才记输入
+  if (code === 'i') { try { if (readConfig().recordingInput !== true) return; } catch { return; } }
   try { r.stream.write(JSON.stringify([(Date.now() - r.start) / 1000, code, data]) + '\n'); }
   catch { /* */ }
 }
@@ -548,6 +600,11 @@ function recStop(id) {
 
 // ---------- 终端 IPC（node-pty）----------
 ipcMain.handle('pty:spawn', (e, { id, cwd, cols, rows, theme }) => {
+  assertTrustedSender(e);
+  if (!validators.id(id)) return { ok: false, error: 'bad_id' };
+  if (cols !== undefined && !validators.cols(cols)) return { ok: false, error: 'bad_cols' };
+  if (rows !== undefined && !validators.rows(rows)) return { ok: false, error: 'bad_rows' };
+  if (cwd !== undefined && !validators.pathStr(cwd)) return { ok: false, error: 'bad_cwd' };
   if (!pty) return { ok: false, error: 'node-pty 未编译，跑：npm run rebuild' };
   const shellPath = process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
   const startCwd = cwd && fs.existsSync(cwd) ? cwd : os.homedir();
@@ -658,6 +715,7 @@ ipcMain.handle('pty:spawn', (e, { id, cwd, cols, rows, theme }) => {
 // candidates 是按优先级排好的命令名数组（Qoder 可能是 qoder / qodercli / qoder-cli）。
 // 命中第一条就返回该命令名（不是绝对路径——保持「原命令启动」语义），未命中返回 null。
 ipcMain.handle('agent:which', (e, { candidates }) => {
+  assertTrustedSender(e);
   try {
     const list = Array.isArray(candidates) ? candidates.filter((x) => typeof x === 'string' && /^[A-Za-z0-9._+-]{1,64}$/.test(x)) : [];
     if (!list.length) return { ok: true, found: null };
@@ -695,10 +753,12 @@ ipcMain.handle('agent:which', (e, { candidates }) => {
 });
 // ---------- 剪贴板：复制图片本体 / 复制文件（访达可粘贴）----------
 ipcMain.handle('clip:image', (e, { path: p }) => {
+  assertTrustedSender(e);
   try { const img = nativeImage.createFromPath(p); if (img.isEmpty()) return { ok: false, error: '不是可读图片' }; clipboard.writeImage(img); return { ok: true }; }
   catch (err) { return { ok: false, error: err.message }; }
 });
 ipcMain.handle('clip:file', async (e, args) => {
+  assertTrustedSender(e);
   // 兼容 { path } 和 { paths } 两种参数格式，避免旧调用点 regress
   const raw = (args && args.paths) || (args && args.path) || [];
   const list = Array.isArray(raw) ? raw : (raw ? [raw] : []);
@@ -748,6 +808,7 @@ ipcMain.handle('clip:file', async (e, args) => {
 });
 // ---------- 删除到回收站（shell.trashItem，非永久删除）----------
 ipcMain.handle('fs:trash', async (e, { path: p }) => {
+  assertTrustedSender(e);
   // 安全校验
   if (!p || typeof p !== 'string' || !p.trim()) return { ok: false, error: '路径为空' };
   if (p === '__fanbox_roots__') return { ok: false, error: '不支持删除虚拟节点' };
@@ -794,6 +855,7 @@ ipcMain.handle('fs:trash', async (e, { path: p }) => {
 // ---------- 剪贴板截图导入（微信 Alt+A 等存入 ~/.fanbox/screenshots）----------
 const FANBOX_SHOTS_DIR = path.join(os.homedir(), '.fanbox', 'screenshots');
 ipcMain.handle('clip:save-image', async () => {
+  assertTrustedSender(e);
   try {
     const img = clipboard.readImage();
     if (img.isEmpty()) return { ok: false, reason: 'empty' };
@@ -824,6 +886,8 @@ ipcMain.handle('clip:save-image', async () => {
 
 // ---------- 终端粘贴：保存长文本到项目目录 ----------
 ipcMain.handle('clip:save-paste-text', (e, { dir, name, content }) => {
+  assertTrustedSender(e);
+  if (typeof content !== 'string' || content.length > 50 * 1024 * 1024) return { ok: false, error: '内容过大' };
   try {
     const homeDir = os.homedir();
     let absDir;
@@ -850,6 +914,7 @@ ipcMain.handle('clip:save-paste-text', (e, { dir, name, content }) => {
 
 // 拖拽落盘：file-promise 类拖入（截图浮窗等）没有真实路径，把字节写进临时目录换路径
 ipcMain.handle('drop:save', (e, { name, buf }) => {
+  assertTrustedSender(e);
   try {
     const dir = path.join(app.getPath('temp'), 'fanbox-drops');
     fs.mkdirSync(dir, { recursive: true });
@@ -869,7 +934,9 @@ function uniqueDest(dest) {
 }
 // 拖进文件区：把没路径的拖入内容（截图浮窗等）写进目标目录
 ipcMain.handle('drop:save-into', (e, { dir, name, buf }) => {
+  assertTrustedSender(e);
   try {
+    if (!buf || !Array.isArray(buf) || buf.length > 100 * 1024 * 1024) return { ok: false, error: '文件过大' };
     if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return { ok: false, error: '目标目录无效' };
     const safe = String(name || '拖入文件').replace(/[/\\:]/g, '_');
     const dest = uniqueDest(path.join(dir, safe));
@@ -879,6 +946,7 @@ ipcMain.handle('drop:save-into', (e, { dir, name, buf }) => {
 });
 // 拖进文件区：把已有路径的文件（Finder 文件）复制进目标目录
 ipcMain.handle('drop:copy-into', (e, { srcPath, dir }) => {
+  assertTrustedSender(e);
   try {
     if (!srcPath || !fs.existsSync(srcPath)) return { ok: false, error: '源文件不存在' };
     if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return { ok: false, error: '目标目录无效' };
@@ -890,6 +958,9 @@ ipcMain.handle('drop:copy-into', (e, { srcPath, dir }) => {
 });
 
 ipcMain.on('pty:input', (e, { id, data }) => {
+  assertTrustedSender(e);
+  if (!validators.id(id)) return;
+  if (typeof data !== 'string' || data.length > 100 * 1024) return; // 单次输入上限 100KB
   const p = terminals.get(id);
   if (p) {
     p.write(data);
@@ -898,8 +969,10 @@ ipcMain.on('pty:input', (e, { id, data }) => {
     if (meta) { meta.lastActiveAt = Date.now(); }
   }
 });
-ipcMain.on('pty:resize', (e, { id, cols, rows }) => { const p = terminals.get(id); if (p) { try { p.resize(cols, rows); } catch { /* */ } recEvent(id, 'r', `${cols}x${rows}`); } });
+ipcMain.on('pty:resize', (e, { id, cols, rows }) => { if (!id || !validators.id(id)) return; const p = terminals.get(id); if (p) { try { p.resize(cols, rows); } catch { /* */ } recEvent(id, 'r', `${cols}x${rows}`); } });
 ipcMain.on('pty:kill', (e, { id }) => {
+  assertTrustedSender(e);
+  if (!validators.id(id)) return;
   const p = terminals.get(id);
   pushTermEvent(id, {
     type: 'process_exit',
@@ -952,12 +1025,14 @@ ipcMain.handle('rec:list', () => {
   } catch (err) { return { ok: false, error: err.message, items: [] }; }
 });
 ipcMain.handle('rec:read', (e, { path: p }) => {
+  assertTrustedSender(e);
   try {
     if (!isInRecDir(p)) return { ok: false, error: '非录制目录' };
     return { ok: true, text: fs.readFileSync(p, 'utf8') };
   } catch (err) { return { ok: false, error: err.message }; }
 });
 ipcMain.handle('rec:delete', (e, { path: p }) => {
+  assertTrustedSender(e);
   try {
     if (!isInRecDir(p)) return { ok: false, error: '非录制目录' };
     fs.rmSync(p, { force: true });
@@ -968,8 +1043,49 @@ ipcMain.handle('rec:reveal', (e, { path: p }) => {
   try { shell.showItemInFolder(isInRecDir(p) ? p : REC_DIR()); return { ok: true }; }
   catch (err) { return { ok: false, error: err.message }; }
 });
+// 录制占用统计：返回录制目录字节数 + .cast 文件数（设置页显示用）
+ipcMain.handle('rec:stats', (e) => {
+  assertTrustedSender(e);
+  try {
+    const dir = REC_DIR();
+    let bytes = 0, files = 0;
+    if (fs.existsSync(dir)) {
+      for (const n of fs.readdirSync(dir)) {
+        if (!n.endsWith('.cast')) continue;
+        const fp = path.join(dir, n);
+        try { const st = fs.statSync(fp); if (st.isFile()) { bytes += st.size; files++; } } catch { /* */ }
+      }
+    }
+    return { ok: true, bytes, files, enabled: recEnabled() };
+  } catch (err) { return { ok: false, error: err.message }; }
+});
+// 一键清空所有录像（正在录的跳过，保留当前 stream 句柄）
+ipcMain.handle('rec:clear', (e) => {
+  assertTrustedSender(e);
+  try {
+    const dir = REC_DIR();
+    if (!fs.existsSync(dir)) return { ok: true, removed: 0 };
+    const live = new Set([...recorders.values()].map((r) => r.path));
+    let removed = 0;
+    for (const n of fs.readdirSync(dir)) {
+      if (!n.endsWith('.cast')) continue;
+      const fp = path.join(dir, n);
+      if (live.has(fp)) continue;
+      try { fs.rmSync(fp, { force: true }); removed++; } catch { /* */ }
+    }
+    return { ok: true, removed };
+  } catch (err) { return { ok: false, error: err.message }; }
+});
+// 录制开关：写入 config（recordingEnabled），立即对后续终端生效
+ipcMain.handle('rec:set-enabled', (e, { on } = {}) => {
+  assertTrustedSender(e);
+  const en = !!on;
+  writeConfig({ recordingEnabled: en });
+  return { ok: true, enabled: en };
+});
 // 把导出好的视频/GIF 字节落进录制目录旁，返回真实路径供「在访达显示」
 ipcMain.handle('rec:save-export', (e, { name, buf }) => {
+  assertTrustedSender(e);
   try {
     const dir = path.join(REC_DIR(), 'exports');
     fs.mkdirSync(dir, { recursive: true });
@@ -985,6 +1101,7 @@ function findFfmpeg() {
   return null;
 }
 ipcMain.handle('rec:export', async (e, { name, buf, format }) => {
+  assertTrustedSender(e);
   const { execFile } = require('child_process');
   const crypto = require('crypto');
   try {
@@ -1079,6 +1196,7 @@ function termCwdByPid(pid) {
 }
 // 取某终端 shell 的真实当前目录，实现「定位到终端目录」
 ipcMain.handle('pty:cwd', async (e, { id }) => {
+  assertTrustedSender(e);
   const p = terminals.get(id);
   if (!p || !p.pid) return { ok: false };
   const cwd = await termCwdByPid(p.pid);
@@ -1087,6 +1205,7 @@ ipcMain.handle('pty:cwd', async (e, { id }) => {
 
 // 取终端前台进程名（node-pty 维护）：判断当前是裸 shell 还是正跑着 claude/codex 等程序
 ipcMain.handle('pty:proc', (e, { id }) => {
+  assertTrustedSender(e);
   const p = terminals.get(id);
   return p ? { ok: true, proc: p.process || '' } : { ok: false };
 });
@@ -1202,6 +1321,7 @@ function startWatch(dir) {
   } catch { /* 无权限等，跳过该目录 */ }
 }
 ipcMain.handle('fs:watch-set', (e, { dirs }) => {
+  assertTrustedSender(e);
   const want = new Set((dirs || []).filter(Boolean));
   for (const [dir, w] of watchers) { if (!want.has(dir)) { try { w.close(); } catch { /* */ } watchers.delete(dir); } }
   for (const dir of want) startWatch(dir);
@@ -1209,6 +1329,7 @@ ipcMain.handle('fs:watch-set', (e, { dirs }) => {
 });
 // 兼容旧单目录接口：等价于「只监听这一个目录」
 ipcMain.handle('fs:watch', (e, { dir }) => {
+  assertTrustedSender(e);
   for (const [d, w] of watchers) { if (d !== dir) { try { w.close(); } catch { /* */ } watchers.delete(d); } }
   startWatch(dir);
   return { ok: true };

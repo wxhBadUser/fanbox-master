@@ -3168,7 +3168,7 @@ function bindEvents() {
   $('#btn-filepane-toggle')?.addEventListener('click', toggleFilePane);
   if (localStorage.getItem('fb_file_pane') === '0') { document.body.classList.add('file-pane-collapsed'); $('#btn-filepane-toggle')?.classList.add('on'); }
   // 设置面板开关（settings-btn / settings-close 都切换 settings-panel 显隐）
-  const toggleSettings = () => { $('#settings-panel')?.classList.toggle('hidden'); if (!$('#settings-panel')?.classList.contains('hidden')) refreshThumbStats(); };
+  const toggleSettings = () => { $('#settings-panel')?.classList.toggle('hidden'); if (!$('#settings-panel')?.classList.contains('hidden')) { refreshThumbStats(); if (window.__refreshRec) window.__refreshRec(); } };
   $('#settings-btn')?.addEventListener('click', toggleSettings);
   $('#settings-close')?.addEventListener('click', toggleSettings);
   // 缩略图缓存：打开设置面板时刷新占用，一键清理
@@ -3192,6 +3192,29 @@ function bindEvents() {
     } catch { toast('清理失败', true); }
     refreshThumbStats();
   });
+  // 终端录制开关（桌面 app）：默认关闭，切换写 config，清除按钮一键删录像
+  const recEl = $('#toggle-recording'), recSizeEl = $('#rec-size'), recClearBtn = $('#rec-clear');
+  if (recEl && window.fanboxRec) {
+    const refreshRec = async () => {
+      try {
+        const r = await window.fanboxRec.stats();
+        if (r && r.ok) {
+          recEl.checked = !!r.enabled;
+          recSizeEl.textContent = r.bytes > 0 ? fmtSize(r.bytes) + (r.files ? ` · ${r.files}` : '') : '空';
+        } else recSizeEl.textContent = '—';
+      } catch { recSizeEl.textContent = '—'; }
+    };
+    recEl.addEventListener('change', async () => {
+      try { await window.fanboxRec.setEnabled(recEl.checked); toast(recEl.checked ? '终端录制已开启' : '终端录制已关闭', false); } catch { toast('设置失败', true); }
+    });
+    recClearBtn?.addEventListener('click', async () => {
+      recClearBtn.disabled = true;
+      try { const r = await window.fanboxRec.clear(); if (r && r.ok) toast(`已清除 ${r.removed || 0} 个录像`, false); else toast('清除失败', true); } catch { toast('清除失败', true); }
+      recClearBtn.disabled = false; refreshRec();
+    });
+    window.__refreshRec = refreshRec;
+    refreshRec();
+  }
   $('#file-follow').onclick = () => setFileFollow(!follow.on);
   // 定位文件按钮已撤（双击终端 tab 即可定位，见 term.locateCwd / renderTabs 的 ondblclick）
   // 终端随窗口尺寸变化重排，避免 TUI 错位
@@ -4858,7 +4881,7 @@ const term = {
 };
 
 // ---------- Agent 用量面板（侧栏常驻，可开合）----------
-// Claude Code 是官方限额窗口（5h/周，OAuth 接口）+ 本地 token 统计兜底，Codex 是官方配额快照（来自其会话日志）
+// 仅显示本地会话日志统计（Claude/Codex 的 ~/.claude、~/.codex JSONL），不请求官方 API
 const usagePanel = {
   timer: null,
   fmtTok(n) {
@@ -4897,10 +4920,6 @@ const usagePanel = {
     if (d.claude && d.claude.available) {
       const c = d.claude;
       h += `<div class="usage-agent">Claude Code</div>`;
-      if (c.official) {
-        if (c.official.fiveHour) h += this.bar('5h 窗口', c.official.fiveHour.usedPercent, this.fmtReset(c.official.fiveHour.resetsAt));
-        if (c.official.sevenDay) h += this.bar('周配额', c.official.sevenDay.usedPercent, this.fmtReset(c.official.sevenDay.resetsAt));
-      }
       if (c.today || c.last5h) {
         h += `<div class="usage-trio">
           <span><b>${this.fmtTok((c.last5h || c.today).total)}</b>近5h</span>
@@ -4914,7 +4933,7 @@ const usagePanel = {
             <span><b>${this.fmtTok(c.last30d.total)}</b>30天</span>
           </div>`;
         }
-        h += `<div class="usage-sub">token 总量 · 本地会话日志统计</div>`;
+        h += `<div class="usage-sub">token 总量 · 仅本地使用记录（不查官方 API）</div>`;
       }
       if (c.lastSeenAt) h += `<div class="usage-sub">最近使用：${this.ago(c.lastSeenAt)}</div>`;
     } else if (d.claude && !d.claude.available) {
@@ -4933,7 +4952,7 @@ const usagePanel = {
           <span><b>${this.fmtTok(l.week.total)}</b>7天</span>
           <span><b>${this.fmtTok(l.last30d.total)}</b>30天</span>
         </div>
-        <div class="usage-sub">token 总量 · 本地会话日志统计</div>`;
+        <div class="usage-sub">token 总量 · 仅本地使用记录（不查官方 API）</div>`;
         if (l.lastSeenAt) h += `<div class="usage-sub">最近使用：${this.ago(l.lastSeenAt)}</div>`;
       } else if (c.capturedAt) {
         h += `<div class="usage-sub">快照：${this.ago(c.capturedAt)}的 Codex 会话</div>`;

@@ -23,6 +23,9 @@ contextBridge.exposeInMainWorld('fanboxRec', {
   reveal: (path) => ipcRenderer.invoke('rec:reveal', { path }),
   saveExport: (name, buf) => ipcRenderer.invoke('rec:save-export', { name, buf }),
   export: (name, buf, format) => ipcRenderer.invoke('rec:export', { name, buf, format }), // WebM 字节 → 按 format 转 mp4/gif（无 ffmpeg 退回 webm）
+  stats: () => ipcRenderer.invoke('rec:stats'),
+  clear: () => ipcRenderer.invoke('rec:clear'),
+  setEnabled: (on) => ipcRenderer.invoke('rec:set-enabled', { on }),
 });
 
 contextBridge.exposeInMainWorld('fanboxFs', {
