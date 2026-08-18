@@ -55,6 +55,8 @@ dist/*.dmg
 dist/*.zip
 dist/builder-debug.yml
 dist/builder-effective-config.yaml
+# 备选输出目录（Defender 锁定时换目录打包，同样不入库）
+dist-fixed/
 
 # 微信 ClawBot 运行时登录态（不入库）
 *.ilink-token
