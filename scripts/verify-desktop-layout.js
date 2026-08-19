@@ -186,11 +186,11 @@ assert('app.js 含 file-pane localStorage key', /localStorage.*(file.?pane|fm.?c
 assert('index.html 不含 term-grid 多终端宫格按钮', HTML.indexOf('term-grid') === -1, '仍有 term-grid 按钮');
 assert('app.js 不含 setTermGrid / GRID_MODES 多终端宫格逻辑', APP.indexOf('setTermGrid') === -1 && APP.indexOf('GRID_MODES') === -1, '仍含多终端宫格逻辑');
 assert('style.css 不含 term-grid-dual / term-grid-quad 宫格 CSS', CSS.indexOf('term-grid-dual') === -1 && CSS.indexOf('term-grid-quad') === -1, '仍含宫格 CSS');
-assert('app.js 含 MAX_TERMINAL_SESSIONS 常量且为 10', /MAX_TERMINAL_SESSIONS\s*=\s*10/.test(APP), '无 MAX_TERMINAL_SESSIONS=10 常量');
+assert('app.js 不含 MAX_TERMINAL_SESSIONS 常量（已移除固定上限）', !/MAX_TERMINAL_SESSIONS\s*=\s*\d+/.test(APP), '仍有 MAX_TERMINAL_SESSIONS 常量');
 assert('app.js 不含「最多同时打开 4 个终端会话」文案', APP.indexOf('最多同时打开 4 个终端会话') === -1, '仍含 4 终端文案');
-assert('app.js 含「最多同时打开 10 个终端会话」文案', APP.indexOf('最多同时打开 10 个终端会话') !== -1, '无 10 终端文案');
-assert('app.js newTab 使用 10 上限', /newTab[^]*MAX_TERMINAL_SESSIONS/.test(APP.replace(/\s+/g, ' ')), 'newTab 未用 10 上限');
-assert('app.js launchAgent 使用 10 上限', /launchAgent[^]*MAX_TERMINAL_SESSIONS/.test(APP.replace(/\s+/g, ' ')), 'launchAgent 未用 10 上限');
+assert('app.js 不含「最多同时打开 10 个终端会话」文案', APP.indexOf('最多同时打开 10 个终端会话') === -1, '仍含 10 终端文案');
+assert('app.js newTab 不再使用固定上限', !/newTab[^]*MAX_TERMINAL_SESSIONS/.test(APP.replace(/\s+/g, ' ')), 'newTab 仍用固定上限');
+assert('app.js launchAgent 不再使用固定上限', !/launchAgent[^]*MAX_TERMINAL_SESSIONS/.test(APP.replace(/\s+/g, ' ')), 'launchAgent 仍用固定上限');
 assert('style.css terminal-session-menu 有滚动', /terminal-session-menu[^]*overflow-y:\s*auto/.test(CSS.replace(/\s+/g, ' ')), '会话下拉无滚动');
 assert('app.js 仍含 terminal-session-switcher', APP.indexOf('terminal-session-switcher') !== -1, '会话下拉丢失');
 assert('app.js 仍含 term-newtab 新建终端按钮', APP.indexOf('term-newtab') !== -1, '新建终端按钮丢失');
@@ -235,7 +235,7 @@ assert('app.js toggleFilePane 切换后调用 s.fit.fit()',
   'toggleFilePane 未调用 fit');
 // B4. R2A 回归保护：仍无 term-grid 多终端宫格
 assert('R2A 回归：app.js 仍无 setTermGrid', APP.indexOf('setTermGrid') === -1, '恢复 setTermGrid');
-assert('R2A 回归：MAX_TERMINAL_SESSIONS 仍为 10', /MAX_TERMINAL_SESSIONS\s*=\s*10/.test(APP), 'MAX_TERMINAL_SESSIONS 不为 10');
+assert('R2A 回归：MAX_TERMINAL_SESSIONS 已移除', !/MAX_TERMINAL_SESSIONS\s*=\s*\d+/.test(APP), 'MAX_TERMINAL_SESSIONS 仍存在');
 
 console.log('\n[14] R2C sidebar 项目双击跳转 + sidebar 可拖拽');
 // A. 项目主体单击 = 展开记忆；双击 = 跳转目录

@@ -98,6 +98,9 @@ FanBox 想做的就是把这条路打通：
 - ✅ **终端录制（.cast）** + 回放 + 导出 / 删除
 - ✅ **防休眠 / 笔记本盖检测**：笔记本合盖时按需唤醒，避免消息丢失
 - ✅ **自动更新检测**：检测到 GitHub 新 Release 时右下角提示，不强更
+- ✅ **共生记忆 (ai-memory)**：Claude / Codex / OpenCode 共享同一套项目长期记忆，同一对话切换 CLI 能继续上下文，新对话仍保留项目历史。数据由 [ai-memory](https://github.com/akitaonrails/ai-memory) 本地管理。
+- ✅ **无限会话**：FanBox 不再设置固定终端会话数量上限，实际数量由操作系统和 CLI 资源决定。
+- ✅ **返回上一级**：顶部导航栏"返回上一级"按钮（Backspace 快捷键），快速回到父目录。
 - ✅ bridge → driver → Claude 链路通过
 - ✅ 微信 ClawBot 真实链路验证通过
 - ✅ 手机微信消息可驱动 Windows 本机 Claude / Codex 回复
@@ -311,7 +314,10 @@ fanbox/
 - [x] 终端录制（.cast）
 - [x] 自动更新检测
 - [x] HTML 预览隔离（独立端口 + sandbox）
-- [x] Playwright e2e 35/35
+  - [x] Playwright e2e 35/35
+- [x] 共生记忆 (ai-memory 集成)
+- [x] 无限终端会话（移除 10 个上限）
+- [x] 返回上一级导航（btn-up + Backspace）
 
 ### 待办
 - [ ] Windows 代码签名（消除 SmartScreen 提示）

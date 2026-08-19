@@ -40,6 +40,7 @@
       "electron/preload.js",
       "electron/atomic-json.js",
       "electron/safe-path.js",
+      "electron/ai-memory.js",
       "electron/wechat/**",
       "server.js",
       "public/index.html",

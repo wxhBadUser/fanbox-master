@@ -678,6 +678,15 @@ function goUp() { if (state.parent && state.parent !== state.cwd) navigate(state
 function render() {
   renderBreadcrumb();
   renderFiles();
+  renderBtnUp();
+}
+
+function renderBtnUp() {
+  const btn = $('#btn-up');
+  if (!btn) return;
+  const canGo = state.parent && state.parent !== state.cwd && !state.recentMode && !state.skillsMode;
+  btn.disabled = !canGo;
+  btn.title = canGo ? `返回上一级 (${escapeHtml(path.basename(state.parent) || state.parent)}) — Backspace` : '返回上一级 (Backspace)';
 }
 function renderBreadcrumb() {
   const bc = $('#breadcrumb');
@@ -3091,6 +3100,7 @@ function bindEvents() {
     tb.classList.toggle('tb-min', w < 660);
   }).observe(tb);
   // ←/↑ 顶栏按钮已删（与面包屑功能重复、且和 macOS 红绿灯冲突）；后退/上一级保留 ⌘[ 和 Backspace 快捷键
+  $('#btn-up').onclick = () => goUp();
   $('#preview-close').onclick = closePreview;
   $('#cmdk-trigger').onclick = () => cmdk.open();
   $('#btn-recent').onclick = showRecent;
@@ -3168,9 +3178,36 @@ function bindEvents() {
   $('#btn-filepane-toggle')?.addEventListener('click', toggleFilePane);
   if (localStorage.getItem('fb_file_pane') === '0') { document.body.classList.add('file-pane-collapsed'); $('#btn-filepane-toggle')?.classList.add('on'); }
   // 设置面板开关（settings-btn / settings-close 都切换 settings-panel 显隐）
-  const toggleSettings = () => { $('#settings-panel')?.classList.toggle('hidden'); if (!$('#settings-panel')?.classList.contains('hidden')) { refreshThumbStats(); if (window.__refreshRec) window.__refreshRec(); } };
+  // --- ai-memory status in settings ---
+  async function refreshMemoryStatus() {
+    if (!window.fanboxMemory) { const t = $('#memory-status-text'); if (t) t.textContent = '不可用'; return; }
+    try {
+      const s = await window.fanboxMemory.status();
+      const statusEl = $('#memory-status-text'), verEl = $('#memory-version-text'), toggle = $('#memory-toggle'), detail = $('#memory-detail');
+      if (statusEl) statusEl.textContent = s.installed ? (s.enabled ? '已启用' : '已安装') : '未安装 ai-memory';
+      if (verEl) verEl.textContent = s.version || '—';
+      if (toggle) toggle.checked = !!s.enabled;
+      if (detail) detail.textContent = s.installed ? (s.executable || '') : '安装 ai-memory 后可启用共生记忆。运行 ai-memory --version 检查。';
+    } catch { const t = $('#memory-status-text'); if (t) t.textContent = '检查失败'; }
+  }
+  // 设置面板开关（settings-btn / settings-close 都切换 settings-panel 显隐）
+  const toggleSettings = () => { $('#settings-panel')?.classList.toggle('hidden'); if (!$('#settings-panel')?.classList.contains('hidden')) { refreshThumbStats(); refreshMemoryStatus(); if (window.__refreshRec) window.__refreshRec(); } };
   $('#settings-btn')?.addEventListener('click', toggleSettings);
   $('#settings-close')?.addEventListener('click', toggleSettings);
+  $('#memory-toggle')?.addEventListener('change', async (e) => {
+    if (!window.fanboxMemory) return;
+    try { await window.fanboxMemory.setEnabled(e.target.checked); refreshMemoryStatus(); } catch { /* */ }
+  });
+  $('#memory-setup-btn')?.addEventListener('click', async () => {
+    const result = $('#memory-setup-result');
+    if (result) result.textContent = '初始化中…';
+    if (!window.fanboxMemory) { if (result) result.textContent = '不可用'; return; }
+    try {
+      const r = await window.fanboxMemory.setup();
+      if (result) result.textContent = r.ok ? '✓ 初始化完成' : '初始化失败：' + (r.error || '未知错误');
+      refreshMemoryStatus();
+    } catch { if (result) result.textContent = '初始化异常'; }
+  });
   // 缩略图缓存：打开设置面板时刷新占用，一键清理
   async function refreshThumbStats() {
     const sizeEl = $('#cache-thumb-size'), clearBtn = $('#cache-thumb-clear');
@@ -3784,8 +3821,8 @@ async function confirmLongPaste(len) {
   });
 }
 
-// 终端会话上限：后台最多 10 个并行 session，右侧只显示当前 active 的一个
-const MAX_TERMINAL_SESSIONS = 10;
+// terminal session: active session displayed on right; all sessions accessible via dropdown
+let sessCounter = 0;
 const term = {
   sessions: [], seq: 0, active: null, maximized: false,
   dock: localStorage.getItem('fb_term_dock') || 'right',
@@ -3894,7 +3931,6 @@ const term = {
   // 一键在终端启动 coding agent：当前标签是空闲 shell 就地启动；正跑着东西（claude/codex/任何前台程序）
   // 则新开标签，不打断也不把命令打进别的程序里
   async launchAgent(cmd) {
-    if (this.sessions.length >= MAX_TERMINAL_SESSIONS) { toast('最多同时打开 10 个终端会话，请先关闭一个', true); return; }
     if (!this.available()) { openWith(state.cwd, 'terminal'); return; } // 网页版降级到系统终端
     let sess = null;
     if (this.sessions.length) {
@@ -3904,14 +3940,40 @@ const term = {
     }
     if (!sess) sess = await this.openInDir(state.cwd); // 等 spawn 完，拿确切 session 写入
     if (sess && !sess.dead) {
+      // --- ai-memory managed launch ---
+      let finalCmd = cmd;
+      if (window.fanboxMemory) {
+        try {
+          const memStatus = await window.fanboxMemory.status();
+          if (memStatus && memStatus.enabled && memStatus.installed) {
+            const cmdLow = cmd.toLowerCase().replace(/^--[\w-]+\s+/, '');
+            let agent = null;
+            if (cmdLow.startsWith('claude')) agent = 'claude';
+            else if (cmdLow.startsWith('codex')) agent = 'codex';
+            else if (cmdLow.startsWith('opencode')) agent = 'opencode';
+            if (agent && sess.memory && sess.memory.workstream) {
+              const resolved = await window.fanboxMemory.resolveLaunch({
+                workstream: sess.memory.workstream,
+                firstLaunch: !sess.memory.initialized,
+                agent: agent
+              });
+              if (resolved && resolved.ok) {
+                finalCmd = resolved.executable + ' ' + resolved.argv.join(' ');
+                sess.memory.initialized = true;
+              }
+              // If resolveLaunch fails (e.g. ai-memory not installed), fall back to original cmd
+            }
+          }
+        } catch { /* ai-memory unavailable, use original cmd */ }
+      }
       // 记录 agent 类型，供会话菜单第二行显示
-      const cmdLow = cmd.toLowerCase().replace(/^--[\w-]+\s+/, ''); // 去掉前置 flag
+      const cmdLow = finalCmd.toLowerCase().replace(/^--[\w-]+\s+/, ''); // 去掉前置 flag
       if (cmdLow.startsWith('claude --dangerously-skip-permissions') || cmdLow.startsWith('claude --skip')) sess.agent = 'Claude Code';
       else if (cmdLow.startsWith('codex')) sess.agent = 'Codex';
       else if (cmdLow.startsWith('opencode')) sess.agent = 'OpenCode';
       else if (cmdLow.startsWith('qoder')) sess.agent = 'Qoder';
       else sess.agent = ''; // 未知命令不留 agent 标签
-      this.input(sess.id, cmd + '\r'); sess.xterm.focus(); toast('已在终端启动 ' + cmd);
+      this.input(sess.id, finalCmd + '\r'); sess.xterm.focus(); toast('已在终端启动 ' + cmd);
     }
     else toast('终端启动失败', true);
   },
@@ -4120,7 +4182,6 @@ const term = {
     } catch { /* 取不到就保持原标题 */ }
   },
   async newTab(cwdOverride) {
-    if (this.sessions.length >= MAX_TERMINAL_SESSIONS) { toast('最多同时打开 10 个终端会话，请先关闭一个', true); return null; }
     const startDir = cwdOverride || state.cwd;
     const id = 't' + (++this.seq);
     const host = document.createElement('div');
@@ -4174,6 +4235,8 @@ const term = {
     }
     if (fit) try { fit.fit(); } catch { /* */ }
     const sess = { id, xterm, fit, host, dead: false, status: 'idle', unread: false, startDir, title: baseOf(startDir || '') || 'shell', agent: '', inputBuffer: '', outputBuffer: '', firstUserMessage: '', chatTitle: '' };
+    const wsId = sessCounter++;
+    sess.memory = { workstream: 'fanbox-t' + wsId + '-' + Date.now(), initialized: false };
     this.sessions.push(sess);
     this.activate(id);
     updateWatches(); // 新终端的项目目录也纳入监听
@@ -4665,7 +4728,9 @@ const term = {
     const title = $('#terminal-session-title');
     if (!btn || !title) return;
     const cur = this.sessions.find((x) => x.id === this.active);
-    title.textContent = cur ? (this.sessionDisplayTitle(cur) || '会话') : '会话';
+    const count = this.sessions.length;
+    const base = cur ? (this.sessionDisplayTitle(cur) || '会话') : '会话';
+    title.textContent = count > 0 ? `${base} · ${count}` : base;
     const dot = btn.querySelector('.session-dot');
     if (dot) dot.className = 'session-dot ' + this.sessionState(cur);
     btn.title = cur ? `当前会话：${this.sessionDisplayTitle(cur)} · ${this.sessionAgentLabel(cur)}` : '选择终端会话';
@@ -4678,6 +4743,7 @@ const term = {
       return;
     }
     let h = '<div class="session-menu-head">当前打开的终端</div>';
+    h = `<div class="session-menu-head">当前打开的终端 · ${this.sessions.length}</div>`;
     this.sessions.forEach((s) => {
       const ac = s.id === this.active ? ' active' : '';
       const fo = follow.on && s.id === follow.sid ? ' is-follow' : '';
@@ -4685,9 +4751,10 @@ const term = {
       const title = this.sessionDisplayTitle(s);
       const agent = escapeHtml(this.sessionAgentLabel(s));
       const label = escapeHtml(this.sessionStateLabel(s));
+      const memBadge = (s.memory && s.memory.initialized) ? ' <span class="session-menu-memory" title="共生记忆已激活">Mem</span>' : '';
       h += `<button type="button" class="session-menu-item${ac}${fo}" data-sid="${s.id}">
         <span class="${st}"></span>
-        <span class="session-menu-main"><span class="session-menu-name">${title}</span><span class="session-menu-cwd">${agent}</span></span>
+        <span class="session-menu-main"><span class="session-menu-name">${title}</span><span class="session-menu-cwd">${agent}${memBadge}</span></span>
         <span class="session-menu-state">${label}</span>
         <span class="session-menu-close" data-close="${s.id}" title="关闭此终端">✕</span>
       </button>`;
@@ -6053,3 +6120,4 @@ function bindUpdateNotice() {
 window.fbWebgl = (on) => { try { if (on) localStorage.removeItem('fanbox.noWebgl'); else localStorage.setItem('fanbox.noWebgl', '1'); } catch {} const off = (() => { try { return localStorage.getItem('fanbox.noWebgl') === '1'; } catch { return false; } })(); console.log('[fanbox] WebGL ' + (off ? '已关闭（DOM renderer）' : '已开启') + '，请新开一个终端标签验证'); return !off; };
 
 init();
+    let h = `<div class="session-menu-head">当前打开的终端 · ${this.sessions.length}</div>`;

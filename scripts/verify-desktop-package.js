@@ -45,6 +45,7 @@ const mustExist = [
   'electron/wechat/bridge.js', 'electron/wechat/driver.js', 'electron/wechat/env.js',
   'electron/wechat/ilink.js', 'electron/wechat/memory.js', 'electron/wechat/test-server.js',
   'server.js', 'public/index.html', 'public/app.js', 'public/style.css',
+  'electron/ai-memory.js',
   'node_modules/node-pty',
 ];
 let exOk = true;

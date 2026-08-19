@@ -103,3 +103,11 @@ contextBridge.exposeInMainWorld('fanboxWechat', {
   onExpired: (cb) => { const h = (e, m) => cb(m); ipcRenderer.on('wechat:expired', h); return () => ipcRenderer.removeListener('wechat:expired', h); },
   onPower: (cb) => { const h = (e, m) => cb(m); ipcRenderer.on('wechat:power', h); return () => ipcRenderer.removeListener('wechat:power', h); },
 });
+
+// 共生记忆（ai-memory）：受限桥接，renderer 不可传任意 command/args
+contextBridge.exposeInMainWorld('fanboxMemory', {
+  status: () => ipcRenderer.invoke('memory:status'),
+  setup: () => ipcRenderer.invoke('memory:setup'),
+  setEnabled: (on) => ipcRenderer.invoke('memory:set-enabled', { on }),
+  resolveLaunch: (args) => ipcRenderer.invoke('memory:resolve-launch', args),
+});

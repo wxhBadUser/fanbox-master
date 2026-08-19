@@ -31,6 +31,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { writeJsonAtomicSync, readJsonSafe } = require('./atomic-json');
 const { isInside } = require('./safe-path');
+const aiMemory = require('./ai-memory');
 
 // 复用现有后端：require 即 listen 127.0.0.1:PORT，不自动开浏览器
 process.env.FANBOX_NO_OPEN = '1';
@@ -603,7 +604,6 @@ function recStop(id) {
 }
 
 // ---------- 终端 IPC（node-pty）----------
-const MAX_TERMINALS = 10; // 主进程终端数量硬上限（Phase 5.2）
 ipcMain.handle('pty:spawn', (e, { id, cwd, cols, rows, theme }) => {
   assertTrustedSender(e);
   if (!validators.id(id)) return { ok: false, error: 'bad_id' };
@@ -611,7 +611,6 @@ ipcMain.handle('pty:spawn', (e, { id, cwd, cols, rows, theme }) => {
   if (rows !== undefined && !validators.rows(rows)) return { ok: false, error: 'bad_rows' };
   if (cwd !== undefined && !validators.pathStr(cwd)) return { ok: false, error: 'bad_cwd' };
   if (!pty) return { ok: false, error: 'node-pty 未编译，跑：npm run rebuild' };
-  if (terminals.size >= MAX_TERMINALS) return { ok: false, error: 'max_terminals_reached' };
   if (terminals.has(id)) return { ok: false, error: 'duplicate_id' };
   const shellPath = process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
   const startCwd = cwd && fs.existsSync(cwd) ? cwd : os.homedir();
@@ -1090,6 +1089,27 @@ ipcMain.handle('rec:set-enabled', (e, { on } = {}) => {
   writeConfig({ recordingEnabled: en });
   return { ok: true, enabled: en };
 });
+
+// ---------- shared memory IPC (ai-memory) ----------
+ipcMain.handle('memory:status', async (e) => {
+  assertTrustedSender(e);
+  try { return await aiMemory.status(); }
+  catch (err) { return { installed: false, executable: null, version: null, enabled: false, error: err.message }; }
+});
+ipcMain.handle('memory:set-enabled', (e, { on } = {}) => {
+  assertTrustedSender(e);
+  return aiMemory.setEnabled(!!on);
+});
+ipcMain.handle('memory:setup', async (e) => {
+  assertTrustedSender(e);
+  try { return await aiMemory.setup(); }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+ipcMain.handle('memory:resolve-launch', (e, args) => {
+  assertTrustedSender(e);
+  return aiMemory.resolveLaunch(args || {});
+});
+
 // 把导出好的视频/GIF 字节落进录制目录旁，返回真实路径供「在访达显示」
 ipcMain.handle('rec:save-export', (e, { name, buf }) => {
   assertTrustedSender(e);
